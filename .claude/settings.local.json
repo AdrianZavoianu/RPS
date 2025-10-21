@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '{print $5, $9}')",
+      "Bash(pipenv --version)",
+      "Bash(del Pipfile.lock)",
+      "Bash(pipenv install:*)",
+      "Bash(where python)",
+      "Bash(pipenv --python \"C:\\test\\Python\\Versions\\py3.11.3\\python.exe\" install --dev)",
+      "Bash(pipenv run:*)",
+      "Bash(set PIPENV_IGNORE_VIRTUALENVS=1)",
+      "Bash(pipenv shell:*)",
+      "Read(//c/wsl.localhost/Ubuntu-22.04/home/az/SoftDev/GMP/GMP-App/gmp_frontend/src/**)",
+      "Read(//c/wsl.localhost/Ubuntu-22.04/home/az/SoftDev/GMP/GMP-App/gmp_frontend/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

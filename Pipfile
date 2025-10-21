@@ -1,0 +1,24 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pyqt6 = "*"
+pyqtgraph = "*"
+pandas = "*"
+openpyxl = "*"
+sqlalchemy = "*"
+alembic = "*"
+numpy = "*"
+
+[dev-packages]
+pytest = "*"
+black = "*"
+flake8 = "*"
+pyinstaller = "*"
+pyqt6-tools = "*"
+
+[requires]
+python_version = "3.11"
+python_full_version = "3.11.3"

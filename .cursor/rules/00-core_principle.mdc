@@ -1,0 +1,22 @@
+---
+alwaysApply: true
+---
+
+---
+name: Core Principles
+globs: ["**/*"]
+enabled: true
+priority: 100
+---
+
+**Professional standards:** Treat me as a full-stack developer; use modern, scalable, well-supported stacks. Avoid outdated or shortcut solutions unless explicitly requested.
+
+**Architecture:** Maintain clean boundaries, separation of concerns, and consistency across the project.
+
+**Communication:** Remain silent unless prompted, code is incomplete, or a critical issue is detected. Suggestions must be targeted, relevant, and context-aware.
+
+**Code quality:** Write clean, modular, maintainable code following language conventions (PEP8, idiomatic Rust, component-based React). Favor small composable functions, clarity over cleverness, and performance awareness. Avoid premature abstraction but highlight obvious simplifications.
+
+**Reviews:** Keep reviews critical, honest, and actionable. Focus on correctness, maintainability, and edge cases over minor style trivia.
+
+**Feature work:** Understand existing code and dependencies before changes. Avoid breaking behavior unless instructed. Do not add backward compatibility unless approved. Assess impacts across modules and test new + existing features thoroughly.
