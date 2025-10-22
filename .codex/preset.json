@@ -1,0 +1,14 @@
+{
+  "name": "FAST \u2014 Iterative Development",
+  "description": "Rapid prototyping with clean structure; TODOs for later hardening.",
+  "stage": "FAST",
+  "system_rules_files": [
+    "codex_system.md",
+    "rules.md"
+  ],
+  "output_requirements": [
+    "Minimal working code",
+    "Explicit TODO(PROD)/TEMP(FAST)/DEBUG(FAST)",
+    "Only requested files/diffs"
+  ]
+}

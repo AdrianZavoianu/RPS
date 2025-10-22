@@ -13,6 +13,7 @@ from gui.main_window import MainWindow
 from gui.styles import get_stylesheet
 from gui.window_utils import set_windows_app_id
 from database.base import init_db
+from utils.env import is_dev_mode
 
 
 def main():
@@ -42,7 +43,10 @@ def main():
 
     # Create and show main window
     window = MainWindow()
-    window.show()
+    if is_dev_mode():
+        window.showMaximized()
+    else:
+        window.show()
 
     # Start event loop
     sys.exit(app.exec())

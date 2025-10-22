@@ -9,6 +9,8 @@ from database.repository import (
     LoadCaseRepository,
     StoryRepository,
     ResultRepository,
+    ResultSetRepository,
+    CacheRepository,
 )
 from database.models import StoryDrift, StoryAcceleration, StoryForce
 
@@ -75,6 +77,9 @@ class DataImporter:
             if self.parser.validate_sheet_exists("Story Forces"):
                 force_stats = self._import_story_forces(session, project.id)
                 stats["forces"] += force_stats.get("forces", 0)
+
+            # Generate cache for fast display after all imports
+            self._generate_cache(session, project.id)
 
             session.commit()
 
@@ -240,3 +245,112 @@ class DataImporter:
             raise ValueError(f"Error importing story forces: {e}")
 
         return stats
+
+    def _generate_cache(self, session, project_id: int):
+        """Generate wide-format cache tables for fast tabular display."""
+        story_repo = StoryRepository(session)
+        cache_repo = CacheRepository(session)
+        result_repo = ResultRepository(session)
+
+        # Get all stories for this project
+        stories = story_repo.get_by_project(project_id)
+
+        # Generate cache for each result type
+        self._cache_drifts(session, project_id, stories, cache_repo, result_repo)
+        self._cache_accelerations(session, project_id, stories, cache_repo, result_repo)
+        self._cache_forces(session, project_id, stories, cache_repo, result_repo)
+
+    def _cache_drifts(self, session, project_id: int, stories, cache_repo, result_repo):
+        """Generate cache for story drifts."""
+        from sqlalchemy import and_
+        from database.models import StoryDrift, LoadCase
+
+        # Get all drifts for this project
+        drifts = (
+            session.query(StoryDrift, LoadCase.name)
+            .join(LoadCase, StoryDrift.load_case_id == LoadCase.id)
+            .join(Story := stories[0].__class__, StoryDrift.story_id == Story.id)
+            .filter(Story.project_id == project_id)
+            .all()
+        )
+
+        # Group by story and build wide-format matrix
+        story_matrices = {}
+        for drift, load_case_name in drifts:
+            story_id = drift.story_id
+            if story_id not in story_matrices:
+                story_matrices[story_id] = {}
+
+            # Key format: LoadCase_Direction (e.g., TH01_X)
+            key = f"{load_case_name}_{drift.direction}"
+            story_matrices[story_id][key] = drift.drift
+
+        # Upsert cache entries
+        for story_id, results_matrix in story_matrices.items():
+            cache_repo.upsert_cache_entry(
+                project_id=project_id,
+                story_id=story_id,
+                result_type="Drifts",
+                results_matrix=results_matrix,
+                result_set_id=None,
+            )
+
+    def _cache_accelerations(self, session, project_id: int, stories, cache_repo, result_repo):
+        """Generate cache for story accelerations."""
+        from database.models import StoryAcceleration, LoadCase, Story
+
+        accels = (
+            session.query(StoryAcceleration, LoadCase.name)
+            .join(LoadCase, StoryAcceleration.load_case_id == LoadCase.id)
+            .join(Story, StoryAcceleration.story_id == Story.id)
+            .filter(Story.project_id == project_id)
+            .all()
+        )
+
+        story_matrices = {}
+        for accel, load_case_name in accels:
+            story_id = accel.story_id
+            if story_id not in story_matrices:
+                story_matrices[story_id] = {}
+
+            key = f"{load_case_name}_{accel.direction}"
+            story_matrices[story_id][key] = accel.acceleration
+
+        for story_id, results_matrix in story_matrices.items():
+            cache_repo.upsert_cache_entry(
+                project_id=project_id,
+                story_id=story_id,
+                result_type="Accelerations",
+                results_matrix=results_matrix,
+                result_set_id=None,
+            )
+
+    def _cache_forces(self, session, project_id: int, stories, cache_repo, result_repo):
+        """Generate cache for story forces."""
+        from database.models import StoryForce, LoadCase, Story
+
+        forces = (
+            session.query(StoryForce, LoadCase.name)
+            .join(LoadCase, StoryForce.load_case_id == LoadCase.id)
+            .join(Story, StoryForce.story_id == Story.id)
+            .filter(Story.project_id == project_id)
+            .all()
+        )
+
+        story_matrices = {}
+        for force, load_case_name in forces:
+            story_id = force.story_id
+            if story_id not in story_matrices:
+                story_matrices[story_id] = {}
+
+            key = f"{load_case_name}_{force.direction}"
+            story_matrices[story_id][key] = force.force
+
+        for story_id, results_matrix in story_matrices.items():
+            cache_repo.upsert_cache_entry(
+                project_id=project_id,
+                story_id=story_id,
+                result_type="Forces",
+                results_matrix=results_matrix,
+                result_set_id=None,
+            )

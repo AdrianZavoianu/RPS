@@ -1,0 +1,45 @@
+---
+alwaysApply: true
+---
+---
+name: Implementation Conventions (Web)
+globs: ["web/src/**/*", "web/*", "frontend/**"]
+enabled: true
+priority: 80
+---
+**Tailwind and JSX/TSX:**  
+Semantic class first, utilities next. Keep purpose clear (`<div className="card p-4 bg-neutral-900" />`).
+Declare semantic selectors centrally in `structure.css`.
+
+**Component boundaries:**  
+Keep components small and single-purpose. Pure components handle UI; containers handle minimal data fetching.
+
+**Data and API usage:**  
+Simplify calls; no caching layers or pagination unless core to feature. Inline fetches allowed for simplicity.
+
+**Forms and validation:**  
+Basic form validation is optional. Keep forms functional and clean, schema validation can be added later.
+
+**Types and contracts:**  
+Keep types consistent where practical but tolerate flexibility during iteration. Strong typing enforced in Mode 2.
+
+**Error and loading states:**  
+Basic placeholders are enough. No need for standardized boundaries yet.
+
+**Accessibility:**  
+Ensure minimum viable usability, but detailed WCAG adherence can wait.
+
+**Performance:**  
+Avoid obvious inefficiencies but skip premature micro-optimizations.
+
+**File layout:**  
+Organize by feature. Keep simple co-location (component + logic). Avoid overengineering structure.
+
+**Testing:**  
+Manual validation is acceptable. Automated tests will be added in Mode 2.
+
+**Logging and monitoring:**  
+Optional or omitted. Use console-level or temporary prints if necessary, always tagged `# DEBUG`.
+
+**Documentation:**  
+Optional lightweight notes at the module level if useful for handoff.

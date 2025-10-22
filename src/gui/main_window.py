@@ -27,8 +27,11 @@ from pathlib import Path
 
 from .import_dialog import ImportDialog
 from .window_utils import enable_dark_title_bar
+from .project_detail_window import ProjectDetailWindow
+from .styles import COLORS
 from database.base import get_session
 from database.repository import ProjectRepository
+from utils.env import is_dev_mode
 
 
 class MainWindow(QMainWindow):
@@ -48,6 +51,9 @@ class MainWindow(QMainWindow):
 
         # Apply object names for styling
         self.setObjectName("mainWindow")
+
+        # Default to Projects page on launch
+        self._show_projects()
 
     def showEvent(self, event):
         """Override showEvent to apply dark title bar after window is shown."""
@@ -80,21 +86,26 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("topHeader")
         header.setFrameShape(QFrame.Shape.NoFrame)
+        header.setFixedHeight(64)  # Compact fixed height
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(24, 8, 24, 8)
-        header_layout.setSpacing(24)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(16)
 
         # Branded logo on the left
         logo_path = Path(__file__).resolve().parent.parent.parent / "resources" / "icons" / "RPS_Logo.png"
         logo_label = QLabel()
         logo_label.setObjectName("headerLogo")
         logo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        logo_label.setFixedSize(100, 48)  # Compact logo size
         pixmap = QPixmap(str(logo_path))
         if not pixmap.isNull():
-            scaled = pixmap.scaledToHeight(60, Qt.TransformationMode.SmoothTransformation)
+            scaled = pixmap.scaled(100, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         else:
             logo_label.setText("RPS")
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo_label.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['accent']};")
         header_layout.addWidget(logo_label)
 
         header_layout.addStretch()
@@ -160,15 +171,28 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
         description.setObjectName("pageBodyText")
 
-        import_button = QPushButton("Import Excel Results")
+        # Import buttons
+        import_layout = QHBoxLayout()
+        import_layout.setSpacing(12)
+
+        import_button = QPushButton("Import Single File")
         import_button.setObjectName("primaryAction")
         import_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         import_button.clicked.connect(self._on_import)
+        import_layout.addWidget(import_button)
+
+        folder_import_button = QPushButton("Import from Folder")
+        folder_import_button.setObjectName("secondaryAction")
+        folder_import_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        folder_import_button.clicked.connect(self._on_folder_import)
+        import_layout.addWidget(folder_import_button)
+
+        import_layout.addStretch()
 
         layout.addWidget(headline)
         layout.addWidget(subheading)
         layout.addWidget(description)
-        layout.addWidget(import_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addLayout(import_layout)
         layout.addStretch()
 
         return page
@@ -213,6 +237,7 @@ class MainWindow(QMainWindow):
         self.projects_layout.setContentsMargins(0, 0, 0, 0)
         self.projects_layout.setHorizontalSpacing(16)
         self.projects_layout.setVerticalSpacing(16)
+        self.projects_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self.projects_scroll.setWidget(self.projects_container)
         outer_layout.addWidget(self.projects_scroll)
@@ -355,6 +380,9 @@ class MainWindow(QMainWindow):
             card = self._create_project_card(project)
             self.projects_layout.addWidget(card, row_idx, col_idx)
 
+        # absorb remaining horizontal space so cards stay left-aligned
+        self.projects_layout.setColumnStretch(columns, 1)
+
         self._update_summary(totals)
         self.summary_card.setVisible(True)
 
@@ -363,12 +391,12 @@ class MainWindow(QMainWindow):
         card = QFrame()
         card.setObjectName("projectCard")
         card.setFrameShape(QFrame.Shape.StyledPanel)
-        card.setMinimumWidth(280)
-        card.setMaximumWidth(360)
+        card.setFixedSize(320, 240)
+        card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 24, 28, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
 
         title = QLabel(data["name"])
         title.setObjectName("cardTitle")
@@ -405,6 +433,8 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(stats_container)
 
+        layout.addStretch()
+
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setObjectName("cardDivider")
@@ -428,10 +458,43 @@ class MainWindow(QMainWindow):
 
         open_button = QPushButton("Open Project")
         open_button.setObjectName("cardAction")
-        open_button.setEnabled(False)
+        open_button.clicked.connect(lambda: self._open_project_detail(data["name"]))
         layout.addWidget(open_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         return card
+
+    def _open_project_detail(self, project_name: str):
+        """Open project detail window."""
+        session = get_session()
+        try:
+            repo = ProjectRepository(session)
+            project = repo.get_by_name(project_name)
+
+            if not project:
+                QMessageBox.warning(
+                    self,
+                    "Project Not Found",
+                    f"Could not find project: {project_name}"
+                )
+                return
+
+            # Create and show project detail window
+            detail_window = ProjectDetailWindow(project.id, project.name, self)
+            if is_dev_mode():
+                detail_window.showMaximized()
+            else:
+                detail_window.show()
+
+            self.statusBar().showMessage(f"Opened project: {project_name}", 3000)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Opening Project",
+                f"Could not open project:\n\n{str(e)}"
+            )
+        finally:
+            session.close()
 
     def _update_summary(self, totals: dict):
         """Update summary metrics at bottom of page."""
@@ -531,6 +594,29 @@ class MainWindow(QMainWindow):
                         f"Failed to import data:\n\n{str(e)}"
                     )
                     self.statusBar().showMessage("Import failed", 5000)
+
+    def _on_folder_import(self):
+        """Handle folder import action."""
+        from .folder_import_dialog import FolderImportDialog
+
+        dialog = FolderImportDialog(self)
+        if dialog.exec():
+            project_name = dialog.get_project_name()
+
+            # Show success and refresh
+            QMessageBox.information(
+                self,
+                "Folder Import Complete",
+                f"Successfully imported project: {project_name}\n\n"
+                f"Check the Projects page to view the imported data."
+            )
+
+            self.statusBar().showMessage(f"Folder import complete: {project_name}", 5000)
+            self.project_label.setText(f"Project: {project_name}")
+            self.current_project = project_name
+
+            # Refresh projects view
+            self._refresh_projects()
 
     def _on_refresh(self):
         """Handle refresh action."""

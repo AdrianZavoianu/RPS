@@ -13,6 +13,8 @@ from .models import (
     StoryForce,
     Element,
     TimeHistoryData,
+    ResultSet,
+    GlobalResultsCache,
 )
 
 
@@ -265,3 +267,149 @@ class ResultRepository:
         """Bulk insert force records."""
         self.session.bulk_save_objects(forces)
         self.session.commit()
+
+
+class ResultSetRepository:
+    """Repository for ResultSet operations."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(
+        self,
+        project_id: int,
+        name: str,
+        result_category: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> ResultSet:
+        """Create a new result set."""
+        result_set = ResultSet(
+            project_id=project_id,
+            name=name,
+            result_category=result_category,
+            description=description,
+        )
+        self.session.add(result_set)
+        self.session.commit()
+        self.session.refresh(result_set)
+        return result_set
+
+    def get_or_create(
+        self,
+        project_id: int,
+        name: str,
+        result_category: Optional[str] = None,
+    ) -> ResultSet:
+        """Get existing result set or create new one."""
+        result_set = (
+            self.session.query(ResultSet)
+            .filter(and_(ResultSet.project_id == project_id, ResultSet.name == name))
+            .first()
+        )
+        if not result_set:
+            result_set = self.create(project_id, name, result_category)
+        return result_set
+
+    def get_by_project(self, project_id: int) -> List[ResultSet]:
+        """Get all result sets for a project."""
+        return (
+            self.session.query(ResultSet)
+            .filter(ResultSet.project_id == project_id)
+            .order_by(ResultSet.name)
+            .all()
+        )
+
+
+class CacheRepository:
+    """Repository for GlobalResultsCache operations - optimized for tabular display."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def upsert_cache_entry(
+        self,
+        project_id: int,
+        story_id: int,
+        result_type: str,
+        results_matrix: dict,
+        result_set_id: Optional[int] = None,
+    ) -> GlobalResultsCache:
+        """Create or update cache entry for a story's results."""
+        cache_entry = (
+            self.session.query(GlobalResultsCache)
+            .filter(
+                and_(
+                    GlobalResultsCache.project_id == project_id,
+                    GlobalResultsCache.story_id == story_id,
+                    GlobalResultsCache.result_type == result_type,
+                    GlobalResultsCache.result_set_id == result_set_id,
+                )
+            )
+            .first()
+        )
+
+        if cache_entry:
+            cache_entry.results_matrix = results_matrix
+        else:
+            cache_entry = GlobalResultsCache(
+                project_id=project_id,
+                result_set_id=result_set_id,
+                result_type=result_type,
+                story_id=story_id,
+                results_matrix=results_matrix,
+            )
+            self.session.add(cache_entry)
+
+        self.session.commit()
+        self.session.refresh(cache_entry)
+        return cache_entry
+
+    def get_cache_for_display(
+        self,
+        project_id: int,
+        result_type: str,
+        result_set_id: Optional[int] = None,
+    ) -> List[GlobalResultsCache]:
+        """Get all cache entries for a result type, ordered by story sort_order."""
+        query = (
+            self.session.query(GlobalResultsCache)
+            .join(Story, GlobalResultsCache.story_id == Story.id)
+            .filter(
+                and_(
+                    GlobalResultsCache.project_id == project_id,
+                    GlobalResultsCache.result_type == result_type,
+                )
+            )
+        )
+
+        if result_set_id is not None:
+            query = query.filter(GlobalResultsCache.result_set_id == result_set_id)
+
+        return query.order_by(Story.sort_order.desc()).all()
+
+    def clear_cache_for_project(self, project_id: int, result_type: Optional[str] = None):
+        """Clear cache entries for a project, optionally filtered by result type."""
+        query = self.session.query(GlobalResultsCache).filter(
+            GlobalResultsCache.project_id == project_id
+        )
+        if result_type:
+            query = query.filter(GlobalResultsCache.result_type == result_type)
+
+        query.delete()
+        self.session.commit()
+
+    def bulk_upsert_cache(self, cache_entries: List[dict]):
+        """Bulk upsert cache entries for better performance.
+
+        Args:
+            cache_entries: List of dicts with keys: project_id, story_id, result_type,
+                          results_matrix, result_set_id (optional)
+        """
+        for entry_data in cache_entries:
+            self.upsert_cache_entry(
+                project_id=entry_data['project_id'],
+                story_id=entry_data['story_id'],
+                result_type=entry_data['result_type'],
+                results_matrix=entry_data['results_matrix'],
+                result_set_id=entry_data.get('result_set_id'),
+            )

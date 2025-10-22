@@ -40,20 +40,24 @@ QMainWindow {{
 #topHeader {{
     background-color: {COLORS['card']};
     border-bottom: 1px solid {COLORS['border']};
+    min-height: 64px;
+    max-height: 64px;
 }}
 
 #headerLogo {{
-    margin-right: 16px;
+    margin-right: 8px;
 }}
 
 #navButton {{
     background-color: transparent;
     color: {COLORS['muted']};
     border: none;
-    padding: 14px 24px;
+    padding: 12px 20px;
     border-radius: 6px;
     font-weight: 600;
-    font-size: 18px;
+    font-size: 15px;
+    min-width: 80px;
+    max-height: 48px;
 }}
 
 #navButton:hover {{
@@ -101,6 +105,22 @@ QMainWindow {{
 
 #primaryAction:hover {{
     background-color: {COLORS['accent_hover']};
+}}
+
+#secondaryAction {{
+    background-color: {COLORS['card']};
+    color: {COLORS['text']};
+    border: 1px solid {COLORS['border']};
+    font-weight: 600;
+    padding: 12px 28px;
+    border-radius: 999px;
+    font-size: 15px;
+}}
+
+#secondaryAction:hover {{
+    background-color: {COLORS['hover']};
+    border-color: {COLORS['accent']};
+    color: {COLORS['accent']};
 }}
 
 #ghostAction {{
@@ -661,3 +681,4 @@ QProgressBar::chunk {{
 def get_stylesheet():
     """Return the complete dark theme stylesheet."""
     return DARK_THEME_STYLESHEET
+

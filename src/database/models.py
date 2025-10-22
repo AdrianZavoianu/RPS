@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Text,
     Index,
+    JSON,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -30,6 +31,7 @@ class Project(Base):
     # Relationships
     load_cases = relationship("LoadCase", back_populates="project", cascade="all, delete-orphan")
     stories = relationship("Story", back_populates="project", cascade="all, delete-orphan")
+    result_sets = relationship("ResultSet", back_populates="project", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}')>"
@@ -207,3 +209,60 @@ class TimeHistoryData(Base):
 
     def __repr__(self):
         return f"<TimeHistoryData(case={self.load_case_id}, t={self.time_step}, val={self.value})>"
+
+
+class ResultSet(Base):
+    """Represents a collection of results (DES, MCE, etc.) for organizing analysis outputs."""
+
+    __tablename__ = "result_sets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    name = Column(String(100), nullable=False)  # 'DES', 'MCE', etc.
+    result_category = Column(String(50), nullable=True)  # 'Envelopes', 'Time-Series'
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    project = relationship("Project", back_populates="result_sets")
+    cache_entries = relationship("GlobalResultsCache", back_populates="result_set", cascade="all, delete-orphan")
+
+    # Composite unique constraint
+    __table_args__ = (Index("ix_project_resultset", "project_id", "name", unique=True),)
+
+    def __repr__(self):
+        return f"<ResultSet(id={self.id}, name='{self.name}', category='{self.result_category}')>"
+
+
+class GlobalResultsCache(Base):
+    """Wide-format cache for storey-level results optimized for tabular display.
+
+    One row per story, with all load cases stored as JSON for fast retrieval.
+    Format: {"TH01_X": 0.0023, "TH01_Y": 0.0019, "MCR1_X": 0.0021, ...}
+    """
+
+    __tablename__ = "global_results_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    result_set_id = Column(Integer, ForeignKey("result_sets.id"), nullable=True)
+    result_type = Column(String(50), nullable=False)  # 'Drifts', 'Accelerations', 'Forces'
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+
+    # Wide-format data stored as JSON
+    results_matrix = Column(JSON, nullable=False)
+
+    # Metadata
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    result_set = relationship("ResultSet", back_populates="cache_entries")
+
+    # Composite index for fast lookups
+    __table_args__ = (
+        Index("ix_cache_lookup", "project_id", "result_set_id", "result_type"),
+        Index("ix_cache_story", "story_id"),
+    )
+
+    def __repr__(self):
+        return f"<GlobalResultsCache(project_id={self.project_id}, type='{self.result_type}', story_id={self.story_id})>"

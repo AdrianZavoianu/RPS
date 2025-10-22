@@ -1,0 +1,9 @@
+{
+  "trusted": true,
+  "allow_file_modifications": true,
+  "allow_command_execution": true,
+  "stage": "FAST",
+  "rules_file": "rules.md",
+  "system_rules_file": "codex_system.md",
+  "prompt_header_file": "codex_user_header.md"
+}

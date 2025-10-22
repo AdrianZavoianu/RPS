@@ -9,20 +9,26 @@ enabled: true
 priority: 90
 ---
 
-**No fallback values:** Do not use defaults, hardcoded placeholders, or assumptions unless explicitly defined. Missing/invalid inputs must fail fast with an error and request clarification.
+**1. Security always enforced:**  
+Never expose secrets, tokens, or unsafe file operations. Validate at least high-risk inputs (auth, DB writes).
 
-**No schema changes without approval:** Do not create, alter, or drop DB tables, columns, indexes, or constraints without explicit instruction. Stop and ask if changes appear necessary.
+**2. Fail visibly, not silently:**  
+If logic is unclear or inputs invalid, raise errors immediately instead of logging or hiding failures.
 
-**No unsolicited backward compatibility:** Do not add legacy support or compatibility layers unless specifically requested. Ask first if relevant.
+**3. No schema mutations without consent:**  
+Do not alter databases, indexes, or models beyond what’s necessary for iteration unless approved.
 
-**Default computation rule:** Do not perform significant computation on the frontend. The DB is the source of truth; frontend handles presentation and light transforms only. Heavy processing and business logic belong on the backend.
+**4. No production dependencies:**  
+Avoid complex observability, feature flags, or analytics libraries at this stage.
 
-**Dependencies (guarded allowance):** Prefer existing stack libs. New libraries/frameworks may be added if well-maintained, actively supported, and clearly improve productivity, maintainability, or performance. Document the purpose and rationale.
+**5. Data safety:**  
+Do not perform destructive or irreversible database operations. Work in isolated dev environments.
 
-**Error handling:** No silent failures. Fail fast with meaningful, structured errors. Never log or expose sensitive details.
+**6. Fallback values:**  
+Dont use fallback values or mock data for prototyping, use the real data if possible.
 
-**Security:** No hardcoded secrets, insecure crypto, or unsafe file handling. Validate and sanitize all inputs. Enforce least privilege, CSRF, and strict CORS.
+**7. Rapid dependency adoption:**  
+You may add libraries that significantly speed iteration as long as they are well-maintained and compatible with the tech stack.
 
-**Data integrity:** Preserve integrity always. No destructive ops or irreversible migrations without explicit approval. Migration scripts must include validation and rollback.
-
-**Documentation:** Document intent, inputs/outputs, and edge cases for new modules/APIs. Use comments for *why*, names for *what/how*.
+**8. Documentation optional:**  
+Write comments only for unclear logic or to mark areas requiring later improvement.

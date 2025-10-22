@@ -6,24 +6,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Results Processing System (RPS) - A modern desktop application for processing and visualizing structural engineering results from ETABS/SAP2000 Excel exports. Built with PyQt6, featuring a dark web-style theme, database storage, and high-performance visualization.
 
-## Current State - Enhanced UI with GMP Design System ✅
+## Current State - Fully Functional with Project Detail Pages ✅
 
-**Status**: Fully functional application with GMP-matching design system and modern UI components.
+**Status**: Production-ready application with complete data pipeline, visualization, and modern UI.
 
-The application is a **complete skeleton** with:
+The application is **fully functional** with:
+- ✅ **Complete Data Model** - Hybrid normalized + wide-format cache for performance
+- ✅ **Folder-Based Import** - Batch process multiple Excel files with progress tracking
+- ✅ **Project Detail Pages** - Individual project views with browser navigation
+- ✅ **Results Visualization** - PyQtGraph building profile plots for story drifts
+- ✅ **Compact Table Display** - X-direction drifts with Avg/Max/Min statistics
+- ✅ **Hot-Reload Development** - Web-style auto-restart on save (watchfiles)
 - ✅ **GMP-Exact Design System** - Button variants, typography, and styling matching GMP frontend
-- ✅ Modern dark bluish theme with refined components
-- ✅ PyQt6 desktop application with web-style UI
-- ✅ SQLite database with SQLAlchemy ORM
-- ✅ Excel import functionality (Story Drifts, Accelerations, Forces)
-- ✅ Results browser with hierarchical navigation
-- ✅ PyQtGraph visualization framework (placeholders ready)
-- ✅ Database migrations with Alembic
-- ✅ Full test suite (8 tests passing)
-- ✅ **UI Helper System** - Easy component creation with GMP styling
-- ✅ **Windows Deployment Ready** - Dependencies updated for Python 3.11.3
+- ✅ **Modern dark bluish theme** - Refined components with consistent spacing
+- ✅ **PyQt6 desktop application** - Web-style UI with QFrame borders
+- ✅ **SQLite database** - SQLAlchemy ORM with Alembic migrations
+- ✅ **Full test suite** - 8 tests passing
 
-**Next Steps**: Implement visualization features, add more result types, enhance UI interactions.
+**Recent Completions (Current Session)**:
+- ✅ Implemented hybrid data model with `ResultSet` and `GlobalResultsCache`
+- ✅ Created project detail window with 3-panel layout (browser | table | plot)
+- ✅ Built folder import system with `FolderImporter` and progress dialog
+- ✅ Implemented story drift visualization with building profile plots
+- ✅ Refined table layout with auto-fitting container and consistent borders
+- ✅ Set up hot-reload development environment with watchfiles
+
+**Next Steps**: Add Accelerations/Forces visualization, implement export functionality, add more result types.
 
 ## Technology Stack
 
@@ -41,6 +49,7 @@ The application is a **complete skeleton** with:
 - **Formatting**: black
 - **Linting**: flake8
 - **Building**: PyInstaller (for .exe distribution)
+- **Hot-Reload**: watchfiles - Web-style auto-restart on save (see HOTRELOAD_QUICKSTART.md)
 
 ## Platform Notes
 
@@ -67,20 +76,24 @@ RPS/
 │   ├── main.py                    # Entry point, applies theme globally
 │   ├── gui/                       # UI components (PyQt6)
 │   │   ├── styles.py             # GMP-exact design system stylesheet
-│   │   ├── ui_helpers.py         # Component creation helpers (NEW)
+│   │   ├── ui_helpers.py         # Component creation helpers
 │   │   ├── window_utils.py       # Windows title bar utilities
-│   │   ├── main_window.py        # Main application window
-│   │   ├── import_dialog.py      # Modern Excel import dialog (GMP-styled)
-│   │   ├── results_browser.py    # Sidebar tree navigation
-│   │   └── visualization_widget.py # PyQtGraph plotting (3 tabs)
+│   │   ├── main_window.py        # Main application window with project cards
+│   │   ├── project_detail_window.py  # Project detail view (browser | table | plot)
+│   │   ├── import_dialog.py      # Single Excel file import dialog
+│   │   ├── folder_import_dialog.py   # Folder batch import with progress (NEW)
+│   │   ├── results_tree_browser.py   # Hierarchical tree navigation (NEW)
+│   │   ├── results_table_widget.py   # Compact table display with auto-fit (NEW)
+│   │   └── results_plot_widget.py    # PyQtGraph building profile plots (NEW)
 │   ├── processing/               # Business logic
 │   │   ├── excel_parser.py       # Excel file reading (refactored)
 │   │   ├── result_processor.py   # Data transformations
-│   │   └── data_importer.py      # Excel → Database pipeline
+│   │   ├── data_importer.py      # Single file → Database pipeline
+│   │   └── folder_importer.py    # Batch folder → Database pipeline (NEW)
 │   ├── database/                 # Data layer
 │   │   ├── base.py              # SQLAlchemy setup, session factory
-│   │   ├── models.py            # ORM models (Project, LoadCase, Story, etc.)
-│   │   └── repository.py        # Data access layer (CRUD operations)
+│   │   ├── models.py            # ORM models (ResultSet, GlobalResultsCache added)
+│   │   └── repository.py        # Data access layer (ResultSet, Cache repos added)
 │   └── utils/                   # Helper functions
 ├── alembic/                     # Database migrations
 │   ├── env.py                   # Alembic configuration
@@ -123,18 +136,37 @@ RPS/
 - Fields: id, project_id, name, elevation, sort_order
 - Relationships: project, drifts, accelerations, forces
 
-**Result Tables**
+**ResultSets** (`result_sets`) - NEW ✨
+- Collections of results (DES, MCE, etc.)
+- Fields: id, project_id, name, result_category, description
+- Relationships: project, cache_entries
+- Groups related analysis results together
+
+**GlobalResultsCache** (`global_results_cache`) - NEW ✨
+- Wide-format cache for fast tabular display
+- Fields: id, project_id, result_set_id, result_type, story_id, results_matrix (JSON)
+- Relationships: project, result_set, story
+- Stores denormalized data for performance (no JOIN queries needed)
+- JSON column contains load case → value mappings
+
+**Result Tables** (Normalized Storage)
 - `story_drifts` - Drift results (X/Y directions)
 - `story_accelerations` - Acceleration results (UX/UY, in g-units)
 - `story_forces` - Shear forces (VX/VY)
 - `elements` - Structural elements (columns, beams, piers) - ready for expansion
 - `time_history_data` - Time-series data - ready for expansion
 
+**Architecture - Hybrid Model**:
+- **Normalized tables** - Maintain data integrity and relationships
+- **Wide-format cache** - Fast display without complex JOINs
+- **Best of both worlds** - Reliable storage + high-performance queries
+
 **Key Features**:
 - Indexed columns for fast queries
 - Foreign key relationships maintain data integrity
 - Bulk insert support for performance
 - Migration support with Alembic
+- JSON storage for flexible wide-format data
 
 ## Development Commands
 
@@ -188,6 +220,20 @@ pipenv run alembic upgrade head
 
 # Rollback migration
 pipenv run alembic downgrade -1
+```
+
+### Hot-Reload Development (NEW ✨)
+
+```bash
+# Start with auto-reload (recommended for UI development)
+pipenv run python dev_watch.py
+
+# Or use Cursor/VS Code task (Ctrl+Shift+B)
+# - Task: "RPS - Run with Auto-Reload"
+# - Edit any .py file in src/ → auto-restarts on save
+# - Web-style development experience!
+
+# See HOTRELOAD_QUICKSTART.md for details
 ```
 
 ### Building Executable
@@ -266,11 +312,95 @@ small = create_styled_label("Details", "small")            # font-size: 13px
 - Only works on Windows 10 (build 19041+) and Windows 11
 - Automatically applied in `MainWindow.showEvent()`
 
+## UI Components - Current Implementation
+
+### Main Window (`main_window.py`)
+- Header with navigation and actions (64px fixed height)
+- Project cards grid displaying all projects
+- "Import Single File" and "Import from Folder" buttons
+- "Open Project" buttons on each card → opens ProjectDetailWindow
+
+### Project Detail Window (`project_detail_window.py`) - NEW ✨
+**3-Panel Horizontal Layout:**
+1. **Left Panel (200px)**: Results Tree Browser
+   - Hierarchical navigation: Envelopes → Result Types
+   - Fixed width, collapsible tree structure
+2. **Center Panel (Auto-fit)**: Results Table Widget
+   - Compact table with auto-width calculation
+   - Shows X-direction drifts as percentages (2 decimal places)
+   - Columns: Story, TH01-THnn, Avg, Max, Min
+   - Color-coded values (red > 2%, orange > 1%, gray ≤ 1%)
+   - 70px Story column, 55px data columns
+   - QFrame with 1px border, 6px rounded corners
+   - Zero margins (table fills container edge-to-edge)
+3. **Right Panel (Remaining space)**: Results Plot Widget
+   - PyQtGraph building profile plot
+   - Drift vs. height with colored lines per load case
+   - Dashed average line in teal
+   - Tabs hidden for Drifts (single plot view)
+
+**Splitter Configuration:**
+- Content area margins: 16px left/right, 8px top/bottom
+- Splitter handle: 8px width, transparent background
+- Table stretch factor: 0 (fixed width)
+- Plot stretch factor: 1 (takes remaining space)
+
+### Results Tree Browser (`results_tree_browser.py`) - NEW ✨
+- QTreeWidget with hierarchical structure
+- Root: "Envelopes" → "Drifts", "Accelerations", "Forces"
+- Emits `selection_changed` signal on click
+- Passes result type to parent for display
+
+### Results Table Widget (`results_table_widget.py`) - NEW ✨
+**Technical Details:**
+- Inherits from `QFrame` (not QWidget) for proper borders
+- Size policy: Fixed width, Preferred height
+- Table dimensions calculated dynamically:
+  - `total_width = 70 + (num_columns - 1) * 55 + 2`
+  - Container width = table width (exact fit)
+- Formatting:
+  - Drifts: `f"{value * 100:.2f}%"` (multiply by 100, 2 decimals)
+  - Story names centered, data values centered
+  - Inter 8px font throughout
+- Color coding applied to Max column and regular columns
+- No horizontal scrolling (all columns visible)
+
+### Results Plot Widget (`results_plot_widget.py`) - NEW ✨
+**Building Profile Plot:**
+- Horizontal layout: Drift (X-axis) vs. Story Height (Y-axis)
+- Each load case plotted as colored line (13 colors cycling)
+- Average line: bold, dashed, teal (#4a7d89), width 3px
+- Dark background (#0a0c10), grid alpha 0.2
+- Tab bar hidden for Drifts (shows only building profile)
+- Margins: 0px (consistent with table widget)
+
+### Folder Import Dialog (`folder_import_dialog.py`) - NEW ✨
+**Features:**
+- QThread worker for background processing
+- Progress bar with file count updates
+- Real-time log output showing file processing
+- Finds all .xlsx/.xls files recursively
+- Prefixes load case names with filename to avoid conflicts
+- Continues on individual file failures
+- Generates cache after all imports complete
+
 ## Data Processing Pipeline
 
-### Import Workflow
+### Folder Import Workflow (NEW ✨)
 
-1. **User Action**: File → Import Excel
+1. **User Action**: Load Data button → Browse folder
+2. **File Discovery**: Find all Excel files in folder/subfolders
+3. **Batch Processing** (`folder_importer.py`):
+   - Process each Excel file sequentially
+   - Prefix load cases with filename (e.g., "160Wil_TH01")
+   - Continue on errors, track success/failure
+4. **Cache Generation**: Build wide-format cache for all results
+5. **UI Update**: Refresh browser with new result sets
+6. **Progress Tracking**: Real-time updates via QThread signals
+
+### Single File Import Workflow
+
+1. **User Action**: File → Import Excel (single file)
 2. **File Selection**: Browse for ETABS/SAP2000 Excel file
 3. **Parsing** (`excel_parser.py`):
    - Read sheets: Story Drifts, Story Accelerations, Story Forces
@@ -412,6 +542,38 @@ Modern code improvements:
    pipenv run alembic revision --autogenerate -m "Add new result type"
    pipenv run alembic upgrade head
    ```
+
+### Layout Best Practices (Lessons Learned)
+
+**Table Container Sizing:**
+- Use `QFrame` instead of `QWidget` for borders
+- Set `layout.setContentsMargins(0, 0, 0, 0)` - let table fill edge-to-edge
+- Calculate exact width: `story_col_width + (num_cols - 1) * data_col_width + 2`
+- Set both min and max width to same value for fixed sizing
+- Size policy: `Fixed` width, `Preferred` height
+
+**Border Rendering:**
+- Apply borders to `QTableWidget` itself, not container
+- Use `border-radius: 6px` for rounded corners
+- Ensure parent containers have sufficient margins (16px) so borders aren't cut off
+- Avoid double borders by not applying borders to both container and table
+
+**Splitter Configuration:**
+- Set explicit `handleWidth` for spacing control
+- Use transparent handle background for clean look
+- Set stretch factors: 0 for fixed-width widgets, 1 for expanding widgets
+- Add margins to parent layout (16px left/right) for visual breathing room
+
+**Height Alignment:**
+- Match margins on both sides of splitter (table and plot)
+- Use consistent size policies (Preferred height on both)
+- Avoid Fixed height unless absolutely necessary (prevents natural sizing)
+
+**Column Width Tuning:**
+- Story column: 70px (fits "Story 1", "Story 10", etc.)
+- Data columns: 55px (fits "0.00%" comfortably)
+- Calculate total dynamically based on number of columns
+- Test with actual data to ensure no truncation
 
 ### Modifying the Theme
 
@@ -567,3 +729,6 @@ For issues or questions about this codebase, refer to:
 
 **Last Updated**: Current session (GMP-exact design system implemented, Windows deployment ready)
 **Status**: Complete skeleton with modern UI - Ready for visualization feature development
+
+
+

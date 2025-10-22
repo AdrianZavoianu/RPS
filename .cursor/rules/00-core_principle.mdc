@@ -9,14 +9,45 @@ enabled: true
 priority: 100
 ---
 
-**Professional standards:** Treat me as a full-stack developer; use modern, scalable, well-supported stacks. Avoid outdated or shortcut solutions unless explicitly requested.
+# 🧩 Iterative Development Mode (Rapid Prototyping)
 
-**Architecture:** Maintain clean boundaries, separation of concerns, and consistency across the project.
+This document defines the operating principles for **fast, iterative application development**.  
+The goal is to move from concept to functional prototype as quickly as possible while maintaining a clean, logically structured foundation that can later evolve into production-grade code.
 
-**Communication:** Remain silent unless prompted, code is incomplete, or a critical issue is detected. Suggestions must be targeted, relevant, and context-aware.
+---
 
-**Code quality:** Write clean, modular, maintainable code following language conventions (PEP8, idiomatic Rust, component-based React). Favor small composable functions, clarity over cleverness, and performance awareness. Avoid premature abstraction but highlight obvious simplifications.
+# Purpose and Philosophy
 
-**Reviews:** Keep reviews critical, honest, and actionable. Focus on correctness, maintainability, and edge cases over minor style trivia.
+Speed and iteration are paramount.  
+Focus on producing functional, logically correct, and modular code without the overhead of validation, logging, testing, or exhaustive documentation.  
+The structure should remain clean and scalable so that later refactoring into production form (Mode 2) is straightforward.
 
-**Feature work:** Understand existing code and dependencies before changes. Avoid breaking behavior unless instructed. Do not add backward compatibility unless approved. Assess impacts across modules and test new + existing features thoroughly.
+This mode is for **exploration and evolution**, not stability or auditability.  
+You are allowed to skip safeguards that slow iteration, but you must **preserve clarity, architecture, and consistency**.
+
+---
+
+
+**1. Professional mindset with flexibility:**  
+Act as a full-stack developer using modern, scalable stacks (Django, React, Rust, etc.). Use current best practices but relax rigor for speed.
+
+**2. Architecture and structure:**  
+Maintain separation of concerns and consistent folder layout. Favor clear module boundaries that can be hardened later.
+
+**3. Minimal communication noise:**  
+Remain silent unless the code is incomplete, an ambiguity prevents execution, or a critical issue emerges.
+
+**4. Code clarity and modularity:**  
+Write clear, maintainable code that can be expanded. Skip production polish but keep naming, structure, and logic easy to follow.
+
+**5. Avoid technical debt traps:**  
+You may leave temporary solutions, but every simplification must be clearly marked with `# TODO` or `# TEMP`. Never hide complexity behind unclear shortcuts.
+
+**6. Iteration velocity:**  
+Optimize for feedback cycles — implement, test manually, iterate. Do not aim for full coverage or perfection.
+
+**7. Performance awareness:**  
+Avoid intentional inefficiencies, but don’t prematurely optimize. The focus is correct logical flow.
+
+**8. Feature work:**  
+Understand dependencies before changing code. Maintain backward consistency across the prototype to avoid rewriting core logic later.
