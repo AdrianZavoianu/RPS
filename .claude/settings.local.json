@@ -14,7 +14,8 @@
       "Read(//c/wsl.localhost/Ubuntu-22.04/home/az/SoftDev/GMP/GMP-App/gmp_frontend/**)",
       "Bash(rm:*)",
       "Bash(pipenv uninstall:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(test:*)"
     ],
     "deny": [],
     "ask": []

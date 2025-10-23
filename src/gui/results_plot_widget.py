@@ -8,6 +8,9 @@ from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 import pandas as pd
 import numpy as np
+from config.result_config import get_config
+from utils.data_utils import parse_percentage_value
+from utils.plot_builder import PlotBuilder
 
 
 class ResultsPlotWidget(QWidget):
@@ -211,8 +214,10 @@ class ResultsPlotWidget(QWidget):
         if df.empty:
             return
 
-        # For drifts, show building profile plot (main view) - hide tabs
-        if result_type == "Drifts":
+        # Use configuration to determine plot mode
+        config = get_config(result_type)
+
+        if config.plot_mode == 'building_profile':
             self.tabs.tabBar().hide()  # Hide tabs for clean single plot view
             self._plot_building_profile(df, result_type)
         else:
@@ -368,12 +373,8 @@ class ResultsPlotWidget(QWidget):
 
     def _get_ylabel(self, result_type: str) -> str:
         """Get y-axis label based on result type."""
-        labels = {
-            'Drifts': 'Drift Ratio',
-            'Accelerations': 'Acceleration (g)',
-            'Forces': 'Shear Force (kN)',
-        }
-        return labels.get(result_type, 'Value')
+        config = get_config(result_type)
+        return config.y_label
 
     def _plot_building_profile(self, df: pd.DataFrame, result_type: str):
         """Plot building profile - drift vs height."""
@@ -413,19 +414,9 @@ class ResultsPlotWidget(QWidget):
 
         # Plot each load case as a line
         for idx, load_case in enumerate(load_case_columns):
-            # Convert percentage back to decimal for plotting (or keep as percentage)
+            # Convert values to numeric (handles both strings and floats)
             values = df[load_case].fillna(0).tolist()
-
-            # Convert percentage strings to floats
-            numeric_values = []
-            for val in values:
-                if isinstance(val, str) and '%' in val:
-                    numeric_values.append(float(val.replace('%', '')))
-                else:
-                    try:
-                        numeric_values.append(float(val) * 100)  # Convert to percentage
-                    except:
-                        numeric_values.append(0)
+            numeric_values = [parse_percentage_value(val) for val in values]
 
             color = colors[idx % len(colors)]
 
@@ -444,20 +435,12 @@ class ResultsPlotWidget(QWidget):
         if len(load_case_columns) > 1:
             avg_values = []
             for story_idx in range(len(stories)):
-                story_values = []
-                for load_case in load_case_columns:
-                    val = df[load_case].iloc[story_idx]
-                    if isinstance(val, str) and '%' in val:
-                        story_values.append(float(val.replace('%', '')))
-                    else:
-                        try:
-                            story_values.append(float(val) * 100)
-                        except:
-                            pass
-                if story_values:
-                    avg_values.append(sum(story_values) / len(story_values))
-                else:
-                    avg_values.append(0)
+                story_values = [
+                    parse_percentage_value(df[load_case].iloc[story_idx])
+                    for load_case in load_case_columns
+                ]
+                story_values = [v for v in story_values if v != 0.0]  # Filter zeros
+                avg_values.append(sum(story_values) / len(story_values) if story_values else 0)
 
             # Plot average with bold, dashed line in bright orange
             self._average_plot_item = plot.plot(
@@ -467,39 +450,33 @@ class ResultsPlotWidget(QWidget):
             )
             self._add_legend_item(container, '#ffa500', 'Average')
 
-        # Configure axes
-        axis = plot.getAxis('left')
-        axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
-        plot.setLabel('left', 'Building Height', **{'font-size': '12pt'})
-        plot.setLabel('bottom', 'Drift (%)', **{'font-size': '12pt'})
+        # Use PlotBuilder for common configuration
+        config = get_config(result_type)
+        builder = PlotBuilder(plot, config)
 
-        # Set y-axis range to show all stories (tight fit with negative padding)
-        y_padding = -0.05  # Negative padding for tighter vertical fit
-        plot.setYRange(-0.5, len(stories) - 0.5, padding=y_padding)
+        # Configure axes with story labels
+        builder.setup_axes(stories)
 
-        # Set x-axis range with padding on the right to avoid legend overlap
+        # Set y-axis range (tight fit)
+        builder.set_story_range(len(stories), padding=-0.05)
+
+        # Calculate x-axis range from all values
         all_values = []
         for load_case in load_case_columns:
-            for val in df[load_case]:
-                if isinstance(val, str) and '%' in val:
-                    all_values.append(float(val.replace('%', '')))
-                else:
-                    try:
-                        all_values.append(float(val) * 100)
-                    except:
-                        pass
+            all_values.extend([parse_percentage_value(val) for val in df[load_case]])
+
+        # Filter out zeros and set range with asymmetric padding
+        all_values = [v for v in all_values if v != 0.0]
         if all_values:
             min_val = min(all_values)
             max_val = max(all_values)
-            range_val = max_val - min_val
-            # Add 15% padding on right side only
-            plot.setXRange(min_val - range_val * 0.02, max_val + range_val * 0.15, padding=0)
+            builder.set_value_range(min_val, max_val, left_padding=0.02, right_padding=0.15)
 
         # Enable grid with increased visibility
         plot.showGrid(x=True, y=True, alpha=0.5)
 
-        # Update title with bold font
-        plot.setTitle("<b>Story Drifts</b>", color='#4a7d89', size='14pt')
+        # Set title
+        builder.set_title("Story Drifts")
 
     def highlight_load_cases(self, selected_cases: list):
         """Highlight multiple selected load cases, dim others, always show average at full opacity."""

@@ -6,6 +6,8 @@ from PyQt6.QtGui import QColor, QFont, QPainter
 from PyQt6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView,
                              QSizePolicy, QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget, QStyleOptionHeader, QStyle)
+from config.result_config import get_config
+from utils.color_utils import get_gradient_color
 
 
 class SelectableHeaderView(QHeaderView):
@@ -252,17 +254,11 @@ class ResultsTableWidget(QFrame):
                     # Numeric columns
                     try:
                         numeric_value = float(value)
-                        # Format based on result type
-                        if result_type == "Drifts":
-                            # Convert to percentage (multiply by 100)
-                            percentage_value = numeric_value * 100
-                            formatted = f"{percentage_value:.2f}%"  # 2 decimal places for percentage
-                        elif result_type == "Accelerations":
-                            formatted = f"{numeric_value:.3f}"  # 3 decimal places for accelerations (g)
-                        elif result_type == "Forces":
-                            formatted = f"{numeric_value:.2f}"  # 2 decimal places for forces (kN)
-                        else:
-                            formatted = f"{numeric_value:.3f}"
+
+                        # Format based on result type configuration
+                        config = get_config(result_type)
+                        converted_value = numeric_value * config.multiplier
+                        formatted = f"{converted_value:.{config.decimal_places}f}{config.unit}"
 
                         item.setText(formatted)
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -272,17 +268,14 @@ class ResultsTableWidget(QFrame):
                             # Summary columns - keep default text color
                             item.setForeground(QColor("#d1d5db"))
                         elif col_name != 'Story':
-                            # Load case columns - apply gradient from blue to orange
-                            # Normalize value to 0-1 range
-                            normalized = (numeric_value - min_val) / value_range if value_range > 0 else 0.5
-
-                            # Interpolate between blue (#3b82f6) and orange (#fb923c)
-                            # Blue RGB: (59, 130, 246), Orange RGB: (251, 146, 60)
-                            r = int(59 + (251 - 59) * normalized)
-                            g = int(130 + (146 - 130) * normalized)
-                            b = int(246 + (60 - 246) * normalized)
-
-                            color = QColor(r, g, b)
+                            # Load case columns - apply gradient using color scheme
+                            config = get_config(result_type)
+                            color = get_gradient_color(
+                                numeric_value,
+                                min_val,
+                                max_val,
+                                config.color_scheme
+                            )
                             item.setForeground(color)
 
                     except (ValueError, TypeError):

@@ -18,6 +18,7 @@ from database.repository import (
     CacheRepository,
     StoryRepository,
 )
+from processing.result_transformers import get_transformer
 from .results_tree_browser import ResultsTreeBrowser
 from .results_table_widget import ResultsTableWidget
 from .results_plot_widget import ResultsPlotWidget
@@ -253,30 +254,9 @@ class ProjectDetailWindow(QMainWindow):
             # Create DataFrame
             df = pd.DataFrame(data_dicts)
 
-            # Filter for X direction only and clean column names
-            if result_type == "Drifts":
-                # Keep only columns ending with _X
-                x_columns = [col for col in df.columns if col.endswith('_X')]
-                df = df[x_columns]
-
-                # Extract only the load case name (last part after last underscore before _X)
-                # Example: "160Wil_DES_Global_TH01_X" -> "TH01"
-                cleaned_columns = []
-                for col in df.columns:
-                    # Remove _X suffix first
-                    col_without_x = col.replace('_X', '')
-                    # Get the last part after splitting by underscore
-                    parts = col_without_x.split('_')
-                    load_case_name = parts[-1] if parts else col_without_x
-                    cleaned_columns.append(load_case_name)
-
-                df.columns = cleaned_columns
-
-                # Calculate statistics (Avg, Max, Min) from numeric columns
-                numeric_data = df.apply(pd.to_numeric, errors='coerce')
-                df['Avg'] = numeric_data.mean(axis=1)
-                df['Max'] = numeric_data.max(axis=1)
-                df['Min'] = numeric_data.min(axis=1)
+            # Transform data using result-type-specific transformer
+            transformer = get_transformer(result_type)
+            df = transformer.transform(df)
 
             # Insert Story column at the beginning
             df.insert(0, 'Story', story_names)

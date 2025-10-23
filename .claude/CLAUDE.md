@@ -1,7 +1,15 @@
 # 🧩 Iterative Development Mode (Rapid Prototyping)
 
-This document defines the operating principles for **fast, iterative application development**.  
+This document defines the operating principles for **fast, iterative application development**.
 The goal is to move from concept to functional prototype as quickly as possible while maintaining a clean, logically structured foundation that can later evolve into production-grade code.
+
+## 📚 Project Documentation
+
+Before starting work, familiarize yourself with the project documentation:
+
+- **[ARCHITECTURE.md](../ARCHITECTURE.md)**: Complete technical architecture, database schema, design patterns, and component structure. **Read this for understanding the system design.**
+- **[CLAUDE.md](../CLAUDE.md)**: Quick development guide with common tasks and utility references
+- **[PRD.md](../PRD.md)**: Product requirements, features, and roadmap
 
 ---
 
