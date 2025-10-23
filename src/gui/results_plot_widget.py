@@ -20,6 +20,8 @@ class ResultsPlotWidget(QWidget):
         self.current_data = None
         self.current_result_type = None
         self._plot_legends = {}
+        self._plot_items = {}  # Store plot items for highlighting: {load_case: plot_item}
+        self._highlighted_case = None  # Track currently highlighted load case
         self.setup_ui()
 
     def setup_ui(self):
@@ -389,6 +391,9 @@ class ResultsPlotWidget(QWidget):
         if not load_case_columns:
             return
 
+        # Clear plot items dictionary
+        self._plot_items.clear()
+
         # Highly distinct colors optimized for dark backgrounds
         colors = [
             '#ff4757',  # Bright red
@@ -425,11 +430,14 @@ class ResultsPlotWidget(QWidget):
             color = colors[idx % len(colors)]
 
             # Plot horizontal (drift on x-axis, story on y-axis)
-            plot.plot(
+            plot_item = plot.plot(
                 numeric_values,
                 story_indices,
                 pen=pg.mkPen(color, width=2)
             )
+            # Store the plot item for later highlighting
+            self._plot_items[load_case] = {'item': plot_item, 'color': color, 'width': 2}
+
             self._add_legend_item(container, color, load_case)
 
         # Calculate and plot average line (bold, dashed)
@@ -452,7 +460,7 @@ class ResultsPlotWidget(QWidget):
                     avg_values.append(0)
 
             # Plot average with bold, dashed line in bright orange
-            plot.plot(
+            self._average_plot_item = plot.plot(
                 avg_values,
                 story_indices,
                 pen=pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)  # Bright orange
@@ -493,11 +501,93 @@ class ResultsPlotWidget(QWidget):
         # Update title with bold font
         plot.setTitle("<b>Story Drifts</b>", color='#4a7d89', size='14pt')
 
+    def highlight_load_cases(self, selected_cases: list):
+        """Highlight multiple selected load cases, dim others, always show average at full opacity."""
+        # Store current selection for hover state restoration
+        self._current_selection = set(selected_cases) if selected_cases else set()
+
+        if not selected_cases:
+            # No selection - restore all to full opacity
+            for case_name, case_data in self._plot_items.items():
+                item = case_data['item']
+                color = case_data['color']
+                width = case_data['width']
+                item.setPen(pg.mkPen(color, width=width))
+        else:
+            # Highlight selected cases, dim others
+            selected_set = set(selected_cases)
+
+            for case_name, case_data in self._plot_items.items():
+                item = case_data['item']
+                color = case_data['color']
+                width = case_data['width']
+
+                if case_name in selected_set:
+                    # Selected case - full opacity, slightly thicker
+                    item.setPen(pg.mkPen(color, width=width + 1))
+                else:
+                    # Non-selected case - reduce opacity significantly
+                    from PyQt6.QtGui import QColor
+                    qcolor = QColor(color)
+                    qcolor.setAlpha(40)  # Much lower opacity (0-255 scale, 40 is ~15%)
+                    item.setPen(pg.mkPen(qcolor, width=width))
+
+        # Always keep average line at full opacity and bold
+        if hasattr(self, '_average_plot_item') and self._average_plot_item:
+            self._average_plot_item.setPen(
+                pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)
+            )
+
+    def hover_load_case(self, load_case: str):
+        """Temporarily highlight a load case on hover (increase thickness and dim others subtly)."""
+        if load_case not in self._plot_items:
+            return
+
+        from PyQt6.QtGui import QColor
+
+        # Get current selection state
+        current_selection = getattr(self, '_current_selection', set())
+
+        for case_name, case_data in self._plot_items.items():
+            item = case_data['item']
+            color = case_data['color']
+            width = case_data['width']
+
+            if case_name == load_case:
+                # Hovered case - make it prominent with thicker line
+                item.setPen(pg.mkPen(color, width=width + 2))
+            elif case_name in current_selection:
+                # Selected but not hovered - keep visible with slight dim
+                qcolor = QColor(color)
+                qcolor.setAlpha(180)  # Still quite visible (~70%)
+                item.setPen(pg.mkPen(qcolor, width=width + 1))
+            else:
+                # Not selected and not hovered - moderate opacity reduction
+                qcolor = QColor(color)
+                qcolor.setAlpha(100)  # Medium opacity (~39%)
+                item.setPen(pg.mkPen(qcolor, width=width))
+
+        # Keep average at full opacity
+        if hasattr(self, '_average_plot_item') and self._average_plot_item:
+            self._average_plot_item.setPen(
+                pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)
+            )
+
+    def clear_hover(self):
+        """Clear hover effect and restore to selected state."""
+        # Restore to the current selection state
+        if hasattr(self, '_current_selection'):
+            self.highlight_load_cases(list(self._current_selection))
+        else:
+            self.highlight_load_cases([])
+
     def clear_plots(self):
         """Clear all plots."""
         self._reset_plot(self.envelope_plot)
         self._reset_plot(self.comparison_plot)
         self._reset_plot(self.profile_plot)
+        self._plot_items.clear()
+        self._highlighted_case = None
 
     def _reset_plot(self, container):
         """Clear plot curves and legend entries."""

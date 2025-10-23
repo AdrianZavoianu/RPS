@@ -6,9 +6,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QSplitter,
-    QLabel,
     QPushButton,
-    QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
@@ -142,7 +140,7 @@ class ProjectDetailWindow(QMainWindow):
         layout.setContentsMargins(16, 8, 16, 8)  # More left/right margin so borders are visible
         layout.setSpacing(8)
 
-        # Content header with result type selector
+        # Content header with result type title only
         content_header = QWidget()
         content_header.setFixedHeight(40)  # Fixed height to prevent shifts
         content_header_layout = QHBoxLayout(content_header)
@@ -153,33 +151,6 @@ class ProjectDetailWindow(QMainWindow):
         content_header_layout.addWidget(self.content_title)
 
         content_header_layout.addStretch()
-
-        # View mode toggle (table/plot)
-        view_label = QLabel("View:")
-        view_label.setStyleSheet("color: #7f8b9a; font-size: 13px;")
-        content_header_layout.addWidget(view_label)
-
-        self.view_mode_combo = QComboBox()
-        self.view_mode_combo.addItems(["Table + Plot", "Table Only", "Plot Only"])
-        self.view_mode_combo.currentTextChanged.connect(self.on_view_mode_changed)
-        self.view_mode_combo.setFixedHeight(32)
-        self.view_mode_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #161b22;
-                border: 1px solid #2c313a;
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: #d1d5db;
-                min-width: 120px;
-            }
-            QComboBox:hover {
-                border-color: #4a7d89;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-        """)
-        content_header_layout.addWidget(self.view_mode_combo)
 
         layout.addWidget(content_header, stretch=0)
 
@@ -205,6 +176,13 @@ class ProjectDetailWindow(QMainWindow):
         # Plot widget (takes remaining space, on right)
         self.plot_widget = ResultsPlotWidget()
         self.content_splitter.addWidget(self.plot_widget)
+
+        # Connect table load case selection to plot highlighting (multi-select)
+        self.table_widget.selection_changed.connect(self.plot_widget.highlight_load_cases)
+
+        # Connect hover signals for temporary highlighting
+        self.table_widget.load_case_hovered.connect(self.plot_widget.hover_load_case)
+        self.table_widget.hover_cleared.connect(self.plot_widget.clear_hover)
 
         # Table takes minimum needed space, plot takes all remaining
         self.content_splitter.setStretchFactor(0, 0)  # Table: don't stretch
@@ -320,18 +298,6 @@ class ProjectDetailWindow(QMainWindow):
             self.statusBar().showMessage(f"Error loading results: {str(e)}")
             import traceback
             traceback.print_exc()
-
-    def on_view_mode_changed(self, mode: str):
-        """Handle view mode changes."""
-        if mode == "Table + Plot":
-            self.table_widget.show()
-            self.plot_widget.show()
-        elif mode == "Table Only":
-            self.table_widget.show()
-            self.plot_widget.hide()
-        elif mode == "Plot Only":
-            self.table_widget.hide()
-            self.plot_widget.show()
 
     def load_data_from_folder(self):
         """Load data from folder into current project."""

@@ -1,15 +1,108 @@
 """Results table widget - displays tabular data with GMP styling."""
 
 import pandas as pd
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QRect
+from PyQt6.QtGui import QColor, QFont, QPainter
 from PyQt6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView,
                              QSizePolicy, QTableWidget, QTableWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QVBoxLayout, QWidget, QStyleOptionHeader, QStyle)
+
+
+class SelectableHeaderView(QHeaderView):
+    """Custom header view that highlights selected sections."""
+
+    # Signal emitted when hovering over a section (column_name)
+    section_hovered = pyqtSignal(str)
+    section_hover_left = pyqtSignal()
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self._selected_sections = set()
+        self._hovered_section = -1
+
+        # Enable mouse tracking for hover events
+        self.setMouseTracking(True)
+
+    def set_selected_sections(self, sections: set):
+        """Set which sections are selected."""
+        self._selected_sections = sections
+        self.viewport().update()
+
+    def mouseMoveEvent(self, event):
+        """Track mouse movement for hover effects."""
+        logical_index = self.logicalIndexAt(event.pos())
+
+        if logical_index != self._hovered_section:
+            self._hovered_section = logical_index
+
+            # Get column name and emit hover signal
+            table = self.parent()
+            if isinstance(table, QTableWidget) and logical_index >= 0 and logical_index < table.columnCount():
+                item = table.horizontalHeaderItem(logical_index)
+                if item:
+                    col_name = item.text()
+                    # Only emit for load case columns (not Story, Avg, Max, Min)
+                    if col_name not in ['Story', 'Avg', 'Max', 'Min']:
+                        self.section_hovered.emit(col_name)
+
+            self.viewport().update()
+
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        """Handle mouse leaving the header."""
+        self._hovered_section = -1
+        self.section_hover_left.emit()
+        self.viewport().update()
+        super().leaveEvent(event)
+
+    def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
+        """Paint header section with custom styling for selected sections."""
+        painter.save()
+
+        # Get the column name from parent table
+        table = self.parent()
+        if isinstance(table, QTableWidget) and logicalIndex < table.columnCount():
+            item = table.horizontalHeaderItem(logicalIndex)
+            col_name = item.text() if item else ""
+
+            # Check if this section is selected
+            is_selected = col_name in self._selected_sections
+
+            # Draw background
+            if is_selected:
+                painter.fillRect(rect, QColor("#2c5f6b"))  # Darker accent for selected
+            else:
+                painter.fillRect(rect, QColor("#161b22"))  # Default background
+
+            # Draw bottom border
+            painter.setPen(QColor("#2c313a"))
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+            # Draw text
+            if is_selected:
+                painter.setPen(QColor("#ffffff"))  # White text for selected
+                font = painter.font()
+                font.setBold(True)
+                painter.setFont(font)
+            else:
+                painter.setPen(QColor("#4a7d89"))  # Default accent color
+
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, col_name)
+
+        painter.restore()
 
 
 class ResultsTableWidget(QFrame):
     """Table widget for displaying results in tabular format."""
+
+    # Signal emitted when a load case column is clicked (column_name)
+    load_case_selected = pyqtSignal(str)
+    # Signal emitted when selection changes (list of selected load cases)
+    selection_changed = pyqtSignal(list)
+    # Signals for hover effects
+    load_case_hovered = pyqtSignal(str)
+    hover_cleared = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -18,6 +111,12 @@ class ResultsTableWidget(QFrame):
 
         # No border on container - table will have its own border
         self.setObjectName("tableContainer")
+
+        # Track selected load cases for highlighting
+        self._selected_load_cases = set()
+
+        # Track Story column sort order
+        self._story_sort_order = Qt.SortOrder.AscendingOrder
 
         self.setup_ui()
 
@@ -28,11 +127,19 @@ class ResultsTableWidget(QFrame):
         layout.setSpacing(0)
 
         self.table = QTableWidget()
+
+        # Set custom header view for highlighting selected columns
+        custom_header = SelectableHeaderView(Qt.Orientation.Horizontal, self.table)
+        self.table.setHorizontalHeader(custom_header)
+
+        # Store reference to custom header
+        self._custom_header = custom_header
+
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSortingEnabled(True)
+        self.table.setSortingEnabled(False)  # Disable automatic sorting - we'll handle manually
 
         # Disable scrolling - table should fit all columns
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -82,12 +189,23 @@ class ResultsTableWidget(QFrame):
         """)
 
         # Configure headers - fixed mode (no resizing)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        header.setStretchLastSection(False)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setDefaultSectionSize(55)  # Default column width
+        header.setSectionsClickable(True)  # Enable clicking
+
         self.table.verticalHeader().setVisible(False)
         self.table.setWordWrap(False)  # Prevent wrapping for compact display
-        self.table.horizontalHeader().setDefaultSectionSize(55)  # Default column width
+
+        # Connect header click signal
+        header.sectionClicked.connect(self._on_header_clicked)
+
+        # Connect hover signals from custom header
+        if isinstance(header, SelectableHeaderView):
+            header.section_hovered.connect(self.load_case_hovered.emit)
+            header.section_hover_left.connect(self.hover_cleared.emit)
 
         layout.addWidget(self.table)
 
@@ -101,6 +219,22 @@ class ResultsTableWidget(QFrame):
         self.table.setRowCount(len(df))
         self.table.setColumnCount(len(df.columns))
         self.table.setHorizontalHeaderLabels(df.columns.tolist())
+
+        # Calculate min/max across load case columns for gradient coloring
+        load_case_cols = [col for col in df.columns if col not in ['Story', 'Avg', 'Max', 'Min']]
+        all_load_case_values = []
+
+        if load_case_cols:
+            for col in load_case_cols:
+                for val in df[col]:
+                    try:
+                        all_load_case_values.append(float(val))
+                    except (ValueError, TypeError):
+                        pass
+
+        min_val = min(all_load_case_values) if all_load_case_values else 0
+        max_val = max(all_load_case_values) if all_load_case_values else 1
+        value_range = max_val - min_val if max_val != min_val else 1
 
         # Populate data
         for row_idx, (_, row) in enumerate(df.iterrows()):
@@ -133,34 +267,23 @@ class ResultsTableWidget(QFrame):
                         item.setText(formatted)
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                        # Color-code based on magnitude and column type
-                        if result_type == "Drifts":
-                            # Use percentage thresholds
-                            percentage = numeric_value * 100
+                        # Apply color based on column type
+                        if col_name in ['Avg', 'Max', 'Min']:
+                            # Summary columns - keep default text color
+                            item.setForeground(QColor("#d1d5db"))
+                        elif col_name != 'Story':
+                            # Load case columns - apply gradient from blue to orange
+                            # Normalize value to 0-1 range
+                            normalized = (numeric_value - min_val) / value_range if value_range > 0 else 0.5
 
-                            # Special styling for Avg, Max, Min columns
-                            if col_name in ['Avg', 'Max', 'Min']:
-                                # Use consistent table font, just different colors
-                                if col_name == 'Max':
-                                    # Max column - always show in color based on value
-                                    if percentage > 2.0:
-                                        item.setForeground(QColor("#e74c3c"))  # Red
-                                    elif percentage > 1.0:
-                                        item.setForeground(QColor("#f39c12"))  # Orange
-                                    else:
-                                        item.setForeground(QColor("#2ecc71"))  # Green
-                                elif col_name == 'Avg':
-                                    item.setForeground(QColor("#4a7d89"))  # Teal accent
-                                else:  # Min
-                                    item.setForeground(QColor("#7f8b9a"))  # Muted
-                            else:
-                                # Regular load case columns
-                                if percentage > 2.0:
-                                    item.setForeground(QColor("#e74c3c"))  # Red
-                                elif percentage > 1.0:
-                                    item.setForeground(QColor("#f39c12"))  # Orange
-                                else:
-                                    item.setForeground(QColor("#d1d5db"))  # Default text color
+                            # Interpolate between blue (#3b82f6) and orange (#fb923c)
+                            # Blue RGB: (59, 130, 246), Orange RGB: (251, 146, 60)
+                            r = int(59 + (251 - 59) * normalized)
+                            g = int(130 + (146 - 130) * normalized)
+                            b = int(246 + (60 - 246) * normalized)
+
+                            color = QColor(r, g, b)
+                            item.setForeground(color)
 
                     except (ValueError, TypeError):
                         item.setText(str(value))
@@ -178,6 +301,9 @@ class ResultsTableWidget(QFrame):
             else:  # Data columns
                 self.table.setColumnWidth(col_idx, data_column_width)
 
+        # Store column names for later reference
+        self._column_names = df.columns.tolist()
+
         # Auto-fit container to table content
         # Calculate actual table width needed (columns + small buffer for borders)
         total_width = story_column_width + (len(df.columns) - 1) * data_column_width + 2
@@ -190,7 +316,47 @@ class ResultsTableWidget(QFrame):
         self.setMinimumWidth(total_width)
         self.setMaximumWidth(total_width)
 
+    def _on_header_clicked(self, logical_index: int):
+        """Handle header clicks - toggle selection for load case columns, allow sorting only for Story."""
+        if not hasattr(self, '_column_names') or logical_index >= len(self._column_names):
+            return
+
+        col_name = self._column_names[logical_index]
+
+        # Check if it's a load case column (not Story, Avg, Max, Min)
+        if col_name not in ['Story', 'Avg', 'Max', 'Min']:
+            # Toggle selection
+            if col_name in self._selected_load_cases:
+                self._selected_load_cases.remove(col_name)
+            else:
+                self._selected_load_cases.add(col_name)
+
+            # Update header styling
+            self._update_header_styling()
+
+            # Emit selection changed signal with list of selected cases
+            self.selection_changed.emit(list(self._selected_load_cases))
+
+        elif col_name == 'Story':
+            # Story column - toggle sort order
+            if self._story_sort_order == Qt.SortOrder.AscendingOrder:
+                self._story_sort_order = Qt.SortOrder.DescendingOrder
+            else:
+                self._story_sort_order = Qt.SortOrder.AscendingOrder
+
+            # Apply the sort
+            self.table.sortItems(logical_index, self._story_sort_order)
+            self.table.horizontalHeader().setSortIndicator(logical_index, self._story_sort_order)
+        # Avg, Max, Min columns - do nothing
+
+    def _update_header_styling(self):
+        """Update header styling to highlight selected columns."""
+        header = self.table.horizontalHeader()
+        if isinstance(header, SelectableHeaderView):
+            header.set_selected_sections(self._selected_load_cases)
+
     def clear_data(self):
         """Clear table contents."""
         self.table.setRowCount(0)
         self.table.setColumnCount(0)
+        self._selected_load_cases.clear()
