@@ -11,7 +11,7 @@ from .ui_helpers import create_styled_label
 class ResultsTreeBrowser(QWidget):
     """Tree browser for navigating project results."""
 
-    selection_changed = pyqtSignal(str, str)  # (selection_type, result_type)
+    selection_changed = pyqtSignal(int, str, str)  # (result_set_id, category, result_type)
 
     def __init__(self, project_id: int, parent=None):
         super().__init__(parent)
@@ -32,110 +32,179 @@ class ResultsTreeBrowser(QWidget):
         # Tree widget
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(20)
+        self.tree.setIndentation(16)
         self.tree.setAnimated(True)
+        self.tree.setUniformRowHeights(False)
         self.tree.itemClicked.connect(self.on_item_clicked)
 
-        # Style tree
+        # Modern minimalist data-vis style (Vercel/Linear inspired)
         self.tree.setStyleSheet("""
             QTreeWidget {
-                background-color: #0a0c10;
+                background-color: transparent;
                 border: none;
                 outline: none;
                 padding: 4px;
+                font-size: 14px;
             }
             QTreeWidget::item {
-                padding: 6px 8px;
-                border-radius: 4px;
-                color: #d1d5db;
+                padding: 7px 10px;
+                border-radius: 5px;
+                color: #9ca3af;
+                margin: 1px 0px;
+                border: none;
+                background-color: transparent;
             }
             QTreeWidget::item:hover {
-                background-color: #161b22;
+                background-color: rgba(255, 255, 255, 0.03);
+                color: #d1d5db;
             }
             QTreeWidget::item:selected {
-                background-color: rgba(74, 125, 137, 0.2);
-                border-left: 2px solid #4a7d89;
-                color: #4a7d89;
+                background-color: rgba(74, 125, 137, 0.12);
+                color: #67e8f9;
+                font-weight: 400;
+            }
+            QTreeWidget::item:selected:hover {
+                background-color: rgba(74, 125, 137, 0.18);
             }
             QTreeWidget::branch {
                 background-color: transparent;
+                border: none;
             }
             QTreeWidget::branch:has-children:closed {
-                image: url(none);
+                image: none;
+                border: none;
             }
             QTreeWidget::branch:has-children:open {
-                image: url(none);
+                image: none;
+                border: none;
             }
         """)
 
         layout.addWidget(self.tree)
 
     def populate_tree(self, result_sets, stories):
-        """Populate tree with project structure."""
+        """Populate tree with project structure.
+
+        Args:
+            result_sets: List of ResultSet model instances
+            stories: List of Story model instances
+        """
         self.tree.clear()
 
         # Project info item
         info_item = QTreeWidgetItem(self.tree)
-        info_item.setText(0, f"📋 Project Info")
-        info_item.setData(0, Qt.ItemDataRole.UserRole, ("info", None))
+        info_item.setText(0, f"ⓘ Project Info")
+        info_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "info"})
         info_item.setExpanded(False)
 
         # Add stories count
         stories_info = QTreeWidgetItem(info_item)
-        stories_info.setText(0, f"  Stories: {len(stories)}")
+        stories_info.setText(0, f"└ {len(stories)} stories")
         stories_info.setFlags(Qt.ItemFlag.NoItemFlags)  # Non-selectable
 
         # Add result sets count
         sets_info = QTreeWidgetItem(info_item)
-        sets_info.setText(0, f"  Result Sets: {len(result_sets)}")
+        sets_info.setText(0, f"└ {len(result_sets)} result sets")
         sets_info.setFlags(Qt.ItemFlag.NoItemFlags)
 
-        # Envelopes section
-        envelopes_item = QTreeWidgetItem(self.tree)
-        envelopes_item.setText(0, "📊 Envelope Results")
-        envelopes_item.setData(0, Qt.ItemDataRole.UserRole, ("envelopes", None))
+        # Results root
+        results_root = QTreeWidgetItem(self.tree)
+        results_root.setText(0, "▸ Results")
+        results_root.setData(0, Qt.ItemDataRole.UserRole, {"type": "root"})
+        results_root.setExpanded(True)
+
+        if not result_sets:
+            # Show empty state
+            placeholder = QTreeWidgetItem(results_root)
+            placeholder.setText(0, "└ No result sets")
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+        else:
+            # Add each result set
+            for result_set in result_sets:
+                self._add_result_set(results_root, result_set)
+
+    def _add_result_set(self, parent_item: QTreeWidgetItem, result_set):
+        """Add a result set with its hierarchy.
+
+        Structure:
+        └── Result Set Name (DES, MCE, etc.)
+            ├── Envelopes
+            │   └── Global Results
+            │       ├── Story Drifts
+            │       ├── Story Accelerations
+            │       ├── Story Shears
+            │       └── Story Displacements
+            └── Time-Series (placeholder)
+        """
+        # Result set item
+        result_set_item = QTreeWidgetItem(parent_item)
+        result_set_item.setText(0, f"▸ {result_set.name}")
+        result_set_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "result_set", "id": result_set.id})
+        result_set_item.setExpanded(True)
+
+        # Envelopes category
+        envelopes_item = QTreeWidgetItem(result_set_item)
+        envelopes_item.setText(0, "◆ Envelopes")
+        envelopes_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category",
+            "result_set_id": result_set.id,
+            "category": "Envelopes"
+        })
         envelopes_item.setExpanded(True)
 
-        # Add result types under Envelopes
-        self._add_result_type(envelopes_item, "Δ Story Drifts", "Drifts")
-        self._add_result_type(envelopes_item, "≈ Story Accelerations", "Accelerations")
-        self._add_result_type(envelopes_item, "↕ Story Forces", "Forces")
+        # Global Results
+        global_item = QTreeWidgetItem(envelopes_item)
+        global_item.setText(0, "◇ Global")
+        global_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category_type",
+            "result_set_id": result_set.id,
+            "category": "Envelopes",
+            "category_type": "Global"
+        })
+        global_item.setExpanded(True)
 
-        # Time-Series section (placeholder)
-        timeseries_item = QTreeWidgetItem(self.tree)
-        timeseries_item.setText(0, "📈 Time-Series Results")
-        timeseries_item.setData(0, Qt.ItemDataRole.UserRole, ("timeseries", None))
+        # Result types under Global
+        self._add_result_type(global_item, "› Drifts", result_set.id, "Envelopes", "Drifts")
+        self._add_result_type(global_item, "› Accelerations", result_set.id, "Envelopes", "Accelerations")
+        self._add_result_type(global_item, "› Shears", result_set.id, "Envelopes", "Forces")
+        self._add_result_type(global_item, "› Displacements", result_set.id, "Envelopes", "Displacements")
+
+        # Time-Series category (placeholder)
+        timeseries_item = QTreeWidgetItem(result_set_item)
+        timeseries_item.setText(0, "◆ Time-Series")
+        timeseries_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category",
+            "result_set_id": result_set.id,
+            "category": "Time-Series"
+        })
         timeseries_item.setExpanded(False)
 
         placeholder = QTreeWidgetItem(timeseries_item)
-        placeholder.setText(0, "  (Coming soon)")
+        placeholder.setText(0, "└ Coming soon")
         placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
 
-        # Elements section (placeholder)
-        elements_item = QTreeWidgetItem(self.tree)
-        elements_item.setText(0, "🏗️ Element Results")
-        elements_item.setData(0, Qt.ItemDataRole.UserRole, ("elements", None))
-        elements_item.setExpanded(False)
-
-        placeholder2 = QTreeWidgetItem(elements_item)
-        placeholder2.setText(0, "  (Coming soon)")
-        placeholder2.setFlags(Qt.ItemFlag.NoItemFlags)
-
-    def _add_result_type(self, parent_item: QTreeWidgetItem, label: str, result_type: str):
+    def _add_result_type(self, parent_item: QTreeWidgetItem, label: str, result_set_id: int, category: str, result_type: str):
         """Add a result type item to the tree."""
         item = QTreeWidgetItem(parent_item)
-        item.setText(0, f"  {label}")
-        item.setData(0, Qt.ItemDataRole.UserRole, ("result_type", result_type))
+        item.setText(0, label)
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "result_type",
+            "result_set_id": result_set_id,
+            "category": category,
+            "result_type": result_type
+        })
 
     def on_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle tree item click."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not data:
+        if not data or not isinstance(data, dict):
             return
 
-        selection_type, result_type = data
+        item_type = data.get("type")
 
-        if selection_type == "result_type":
-            self.selection_changed.emit(selection_type, result_type)
-        elif selection_type == "info":
-            self.selection_changed.emit(selection_type, None)
+        if item_type == "result_type":
+            # Emit with full hierarchy path
+            result_set_id = data.get("result_set_id")
+            category = data.get("category")
+            result_type = data.get("result_type")
+            self.selection_changed.emit(result_set_id, category, result_type)

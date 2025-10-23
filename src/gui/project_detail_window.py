@@ -212,26 +212,38 @@ class ProjectDetailWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f"Error loading project data: {str(e)}")
 
-    def on_browser_selection_changed(self, selection_type: str, result_type: str = None):
-        """Handle browser selection changes."""
+    def on_browser_selection_changed(self, result_set_id: int, category: str, result_type: str):
+        """Handle browser selection changes.
+
+        Args:
+            result_set_id: ID of the selected result set
+            category: Category name (e.g., "Envelopes")
+            result_type: Result type (e.g., "Drifts", "Accelerations")
+        """
+        self.current_result_set_id = result_set_id
         self.current_result_type = result_type
 
-        if result_type:
+        if result_type and result_set_id:
             self.content_title.setText(f"📈 {result_type}")
-            self.load_results(result_type)
+            self.load_results(result_type, result_set_id)
         else:
             self.content_title.setText("Select a result type")
             self.table_widget.clear_data()
             self.plot_widget.clear_plots()
 
-    def load_results(self, result_type: str):
-        """Load and display results for the selected type."""
+    def load_results(self, result_type: str, result_set_id: int):
+        """Load and display results for the selected type.
+
+        Args:
+            result_type: Type of results to load (e.g., "Drifts", "Accelerations")
+            result_set_id: ID of the result set to filter by
+        """
         try:
             # Get cache data for display
             cache_entries = self.cache_repo.get_cache_for_display(
                 project_id=self.project_id,
                 result_type=result_type,
-                result_set_id=self.current_result_set_id,
+                result_set_id=result_set_id,
             )
 
             if not cache_entries:
@@ -296,8 +308,8 @@ class ProjectDetailWindow(QMainWindow):
             self.load_project_data()
 
             # Reload current result if selected
-            if self.current_result_type:
-                self.load_results(self.current_result_type)
+            if self.current_result_type and self.current_result_set_id:
+                self.load_results(self.current_result_type, self.current_result_set_id)
 
             QMessageBox.information(
                 self,

@@ -11,9 +11,11 @@ from .models import (
     StoryDrift,
     StoryAcceleration,
     StoryForce,
+    StoryDisplacement,
     Element,
     TimeHistoryData,
     ResultSet,
+    ResultCategory,
     GlobalResultsCache,
 )
 
@@ -279,14 +281,12 @@ class ResultSetRepository:
         self,
         project_id: int,
         name: str,
-        result_category: Optional[str] = None,
         description: Optional[str] = None,
     ) -> ResultSet:
         """Create a new result set."""
         result_set = ResultSet(
             project_id=project_id,
             name=name,
-            result_category=result_category,
             description=description,
         )
         self.session.add(result_set)
@@ -298,7 +298,6 @@ class ResultSetRepository:
         self,
         project_id: int,
         name: str,
-        result_category: Optional[str] = None,
     ) -> ResultSet:
         """Get existing result set or create new one."""
         result_set = (
@@ -307,8 +306,16 @@ class ResultSetRepository:
             .first()
         )
         if not result_set:
-            result_set = self.create(project_id, name, result_category)
+            result_set = self.create(project_id, name)
         return result_set
+
+    def check_duplicate(self, project_id: int, name: str) -> bool:
+        """Check if result set name already exists for this project."""
+        return (
+            self.session.query(ResultSet)
+            .filter(and_(ResultSet.project_id == project_id, ResultSet.name == name))
+            .first()
+        ) is not None
 
     def get_by_project(self, project_id: int) -> List[ResultSet]:
         """Get all result sets for a project."""
@@ -413,3 +420,74 @@ class CacheRepository:
                 results_matrix=entry_data['results_matrix'],
                 result_set_id=entry_data.get('result_set_id'),
             )
+
+
+class ResultCategoryRepository:
+    """Repository for ResultCategory operations."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(
+        self,
+        result_set_id: int,
+        category_name: str,
+        category_type: str,
+    ) -> ResultCategory:
+        """Create a new result category."""
+        category = ResultCategory(
+            result_set_id=result_set_id,
+            category_name=category_name,
+            category_type=category_type,
+        )
+        self.session.add(category)
+        self.session.commit()
+        self.session.refresh(category)
+        return category
+
+    def get_or_create(
+        self,
+        result_set_id: int,
+        category_name: str,
+        category_type: str,
+    ) -> ResultCategory:
+        """Get existing category or create new one."""
+        category = (
+            self.session.query(ResultCategory)
+            .filter(
+                and_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.category_name == category_name,
+                    ResultCategory.category_type == category_type,
+                )
+            )
+            .first()
+        )
+        if not category:
+            category = self.create(result_set_id, category_name, category_type)
+        return category
+
+    def get_by_result_set(self, result_set_id: int) -> List[ResultCategory]:
+        """Get all categories for a result set."""
+        return (
+            self.session.query(ResultCategory)
+            .filter(ResultCategory.result_set_id == result_set_id)
+            .order_by(ResultCategory.category_name, ResultCategory.category_type)
+            .all()
+        )
+
+    def get_by_result_set_and_category(
+        self, result_set_id: int, category_name: str, category_type: str
+    ) -> Optional[ResultCategory]:
+        """Get specific category by result set, name, and type."""
+        return (
+            self.session.query(ResultCategory)
+            .filter(
+                and_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.category_name == category_name,
+                    ResultCategory.category_type == category_type,
+                )
+            )
+            .first()
+        )

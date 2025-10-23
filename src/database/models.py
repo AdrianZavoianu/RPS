@@ -53,6 +53,7 @@ class LoadCase(Base):
     story_drifts = relationship("StoryDrift", back_populates="load_case", cascade="all, delete-orphan")
     story_accelerations = relationship("StoryAcceleration", back_populates="load_case", cascade="all, delete-orphan")
     story_forces = relationship("StoryForce", back_populates="load_case", cascade="all, delete-orphan")
+    story_displacements = relationship("StoryDisplacement", back_populates="load_case", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (Index("ix_project_loadcase", "project_id", "name", unique=True),)
@@ -77,6 +78,7 @@ class Story(Base):
     drifts = relationship("StoryDrift", back_populates="story", cascade="all, delete-orphan")
     accelerations = relationship("StoryAcceleration", back_populates="story", cascade="all, delete-orphan")
     forces = relationship("StoryForce", back_populates="story", cascade="all, delete-orphan")
+    displacements = relationship("StoryDisplacement", back_populates="story", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (Index("ix_project_story", "project_id", "name", unique=True),)
@@ -93,6 +95,7 @@ class StoryDrift(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
     load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
     direction = Column(String(10), nullable=False)  # 'X' or 'Y'
     drift = Column(Float, nullable=False)
     max_drift = Column(Float, nullable=True)  # Maximum across all points
@@ -101,10 +104,12 @@ class StoryDrift(Base):
     # Relationships
     story = relationship("Story", back_populates="drifts")
     load_case = relationship("LoadCase", back_populates="story_drifts")
+    result_category = relationship("ResultCategory", back_populates="drifts")
 
     # Indexes for fast querying
     __table_args__ = (
         Index("ix_drift_story_case", "story_id", "load_case_id", "direction"),
+        Index("ix_drift_category", "result_category_id"),
     )
 
     def __repr__(self):
@@ -119,6 +124,7 @@ class StoryAcceleration(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
     load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
     direction = Column(String(10), nullable=False)  # 'UX' or 'UY'
     acceleration = Column(Float, nullable=False)  # In g units
     max_acceleration = Column(Float, nullable=True)
@@ -127,10 +133,12 @@ class StoryAcceleration(Base):
     # Relationships
     story = relationship("Story", back_populates="accelerations")
     load_case = relationship("LoadCase", back_populates="story_accelerations")
+    result_category = relationship("ResultCategory", back_populates="accelerations")
 
     # Indexes
     __table_args__ = (
         Index("ix_accel_story_case", "story_id", "load_case_id", "direction"),
+        Index("ix_accel_category", "result_category_id"),
     )
 
     def __repr__(self):
@@ -145,6 +153,7 @@ class StoryForce(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
     load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
     direction = Column(String(10), nullable=False)  # 'VX' or 'VY'
     location = Column(String(20), nullable=True)  # 'Top' or 'Bottom'
     force = Column(Float, nullable=False)
@@ -154,14 +163,45 @@ class StoryForce(Base):
     # Relationships
     story = relationship("Story", back_populates="forces")
     load_case = relationship("LoadCase", back_populates="story_forces")
+    result_category = relationship("ResultCategory", back_populates="forces")
 
     # Indexes
     __table_args__ = (
         Index("ix_force_story_case", "story_id", "load_case_id", "direction"),
+        Index("ix_force_category", "result_category_id"),
     )
 
     def __repr__(self):
         return f"<StoryForce(story_id={self.story_id}, case={self.load_case_id}, force={self.force})>"
+
+
+class StoryDisplacement(Base):
+    """Story displacement results."""
+
+    __tablename__ = "story_displacements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
+    direction = Column(String(10), nullable=False)  # 'UX', 'UY', 'UZ'
+    displacement = Column(Float, nullable=False)
+    max_displacement = Column(Float, nullable=True)
+    min_displacement = Column(Float, nullable=True)
+
+    # Relationships
+    story = relationship("Story", back_populates="displacements")
+    load_case = relationship("LoadCase", back_populates="story_displacements")
+    result_category = relationship("ResultCategory", back_populates="displacements")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_disp_story_case", "story_id", "load_case_id", "direction"),
+        Index("ix_disp_category", "result_category_id"),
+    )
+
+    def __repr__(self):
+        return f"<StoryDisplacement(story_id={self.story_id}, case={self.load_case_id}, disp={self.displacement})>"
 
 
 # Additional models for future expansion
@@ -218,20 +258,46 @@ class ResultSet(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    name = Column(String(100), nullable=False)  # 'DES', 'MCE', etc.
-    result_category = Column(String(50), nullable=True)  # 'Envelopes', 'Time-Series'
+    name = Column(String(100), nullable=False)  # 'DES', 'MCE', 'SLE', etc.
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     project = relationship("Project", back_populates="result_sets")
+    categories = relationship("ResultCategory", back_populates="result_set", cascade="all, delete-orphan")
     cache_entries = relationship("GlobalResultsCache", back_populates="result_set", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (Index("ix_project_resultset", "project_id", "name", unique=True),)
 
     def __repr__(self):
-        return f"<ResultSet(id={self.id}, name='{self.name}', category='{self.result_category}')>"
+        return f"<ResultSet(id={self.id}, name='{self.name}')>"
+
+
+class ResultCategory(Base):
+    """Represents a category within a result set (Envelopes/Time-Series → Global/Elements/Joints)."""
+
+    __tablename__ = "result_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    result_set_id = Column(Integer, ForeignKey("result_sets.id"), nullable=False)
+    category_name = Column(String(50), nullable=False)  # 'Envelopes', 'Time-Series'
+    category_type = Column(String(50), nullable=False)  # 'Global', 'Elements', 'Joints'
+
+    # Relationships
+    result_set = relationship("ResultSet", back_populates="categories")
+    drifts = relationship("StoryDrift", back_populates="result_category", cascade="all, delete-orphan")
+    accelerations = relationship("StoryAcceleration", back_populates="result_category", cascade="all, delete-orphan")
+    forces = relationship("StoryForce", back_populates="result_category", cascade="all, delete-orphan")
+    displacements = relationship("StoryDisplacement", back_populates="result_category", cascade="all, delete-orphan")
+
+    # Composite unique constraint
+    __table_args__ = (
+        Index("ix_resultset_category", "result_set_id", "category_name", "category_type", unique=True),
+    )
+
+    def __repr__(self):
+        return f"<ResultCategory(id={self.id}, set='{self.result_set_id}', name='{self.category_name}', type='{self.category_type}')>"
 
 
 class GlobalResultsCache(Base):

@@ -26,10 +26,11 @@ class FolderImportWorker(QThread):
     finished = pyqtSignal(dict)  # stats
     error = pyqtSignal(str)  # error message
 
-    def __init__(self, folder_path: str, project_name: str):
+    def __init__(self, folder_path: str, project_name: str, result_set_name: str):
         super().__init__()
         self.folder_path = folder_path
         self.project_name = project_name
+        self.result_set_name = result_set_name
 
     def run(self):
         """Run the import in background thread."""
@@ -39,6 +40,7 @@ class FolderImportWorker(QThread):
             importer = FolderImporter(
                 folder_path=self.folder_path,
                 project_name=self.project_name,
+                result_set_name=self.result_set_name,
                 result_types=["Story Drifts"],
                 progress_callback=self._on_progress,
             )
@@ -164,6 +166,25 @@ class FolderImportDialog(QDialog):
 
         layout.addWidget(project_group)
 
+        # Result Set name
+        result_set_group = QGroupBox("Result Set Information")
+        result_set_group.setStyleSheet(folder_group.styleSheet())
+        result_set_layout = QVBoxLayout(result_set_group)
+
+        self.result_set_input = QLineEdit()
+        self.result_set_input.setPlaceholderText("Enter result set name (e.g., DES, MCE, SLE)...")
+        self.result_set_input.setStyleSheet(self.folder_input.styleSheet())
+        self.result_set_input.textChanged.connect(self.update_import_button)
+        result_set_layout.addWidget(QLabel("Result Set Name:"))
+        result_set_layout.addWidget(self.result_set_input)
+
+        self.result_set_validation_label = QLabel("")
+        self.result_set_validation_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+        self.result_set_validation_label.setWordWrap(True)
+        result_set_layout.addWidget(self.result_set_validation_label)
+
+        layout.addWidget(result_set_group)
+
         # Progress section
         progress_group = QGroupBox("Import Progress")
         progress_group.setStyleSheet(folder_group.styleSheet())
@@ -258,7 +279,7 @@ class FolderImportDialog(QDialog):
             from processing.folder_importer import FolderImporter
 
             # Create temporary importer to get file list
-            importer = FolderImporter(self.folder_path, "temp")
+            importer = FolderImporter(self.folder_path, "temp", "temp")
             files = importer.get_file_list()
 
             if files:
@@ -276,26 +297,59 @@ class FolderImportDialog(QDialog):
         has_project = bool(self.project_input.text().strip())
         has_files = self.file_list.count() > 0
 
-        self.import_btn.setEnabled(has_folder and has_project and has_files)
+        # Validate result set name
+        result_set_name = self.result_set_input.text().strip()
+        has_result_set = bool(result_set_name)
+
+        is_valid = True
+        validation_message = ""
+
+        if has_result_set and has_project:
+            # Check for duplicates
+            from database.base import get_session
+            from database.repository import ProjectRepository, ResultSetRepository
+
+            session = get_session()
+            try:
+                project_repo = ProjectRepository(session)
+                project = project_repo.get_by_name(self.project_input.text().strip())
+
+                if project:
+                    result_set_repo = ResultSetRepository(session)
+                    if result_set_repo.check_duplicate(project.id, result_set_name):
+                        is_valid = False
+                        validation_message = f"⚠ Result set '{result_set_name}' already exists for this project"
+            finally:
+                session.close()
+
+        self.result_set_validation_label.setText(validation_message)
+        self.import_btn.setEnabled(has_folder and has_project and has_result_set and has_files and is_valid)
 
     def start_import(self):
         """Start the import process."""
         self.project_name = self.project_input.text().strip()
+        result_set_name = self.result_set_input.text().strip()
 
         if not self.project_name:
             self.log_output.append("✗ Please enter a project name")
+            return
+
+        if not result_set_name:
+            self.log_output.append("✗ Please enter a result set name")
             return
 
         # Disable controls during import
         self.import_btn.setEnabled(False)
         self.browse_btn = self.findChild(QPushButton)
         self.project_input.setEnabled(False)
+        self.result_set_input.setEnabled(False)
 
         self.log_output.append(f"\n▶ Starting batch import for project: {self.project_name}")
+        self.log_output.append(f"▶ Result set: {result_set_name}")
         self.log_output.append(f"▶ Processing {self.file_list.count()} files...")
 
         # Create and start worker thread
-        self.worker = FolderImportWorker(self.folder_path, self.project_name)
+        self.worker = FolderImportWorker(self.folder_path, self.project_name, result_set_name)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
@@ -341,6 +395,7 @@ class FolderImportDialog(QDialog):
         # Re-enable controls
         self.import_btn.setEnabled(True)
         self.project_input.setEnabled(True)
+        self.result_set_input.setEnabled(True)
 
     def get_project_name(self) -> str:
         """Get the project name.

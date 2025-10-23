@@ -12,6 +12,8 @@ from database.repository import (
     StoryRepository,
     ResultRepository,
     CacheRepository,
+    ResultSetRepository,
+    ResultCategoryRepository,
 )
 from database.models import StoryDrift
 
@@ -25,6 +27,7 @@ class FolderImporter:
         self,
         folder_path: str,
         project_name: str,
+        result_set_name: str,
         result_types: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ):
@@ -33,6 +36,7 @@ class FolderImporter:
         Args:
             folder_path: Path to folder containing Excel files
             project_name: Name of the project
+            result_set_name: Name for this result set (e.g., DES, MCE, SLE)
             result_types: List of result types to import (default: ['Story Drifts'])
             progress_callback: Optional callback function(message, current, total)
         """
@@ -41,6 +45,7 @@ class FolderImporter:
             raise ValueError(f"Invalid folder path: {folder_path}")
 
         self.project_name = project_name
+        self.result_set_name = result_set_name
         self.result_types = result_types or ["Story Drifts"]
         self.progress_callback = progress_callback
 
@@ -95,6 +100,25 @@ class FolderImporter:
                 )
             stats["project"] = project.name
 
+            # Create or get result set
+            result_set_repo = ResultSetRepository(session)
+            result_set = result_set_repo.get_or_create(
+                project_id=project.id,
+                name=self.result_set_name,
+            )
+
+            # Create result category (Envelopes → Global)
+            category_repo = ResultCategoryRepository(session)
+            result_category = category_repo.get_or_create(
+                result_set_id=result_set.id,
+                category_name="Envelopes",
+                category_type="Global",
+            )
+
+            # Store for use in import methods
+            self.result_category_id = result_category.id
+            self.result_set_id = result_set.id
+
             self._report_progress("Processing files...", 0, len(self.excel_files))
 
             # Process each Excel file
@@ -123,7 +147,7 @@ class FolderImporter:
 
             # Generate cache after all imports
             self._report_progress("Generating cache...", len(self.excel_files), len(self.excel_files))
-            self._generate_cache(session, project.id)
+            self._generate_cache(session, project.id, self.result_set_id)
 
             session.commit()
 
@@ -197,6 +221,7 @@ class FolderImporter:
                     drift = StoryDrift(
                         story_id=story.id,
                         load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
                         direction=direction,
                         drift=row["Drift"],
                         max_drift=row.get("MaxDrift"),
@@ -217,7 +242,7 @@ class FolderImporter:
 
         return stats
 
-    def _generate_cache(self, session, project_id: int):
+    def _generate_cache(self, session, project_id: int, result_set_id: int):
         """Generate wide-format cache tables for fast tabular display."""
         story_repo = StoryRepository(session)
         cache_repo = CacheRepository(session)
@@ -226,18 +251,19 @@ class FolderImporter:
         stories = story_repo.get_by_project(project_id)
 
         # Generate cache for Story Drifts
-        self._cache_drifts(session, project_id, stories, cache_repo)
+        self._cache_drifts(session, project_id, result_set_id, stories, cache_repo)
 
-    def _cache_drifts(self, session, project_id: int, stories, cache_repo):
+    def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo):
         """Generate cache for story drifts."""
         from database.models import StoryDrift, LoadCase, Story
 
-        # Get all drifts for this project
+        # Get all drifts for this project and result set
         drifts = (
             session.query(StoryDrift, LoadCase.name)
             .join(LoadCase, StoryDrift.load_case_id == LoadCase.id)
             .join(Story, StoryDrift.story_id == Story.id)
             .filter(Story.project_id == project_id)
+            .filter(StoryDrift.result_category_id == self.result_category_id)
             .all()
         )
 
@@ -259,7 +285,7 @@ class FolderImporter:
                 story_id=story_id,
                 result_type="Drifts",
                 results_matrix=results_matrix,
-                result_set_id=None,
+                result_set_id=result_set_id,
             )
 
     def get_file_list(self) -> List[str]:

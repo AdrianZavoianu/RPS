@@ -10,6 +10,7 @@ from database.repository import (
     StoryRepository,
     ResultRepository,
     ResultSetRepository,
+    ResultCategoryRepository,
     CacheRepository,
 )
 from database.models import StoryDrift, StoryAcceleration, StoryForce
@@ -21,16 +22,18 @@ from .result_processor import ResultProcessor
 class DataImporter:
     """Import structural analysis results from Excel into database."""
 
-    def __init__(self, file_path: str, project_name: str, analysis_type: Optional[str] = None):
+    def __init__(self, file_path: str, project_name: str, result_set_name: str, analysis_type: Optional[str] = None):
         """Initialize importer.
 
         Args:
             file_path: Path to Excel file
             project_name: Name of the project
+            result_set_name: Name for this result set (e.g., DES, MCE, SLE)
             analysis_type: Optional analysis type (e.g., 'DERG', 'MCR')
         """
         self.file_path = Path(file_path)
         self.project_name = project_name
+        self.result_set_name = result_set_name
         self.analysis_type = analysis_type or "General"
         self.parser = ExcelParser(file_path)
 
@@ -63,6 +66,25 @@ class DataImporter:
                 )
             stats["project"] = project.name
 
+            # Create or get result set
+            result_set_repo = ResultSetRepository(session)
+            result_set = result_set_repo.get_or_create(
+                project_id=project.id,
+                name=self.result_set_name,
+            )
+
+            # Create result category (Envelopes → Global)
+            category_repo = ResultCategoryRepository(session)
+            result_category = category_repo.get_or_create(
+                result_set_id=result_set.id,
+                category_name="Envelopes",
+                category_type="Global",
+            )
+
+            # Store for use in import methods
+            self.result_category_id = result_category.id
+            self.result_set_id = result_set.id
+
             # Import story drifts if available
             if self.parser.validate_sheet_exists("Story Drifts"):
                 drift_stats = self._import_story_drifts(session, project.id)
@@ -79,7 +101,7 @@ class DataImporter:
                 stats["forces"] += force_stats.get("forces", 0)
 
             # Generate cache for fast display after all imports
-            self._generate_cache(session, project.id)
+            self._generate_cache(session, project.id, self.result_set_id)
 
             session.commit()
 
@@ -134,6 +156,7 @@ class DataImporter:
                     drift = StoryDrift(
                         story_id=story.id,
                         load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
                         direction=direction,
                         drift=row["Drift"],
                         max_drift=row.get("MaxDrift"),
@@ -184,6 +207,7 @@ class DataImporter:
                     accel = StoryAcceleration(
                         story_id=story.id,
                         load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
                         direction=direction,
                         acceleration=row["Acceleration"],
                         max_acceleration=row.get("MaxAcceleration"),
@@ -230,6 +254,7 @@ class DataImporter:
                     force = StoryForce(
                         story_id=story.id,
                         load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
                         direction=direction,
                         location=row.get("Location", "Bottom"),
                         force=row["Force"],
@@ -246,7 +271,7 @@ class DataImporter:
 
         return stats
 
-    def _generate_cache(self, session, project_id: int):
+    def _generate_cache(self, session, project_id: int, result_set_id: int):
         """Generate wide-format cache tables for fast tabular display."""
         story_repo = StoryRepository(session)
         cache_repo = CacheRepository(session)
@@ -256,21 +281,22 @@ class DataImporter:
         stories = story_repo.get_by_project(project_id)
 
         # Generate cache for each result type
-        self._cache_drifts(session, project_id, stories, cache_repo, result_repo)
-        self._cache_accelerations(session, project_id, stories, cache_repo, result_repo)
-        self._cache_forces(session, project_id, stories, cache_repo, result_repo)
+        self._cache_drifts(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._cache_accelerations(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._cache_forces(session, project_id, result_set_id, stories, cache_repo, result_repo)
 
-    def _cache_drifts(self, session, project_id: int, stories, cache_repo, result_repo):
+    def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
         """Generate cache for story drifts."""
         from sqlalchemy import and_
-        from database.models import StoryDrift, LoadCase
+        from database.models import StoryDrift, LoadCase, Story
 
-        # Get all drifts for this project
+        # Get all drifts for this project and result set
         drifts = (
             session.query(StoryDrift, LoadCase.name)
             .join(LoadCase, StoryDrift.load_case_id == LoadCase.id)
-            .join(Story := stories[0].__class__, StoryDrift.story_id == Story.id)
+            .join(Story, StoryDrift.story_id == Story.id)
             .filter(Story.project_id == project_id)
+            .filter(StoryDrift.result_category_id == self.result_category_id)
             .all()
         )
 
@@ -292,10 +318,10 @@ class DataImporter:
                 story_id=story_id,
                 result_type="Drifts",
                 results_matrix=results_matrix,
-                result_set_id=None,
+                result_set_id=result_set_id,
             )
 
-    def _cache_accelerations(self, session, project_id: int, stories, cache_repo, result_repo):
+    def _cache_accelerations(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
         """Generate cache for story accelerations."""
         from database.models import StoryAcceleration, LoadCase, Story
 
@@ -304,6 +330,7 @@ class DataImporter:
             .join(LoadCase, StoryAcceleration.load_case_id == LoadCase.id)
             .join(Story, StoryAcceleration.story_id == Story.id)
             .filter(Story.project_id == project_id)
+            .filter(StoryAcceleration.result_category_id == self.result_category_id)
             .all()
         )
 
@@ -322,10 +349,10 @@ class DataImporter:
                 story_id=story_id,
                 result_type="Accelerations",
                 results_matrix=results_matrix,
-                result_set_id=None,
+                result_set_id=result_set_id,
             )
 
-    def _cache_forces(self, session, project_id: int, stories, cache_repo, result_repo):
+    def _cache_forces(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
         """Generate cache for story forces."""
         from database.models import StoryForce, LoadCase, Story
 
@@ -334,6 +361,7 @@ class DataImporter:
             .join(LoadCase, StoryForce.load_case_id == LoadCase.id)
             .join(Story, StoryForce.story_id == Story.id)
             .filter(Story.project_id == project_id)
+            .filter(StoryForce.result_category_id == self.result_category_id)
             .all()
         )
 
@@ -352,5 +380,5 @@ class DataImporter:
                 story_id=story_id,
                 result_type="Forces",
                 results_matrix=results_matrix,
-                result_set_id=None,
+                result_set_id=result_set_id,
             )

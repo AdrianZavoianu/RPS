@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **This file (CLAUDE.md)**: Quick development guide and common tasks
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: Complete technical architecture, data model, patterns
 - **[PRD.md](PRD.md)**: Product requirements, features, roadmap
+- **[DESIGN.md](DESIGN.md)**: Visual design system, styling guidelines, component patterns
 
 ---
 
@@ -21,34 +22,65 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Current State
+## Current State - October 2025
 
-### Implemented Features ✅
-- Hybrid normalized + wide-format cache data model
-- Folder-based batch import with progress tracking
-- Project detail view: Browser | Table | Plot (3-panel)
-- Story drifts visualization with interactive column selection
-- Configuration-driven architecture for easy extension
-- GMP-exact design system with dark theme
-- Hot-reload development environment
+### ✅ Fully Implemented
 
-### Recent Refactoring ✅
-**Impact**: ~180 lines of duplication eliminated, adding new result types now takes 5 minutes vs 30 minutes
+**Core Features:**
+- ✅ Hybrid normalized + wide-format cache data model
+- ✅ Hierarchical data organization (Result Sets → Categories → Results)
+- ✅ Folder-based batch import with progress tracking
+- ✅ Single-file import with validation
+- ✅ Project detail view: Browser | Table | Plot (3-panel)
+- ✅ Story drifts visualization with interactive column selection
+- ✅ Modern minimalist design system (Vercel/Linear inspired)
+- ✅ Hot-reload development environment
 
-- **Phase 1**: Configuration-driven transformers (`result_config.py`, `result_transformers.py`)
-- **Phase 2**: Utility extraction (`color_utils.py`, `data_utils.py`)
-- **Phase 3**: Plot builder (`plot_builder.py`)
+**Data Hierarchy (NEW - 100% Complete):**
+- ✅ Result sets with user-defined names (DES, MCE, SLE, etc.)
+- ✅ Load cases shared across all result sets
+- ✅ Result categories: Envelopes → Global Results
+- ✅ Support for: Drifts, Accelerations, Forces, Displacements
+- ✅ Full UI integration: tree browser + detail views
+- ✅ Duplicate validation for result set names
+- ✅ Database migration with backward compatibility
 
-### Ready for Extension
-- **Accelerations**: Config exists, just load UX data
-- **Forces**: Config exists, just load VX data
-- **Custom Result Types**: Add config + transformer (~10 lines)
+**Architecture:**
+- ✅ Configuration-driven transformers (~180 lines of duplication eliminated)
+- ✅ Repository pattern for clean data access
+- ✅ Pluggable result type system (add new types in ~10 lines)
+- ✅ Alembic migrations for schema evolution
+
+**Design System (NEW):**
+- ✅ Modern minimalist aesthetic (documented in DESIGN.md)
+- ✅ Geometric icon system (no colorful emojis)
+- ✅ Transparent layers with subtle interactions
+- ✅ Consistent 4px spacing grid
+- ✅ Cyan accent (#67e8f9) for selections
+- ✅ 14px base font size
+
+### 🎯 Next Steps
+
+**Near-term (Ready to implement):**
+- [ ] Accelerations visualization (config exists, just load UX data)
+- [ ] Forces visualization (config exists, just load VX data)
+- [ ] Displacements visualization (new result type)
+- [ ] Export functionality (CSV, Excel, plots to PNG/PDF)
+- [ ] Multi-result-set comparison view
+
+**Future Enhancements:**
+- [ ] Time-series results support (placeholder in UI exists)
+- [ ] Element results (columns, beams, piers)
+- [ ] Joint results (displacements, reactions)
+- [ ] 3D model visualization
+- [ ] Custom report generation
 
 ---
 
 ## Key Architecture (Quick Summary)
 
 > **Full details**: See [ARCHITECTURE.md](ARCHITECTURE.md)
+> **Design guidelines**: See [DESIGN.md](DESIGN.md)
 
 ### Configuration-Driven Design
 ```python
@@ -183,6 +215,44 @@ def _plot_building_profile(self, df, result_type):
     # Change line styles, colors, etc.
     ...
 ```
+
+---
+
+### Styling New UI Components
+
+**Follow the design system** documented in [DESIGN.md](DESIGN.md):
+
+```python
+# Use modern minimalist style
+QWidget {
+    background-color: transparent;  # Start transparent
+    font-size: 14px;                # Standard text size
+    color: #9ca3af;                 # Muted gray default
+}
+
+QWidget:hover {
+    background-color: rgba(255, 255, 255, 0.03);  # Subtle hover
+    color: #d1d5db;                                # Lighter on hover
+}
+
+QWidget:selected {
+    background-color: rgba(74, 125, 137, 0.12);  # Subtle accent
+    color: #67e8f9;                               # Cyan for selection
+}
+```
+
+**Icon System** - Use geometric shapes (see DESIGN.md):
+- Navigation: `▸ ◆ ◇ ›`
+- Actions: `⊕ ⊖ ✓ ✗ ⚠`
+- States: `└ ├ │ ⓘ`
+
+**Color Palette**:
+- Background: `#0a0c10` (primary), `#161b22` (secondary)
+- Text: `#d1d5db` (primary), `#9ca3af` (secondary)
+- Accent: `#4a7d89` (teal), `#67e8f9` (cyan)
+- Border: `#2c313a`
+
+**Spacing**: Use 4px increments (`4px, 8px, 12px, 16px, 24px`)
 
 ---
 

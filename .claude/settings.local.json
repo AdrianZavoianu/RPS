@@ -15,7 +15,9 @@
       "Bash(rm:*)",
       "Bash(pipenv uninstall:*)",
       "Bash(git checkout:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

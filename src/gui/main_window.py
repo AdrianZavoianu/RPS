@@ -554,14 +554,15 @@ class MainWindow(QMainWindow):
             # Get selected file from dialog
             file_path = dialog.get_selected_file()
             project_name = dialog.get_project_name()
+            result_set_name = dialog.get_result_set_name()
             analysis_type = dialog.get_analysis_type()
 
-            if file_path and project_name:
+            if file_path and project_name and result_set_name:
                 self.statusBar().showMessage(f"Importing {file_path}...")
 
                 try:
                     # Import data
-                    importer = DataImporter(file_path, project_name, analysis_type)
+                    importer = DataImporter(file_path, project_name, result_set_name, analysis_type)
                     stats = importer.import_all()
 
                     # Show success message
