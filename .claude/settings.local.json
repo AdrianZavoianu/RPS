@@ -11,7 +11,10 @@
       "Bash(set PIPENV_IGNORE_VIRTUALENVS=1)",
       "Bash(pipenv shell:*)",
       "Read(//c/wsl.localhost/Ubuntu-22.04/home/az/SoftDev/GMP/GMP-App/gmp_frontend/src/**)",
-      "Read(//c/wsl.localhost/Ubuntu-22.04/home/az/SoftDev/GMP/GMP-App/gmp_frontend/**)"
+      "Read(//c/wsl.localhost/Ubuntu-22.04/home/az/SoftDev/GMP/GMP-App/gmp_frontend/**)",
+      "Bash(rm:*)",
+      "Bash(pipenv uninstall:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

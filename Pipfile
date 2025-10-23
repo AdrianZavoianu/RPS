@@ -18,7 +18,6 @@ black = "*"
 flake8 = "*"
 pyinstaller = "*"
 pyqt6-tools = "*"
-watchfiles = "*"
 
 [requires]
 python_version = "3.11"

@@ -1,14 +1,9 @@
 """Results tree browser - hierarchical navigation for project results."""
 
-from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QLabel,
-)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                             QWidget)
 
 from .ui_helpers import create_styled_label
 

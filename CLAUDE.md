@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Workflow - IMPORTANT ⚠️
+
+**After completing each work segment (editing files, implementing features, fixing bugs):**
+
+1. **ALWAYS run the application** to verify changes work correctly
+2. **Command**: `pipenv run python src/main.py`
+3. **Do this BEFORE finishing your response** - the user wants to see working code, not just file edits
+4. **Report any errors** encountered during the run so they can be addressed immediately
+
+**Why this matters:**
+- Manual verification after all changes are complete ensures code works as expected
+- Catches runtime errors immediately while context is fresh
+- Ensures the user receives working, tested code
+- Provides immediate feedback on implementation quality
+
 ## Project Overview
 
 Results Processing System (RPS) - A modern desktop application for processing and visualizing structural engineering results from ETABS/SAP2000 Excel exports. Built with PyQt6, featuring a dark web-style theme, database storage, and high-performance visualization.
@@ -16,7 +31,6 @@ The application is **fully functional** with:
 - ✅ **Project Detail Pages** - Individual project views with browser navigation
 - ✅ **Results Visualization** - PyQtGraph building profile plots for story drifts
 - ✅ **Compact Table Display** - X-direction drifts with Avg/Max/Min statistics
-- ✅ **Hot-Reload Development** - Web-style auto-restart on save (watchfiles)
 - ✅ **GMP-Exact Design System** - Button variants, typography, and styling matching GMP frontend
 - ✅ **Modern dark bluish theme** - Refined components with consistent spacing
 - ✅ **PyQt6 desktop application** - Web-style UI with QFrame borders
@@ -29,7 +43,6 @@ The application is **fully functional** with:
 - ✅ Built folder import system with `FolderImporter` and progress dialog
 - ✅ Implemented story drift visualization with building profile plots
 - ✅ Refined table layout with auto-fitting container and consistent borders
-- ✅ Set up hot-reload development environment with watchfiles
 
 **Next Steps**: Add Accelerations/Forces visualization, implement export functionality, add more result types.
 
@@ -49,7 +62,6 @@ The application is **fully functional** with:
 - **Formatting**: black
 - **Linting**: flake8
 - **Building**: PyInstaller (for .exe distribution)
-- **Hot-Reload**: watchfiles - Web-style auto-restart on save (see HOTRELOAD_QUICKSTART.md)
 
 ## Platform Notes
 
@@ -220,20 +232,6 @@ pipenv run alembic upgrade head
 
 # Rollback migration
 pipenv run alembic downgrade -1
-```
-
-### Hot-Reload Development (NEW ✨)
-
-```bash
-# Start with auto-reload (recommended for UI development)
-pipenv run python dev_watch.py
-
-# Or use Cursor/VS Code task (Ctrl+Shift+B)
-# - Task: "RPS - Run with Auto-Reload"
-# - Edit any .py file in src/ → auto-restarts on save
-# - Web-style development experience!
-
-# See HOTRELOAD_QUICKSTART.md for details
 ```
 
 ### Building Executable

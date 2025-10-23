@@ -1,6 +1,9 @@
 """Results plot widget - PyQtGraph plots with GMP styling."""
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,
+    QFrame, QSpacerItem, QSizePolicy
+)
 from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 import pandas as pd
@@ -74,47 +77,126 @@ class ResultsPlotWidget(QWidget):
 
         layout.addWidget(self.tabs)
 
-    def _create_plot_widget(self, title: str) -> pg.PlotWidget:
-        """Create a styled PyQtGraph plot widget."""
+    def _create_plot_widget(self, title: str) -> QWidget:
+        """Create a styled PyQtGraph plot widget with external legend."""
+        # Container widget with horizontal layout
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)  # Spacing between plot and legend
+
+        # Create the plot
         plot_widget = pg.PlotWidget()
-        plot_widget.setBackground('#0a0c10')
+        plot_widget.setBackground('#0a0c10')  # Overall background
+
+        # Set plot area background to slightly lighter shade for differentiation
+        view_box = plot_widget.getPlotItem().getViewBox()
+        view_box.setBackgroundColor('#0f1419')
+
+        # Add border to plot area
+        view_box.setBorder(pg.mkPen('#2c313a', width=1))
 
         # Configure plot appearance to match GMP
-        plot_widget.showGrid(x=True, y=True, alpha=0.15)
+        plot_widget.showGrid(x=True, y=True, alpha=0.5)  # Visible grid
         plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
         plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
         plot_widget.getAxis('bottom').setTextPen('#d1d5db')
         plot_widget.getAxis('left').setTextPen('#d1d5db')
 
         plot_widget.setMenuEnabled(False)
-        view_box = plot_widget.getViewBox()
         view_box.setMouseEnabled(x=False, y=False)
 
-        # Set title
+        # Set padding for plot
+        view_box.setDefaultPadding(0.0)
+
+        # Set title with spacing
         plot_widget.setTitle(title, color='#4a7d89', size='12pt')
 
-        # Create legend and move it to a dedicated column on the right
-        legend = pg.LegendItem()
-        legend.setLabelTextColor('#d1d5db')
-        legend.setBrush(pg.mkBrush('#11151c'))
-        legend.setPen(pg.mkPen('#2c313a'))
-        legend.opts['sampleWidth'] = 16
-        legend.layout.setContentsMargins(6, 6, 6, 6)
-        legend.layout.setSpacing(4)
-
+        # Add spacing between title row and plot area row
         plot_item = plot_widget.getPlotItem()
-        plot_item.layout.addItem(legend, 0, 3, 3, 1)  # span title, view box, x-axis
-        plot_item.layout.setColumnMinimumWidth(3, 140)
-        plot_item.layout.setColumnMaximumWidth(3, 140)
-        plot_item.layout.setColumnStretchFactor(0, 0)
-        plot_item.layout.setColumnStretchFactor(1, 1)
-        plot_item.layout.setColumnStretchFactor(2, 0)
-        plot_item.layout.setColumnStretchFactor(3, 0)
-        plot_item.layout.setColumnSpacing(2, 12)
-        plot_item.layout.setRowStretchFactor(1, 1)
+        plot_item.layout.setRowSpacing(0, 12)  # Space between title and plot
 
-        self._plot_legends[plot_widget] = legend
-        return plot_widget
+        # Create legend as a separate widget
+        # Wrapper for legend with top spacing
+        legend_wrapper = QWidget()
+        legend_wrapper.setMaximumWidth(150)
+        legend_wrapper_layout = QVBoxLayout(legend_wrapper)
+        legend_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        legend_wrapper_layout.setSpacing(0)
+
+        # Add spacer to align legend with top of plot area
+        top_spacer = QSpacerItem(0, 41, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        legend_wrapper_layout.addItem(top_spacer)
+
+        legend_widget = QFrame()
+        legend_widget.setStyleSheet("""
+            QFrame {
+                background-color: #11151c;
+                border: 1px solid #2c313a;
+                border-radius: 6px;
+            }
+        """)
+        legend_widget.setSizePolicy(
+            legend_widget.sizePolicy().Policy.Fixed,
+            legend_widget.sizePolicy().Policy.Maximum  # Fit content height, don't expand
+        )
+
+        legend_layout = QVBoxLayout(legend_widget)
+        legend_layout.setContentsMargins(8, 8, 8, 8)
+        legend_layout.setSpacing(6)
+        legend_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        legend_wrapper_layout.addWidget(legend_widget)
+        legend_wrapper_layout.addStretch()  # Push everything to top
+
+        # Add plot and legend to container
+        layout.addWidget(plot_widget, 1)  # Plot stretches
+        layout.addWidget(legend_wrapper, 0, Qt.AlignmentFlag.AlignTop)  # Legend wrapper fixed
+
+        # Store references
+        container._plot_widget = plot_widget
+        container._legend_layout = legend_layout
+        container._legend_items = []
+
+        self._plot_legends[container] = legend_layout
+        return container
+
+    def _get_plot_from_container(self, container) -> pg.PlotWidget:
+        """Extract the PlotWidget from container."""
+        return container._plot_widget
+
+    def _add_legend_item(self, container, color: str, label: str):
+        """Add a legend item to the external legend."""
+        item_widget = QWidget()
+        item_widget.setStyleSheet("background-color: transparent;")
+        item_widget.setContentsMargins(0, 3, 0, 3)  # Vertical margins for spacing
+        item_layout = QHBoxLayout(item_widget)
+        item_layout.setContentsMargins(0, 0, 0, 0)
+        item_layout.setSpacing(10)
+
+        # Color box
+        color_label = QLabel()
+        color_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {color};
+                border-radius: 2px;
+                min-width: 30px;
+                max-width: 30px;
+                min-height: 3px;
+                max-height: 3px;
+            }}
+        """)
+
+        # Text label
+        text_label = QLabel(label)
+        text_label.setStyleSheet("QLabel { color: #d1d5db; font-size: 10pt; }")
+
+        item_layout.addWidget(color_label)
+        item_layout.addWidget(text_label)
+        item_layout.addStretch()
+
+        container._legend_layout.addWidget(item_widget)
+        container._legend_items.append(item_widget)
 
     def load_data(self, df: pd.DataFrame, result_type: str):
         """Load data and generate plots."""
@@ -148,8 +230,9 @@ class ResultsPlotWidget(QWidget):
 
     def _plot_envelope(self, df: pd.DataFrame, result_type: str):
         """Plot envelope values by story."""
-        plot = self.envelope_plot
-        self._reset_plot(plot)
+        container = self.envelope_plot
+        plot = self._get_plot_from_container(container)
+        self._reset_plot(container)
 
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
@@ -172,7 +255,9 @@ class ResultsPlotWidget(QWidget):
             pen=pg.mkPen('#2c313a', width=1)
         )
         plot.addItem(bargraph)
-        self._add_legend_entry(plot, f"Max {result_type}", '#4a7d89', kind="bar")
+
+        # Add to external legend
+        self._add_legend_item(container, '#4a7d89', f"Max {result_type}")
 
         # Configure axes
         axis = plot.getAxis('bottom')
@@ -185,8 +270,9 @@ class ResultsPlotWidget(QWidget):
 
     def _plot_comparison(self, df: pd.DataFrame, result_type: str):
         """Plot load case comparison."""
-        plot = self.comparison_plot
-        self._reset_plot(plot)
+        container = self.comparison_plot
+        plot = self._get_plot_from_container(container)
+        self._reset_plot(container)
 
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
@@ -208,16 +294,15 @@ class ResultsPlotWidget(QWidget):
             values = df[col].fillna(0).tolist()
             color = colors[idx % len(colors)]
 
-            curve = plot.plot(
+            plot.plot(
                 story_indices,
                 values,
                 pen=pg.mkPen(color, width=2),
                 symbol='o',
                 symbolSize=6,
-                symbolBrush=color,
-                name=col
+                symbolBrush=color
             )
-            self._add_legend_entry(plot, curve, col)
+            self._add_legend_item(container, color, col)
 
         # Configure axes
         axis = plot.getAxis('bottom')
@@ -230,8 +315,9 @@ class ResultsPlotWidget(QWidget):
 
     def _plot_profile(self, df: pd.DataFrame, result_type: str):
         """Plot building profile (story height vs max value)."""
-        plot = self.profile_plot
-        self._reset_plot(plot)
+        container = self.profile_plot
+        plot = self._get_plot_from_container(container)
+        self._reset_plot(container)
 
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
@@ -248,28 +334,26 @@ class ResultsPlotWidget(QWidget):
 
         # Plot as horizontal bars (swap x and y)
         # Max envelope
-        max_curve = plot.plot(
+        plot.plot(
             max_values,
             story_indices,
             pen=pg.mkPen('#e74c3c', width=2),
             symbol='o',
             symbolSize=6,
-            symbolBrush='#e74c3c',
-            name='Maximum'
+            symbolBrush='#e74c3c'
         )
-        self._add_legend_entry(plot, max_curve, 'Maximum')
+        self._add_legend_item(container, '#e74c3c', 'Maximum')
 
         # Average
-        avg_curve = plot.plot(
+        plot.plot(
             avg_values,
             story_indices,
             pen=pg.mkPen('#4a7d89', width=2, style=Qt.PenStyle.DashLine),
             symbol='s',
             symbolSize=5,
-            symbolBrush='#4a7d89',
-            name='Average'
+            symbolBrush='#4a7d89'
         )
-        self._add_legend_entry(plot, avg_curve, 'Average')
+        self._add_legend_item(container, '#4a7d89', 'Average')
 
         # Configure axes
         axis = plot.getAxis('left')
@@ -290,10 +374,11 @@ class ResultsPlotWidget(QWidget):
         return labels.get(result_type, 'Value')
 
     def _plot_building_profile(self, df: pd.DataFrame, result_type: str):
-        """Plot building profile - drift vs height (like reference image)."""
+        """Plot building profile - drift vs height."""
         # Use the envelope plot for the main view
-        plot = self.envelope_plot
-        self._reset_plot(plot)
+        container = self.envelope_plot
+        plot = self._get_plot_from_container(container)
+        self._reset_plot(container)
 
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
@@ -304,21 +389,21 @@ class ResultsPlotWidget(QWidget):
         if not load_case_columns:
             return
 
-        # Color palette matching the reference image
+        # Highly distinct colors optimized for dark backgrounds
         colors = [
-            '#e74c3c',  # Red - TH01
-            '#3498db',  # Blue - TH02
-            '#2ecc71',  # Green - TH03
-            '#f39c12',  # Orange - TH04
-            '#9b59b6',  # Purple - TH05
-            '#1abc9c',  # Turquoise - TH06
-            '#e67e22',  # Carrot - TH07
-            '#95a5a6',  # Gray - TH08
-            '#34495e',  # Dark blue - TH09
-            '#16a085',  # Dark turquoise - TH10
-            '#27ae60',  # Dark green - TH11
-            '#2980b9',  # Dark blue - TH12
-            '#8e44ad',  # Dark purple - TH13
+            '#ff4757',  # Bright red
+            '#1e90ff',  # Dodger blue
+            '#2ed573',  # Bright green
+            '#ff6348',  # Tomato/coral
+            '#a29bfe',  # Periwinkle
+            '#00d2d3',  # Cyan
+            '#ffa502',  # Orange (different from average)
+            '#ff6b81',  # Pink
+            '#5f27cd',  # Purple
+            '#01a3a4',  # Teal
+            '#48dbfb',  # Sky blue
+            '#c44569',  # Dark pink
+            '#f8b500',  # Golden yellow
         ]
 
         # Plot each load case as a line
@@ -340,13 +425,12 @@ class ResultsPlotWidget(QWidget):
             color = colors[idx % len(colors)]
 
             # Plot horizontal (drift on x-axis, story on y-axis)
-            curve = plot.plot(
+            plot.plot(
                 numeric_values,
                 story_indices,
-                pen=pg.mkPen(color, width=2),
-                name=load_case
+                pen=pg.mkPen(color, width=2)
             )
-            self._add_legend_entry(plot, curve, load_case)
+            self._add_legend_item(container, color, load_case)
 
         # Calculate and plot average line (bold, dashed)
         if len(load_case_columns) > 1:
@@ -367,29 +451,47 @@ class ResultsPlotWidget(QWidget):
                 else:
                     avg_values.append(0)
 
-            # Plot average with bold, dashed line
-            curve = plot.plot(
+            # Plot average with bold, dashed line in bright orange
+            plot.plot(
                 avg_values,
                 story_indices,
-                pen=pg.mkPen('#4a7d89', width=3, style=Qt.PenStyle.DashLine),
-                name='Average'
+                pen=pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)  # Bright orange
             )
-            self._add_legend_entry(plot, curve, 'Average')
+            self._add_legend_item(container, '#ffa500', 'Average')
 
         # Configure axes
         axis = plot.getAxis('left')
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
-        plot.setLabel('left', 'Building Height')
-        plot.setLabel('bottom', 'Drift (%)')
+        plot.setLabel('left', 'Building Height', **{'font-size': '12pt'})
+        plot.setLabel('bottom', 'Drift (%)', **{'font-size': '12pt'})
 
-        # Set y-axis range to show all stories
-        plot.setYRange(-0.5, len(stories) - 0.5)
+        # Set y-axis range to show all stories (tight fit with negative padding)
+        y_padding = -0.05  # Negative padding for tighter vertical fit
+        plot.setYRange(-0.5, len(stories) - 0.5, padding=y_padding)
 
-        # Enable grid
-        plot.showGrid(x=True, y=True, alpha=0.2)
+        # Set x-axis range with padding on the right to avoid legend overlap
+        all_values = []
+        for load_case in load_case_columns:
+            for val in df[load_case]:
+                if isinstance(val, str) and '%' in val:
+                    all_values.append(float(val.replace('%', '')))
+                else:
+                    try:
+                        all_values.append(float(val) * 100)
+                    except:
+                        pass
+        if all_values:
+            min_val = min(all_values)
+            max_val = max(all_values)
+            range_val = max_val - min_val
+            # Add 15% padding on right side only
+            plot.setXRange(min_val - range_val * 0.02, max_val + range_val * 0.15, padding=0)
 
-        # Update title
-        plot.setTitle("Story Drifts - Building Profile", color='#4a7d89', size='14pt')
+        # Enable grid with increased visibility
+        plot.showGrid(x=True, y=True, alpha=0.5)
+
+        # Update title with bold font
+        plot.setTitle("<b>Story Drifts</b>", color='#4a7d89', size='14pt')
 
     def clear_plots(self):
         """Clear all plots."""
@@ -397,25 +499,13 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(self.comparison_plot)
         self._reset_plot(self.profile_plot)
 
-    def _reset_plot(self, plot_widget: pg.PlotWidget):
-        """Clear plot curves and synchronised legend entries."""
-        plot_widget.clear()
-        legend = self._plot_legends.get(plot_widget)
-        if legend:
-            legend.clear()
+    def _reset_plot(self, container):
+        """Clear plot curves and legend entries."""
+        plot = self._get_plot_from_container(container)
+        plot.clear()
 
-    def _add_legend_entry(self, plot_widget: pg.PlotWidget, item, label: str):
-        """Add an item to the legend and tighten spacing."""
-        legend = self._plot_legends.get(plot_widget)
-        if legend and item is not None and label:
-            legend.addItem(item, label)
-            try:
-                sample, label_item = legend.legendItems[-1]
-                if hasattr(sample, "setFixedHeight"):
-                    sample.setFixedHeight(12)
-                if hasattr(sample, "setFixedWidth"):
-                    sample.setFixedWidth(16)
-                if hasattr(label_item, "setAttr"):
-                    label_item.setAttr("size", "9pt")
-            except Exception:
-                pass
+        # Clear external legend
+        for item in container._legend_items:
+            container._legend_layout.removeWidget(item)
+            item.deleteLater()
+        container._legend_items.clear()
