@@ -456,10 +456,23 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(footer)
 
+        # Action buttons layout
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+
         open_button = QPushButton("Open Project")
         open_button.setObjectName("cardAction")
         open_button.clicked.connect(lambda: self._open_project_detail(data["name"]))
-        layout.addWidget(open_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        button_layout.addWidget(open_button)
+
+        delete_button = QPushButton("Delete")
+        delete_button.setObjectName("dangerAction")
+        delete_button.clicked.connect(lambda: self._delete_project(data["name"]))
+        button_layout.addWidget(delete_button)
+
+        button_layout.addStretch()
+
+        layout.addLayout(button_layout)
 
         return card
 
@@ -492,6 +505,72 @@ class MainWindow(QMainWindow):
                 self,
                 "Error Opening Project",
                 f"Could not open project:\n\n{str(e)}"
+            )
+        finally:
+            session.close()
+
+    def _delete_project(self, project_name: str):
+        """Delete a project after confirmation."""
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            "Delete Project",
+            f"Are you sure you want to delete project '{project_name}'?\n\n"
+            f"This will permanently delete all associated data including:\n"
+            f"• Load cases\n"
+            f"• Stories\n"
+            f"• Drift data\n"
+            f"• Acceleration data\n"
+            f"• Force data\n"
+            f"• Result sets and caches\n\n"
+            f"This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Delete the project
+        session = get_session()
+        try:
+            repo = ProjectRepository(session)
+            project = repo.get_by_name(project_name)
+
+            if not project:
+                QMessageBox.warning(
+                    self,
+                    "Project Not Found",
+                    f"Could not find project: {project_name}"
+                )
+                return
+
+            # Delete project (cascading deletes will handle related data)
+            success = repo.delete(project.id)
+
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Project Deleted",
+                    f"Project '{project_name}' has been successfully deleted."
+                )
+                self.statusBar().showMessage(f"Deleted project: {project_name}", 5000)
+
+                # Refresh projects view
+                self._refresh_projects()
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Delete Failed",
+                    f"Could not delete project: {project_name}"
+                )
+
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(
+                self,
+                "Error Deleting Project",
+                f"An error occurred while deleting the project:\n\n{str(e)}"
             )
         finally:
             session.close()

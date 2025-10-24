@@ -72,13 +72,13 @@ class ResultsPlotWidget(QWidget):
 
         # Create plot tabs
         self.envelope_plot = self._create_plot_widget("Envelope by Story")
-        self.tabs.addTab(self.envelope_plot, "📊 Envelope")
+        self.tabs.addTab(self.envelope_plot, "▤ Envelope")
 
         self.comparison_plot = self._create_plot_widget("Load Case Comparison")
-        self.tabs.addTab(self.comparison_plot, "📈 Comparison")
+        self.tabs.addTab(self.comparison_plot, "≡ Comparison")
 
         self.profile_plot = self._create_plot_widget("Building Profile")
-        self.tabs.addTab(self.profile_plot, "🏢 Profile")
+        self.tabs.addTab(self.profile_plot, "▭ Profile")
 
         layout.addWidget(self.tabs)
 
@@ -457,20 +457,24 @@ class ResultsPlotWidget(QWidget):
         # Configure axes with story labels
         builder.setup_axes(stories)
 
-        # Set y-axis range (tight fit)
-        builder.set_story_range(len(stories), padding=-0.05)
+        # Set y-axis range with tight padding
+        builder.set_story_range(len(stories), padding=0.02)
 
         # Calculate x-axis range from all values
         all_values = []
         for load_case in load_case_columns:
             all_values.extend([parse_percentage_value(val) for val in df[load_case]])
 
-        # Filter out zeros and set range with asymmetric padding
+        # Filter out zeros and set range with small padding
         all_values = [v for v in all_values if v != 0.0]
         if all_values:
             min_val = min(all_values)
             max_val = max(all_values)
-            builder.set_value_range(min_val, max_val, left_padding=0.02, right_padding=0.15)
+            # Small padding (3% on left, 5% on right for legend/label space)
+            builder.set_value_range(min_val, max_val, left_padding=0.03, right_padding=0.05)
+
+            # Set dynamic tick spacing (6 intervals based on data range)
+            builder.set_dynamic_tick_spacing('bottom', min_val, max_val, num_intervals=6)
 
         # Enable grid with increased visibility
         plot.showGrid(x=True, y=True, alpha=0.5)

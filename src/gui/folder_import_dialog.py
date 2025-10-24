@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from pathlib import Path
 
 from .ui_helpers import create_styled_button, create_styled_label
+from .styles import COLORS
 
 
 class FolderImportWorker(QThread):
@@ -89,21 +90,21 @@ class FolderImportDialog(QDialog):
 
         # Folder selection
         folder_group = QGroupBox("Folder Selection")
-        folder_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #161b22;
-                border: 1px solid #2c313a;
+        folder_group.setStyleSheet(f"""
+            QGroupBox {{
+                background-color: {COLORS['card']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 6px;
                 margin-top: 8px;
                 padding-top: 16px;
-                color: #d1d5db;
+                color: {COLORS['text']};
                 font-weight: 600;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 4px;
-            }
+            }}
         """)
         folder_layout = QVBoxLayout(folder_group)
 
@@ -112,14 +113,14 @@ class FolderImportDialog(QDialog):
         self.folder_input = QLineEdit()
         self.folder_input.setPlaceholderText("Select folder containing Excel files...")
         self.folder_input.setReadOnly(True)
-        self.folder_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #0a0c10;
-                border: 1px solid #2c313a;
+        self.folder_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {COLORS['background']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 padding: 8px 12px;
-                color: #d1d5db;
-            }
+                color: {COLORS['text']};
+            }}
         """)
         folder_input_layout.addWidget(self.folder_input)
 
@@ -132,21 +133,21 @@ class FolderImportDialog(QDialog):
         # File list preview
         self.file_list = QListWidget()
         self.file_list.setMaximumHeight(120)
-        self.file_list.setStyleSheet("""
-            QListWidget {
-                background-color: #0a0c10;
-                border: 1px solid #2c313a;
+        self.file_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {COLORS['background']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 padding: 4px;
-                color: #7f8b9a;
-            }
-            QListWidget::item {
+                color: {COLORS['muted']};
+            }}
+            QListWidget::item {{
                 padding: 4px 8px;
                 border-radius: 2px;
-            }
-            QListWidget::item:hover {
-                background-color: #161b22;
-            }
+            }}
+            QListWidget::item:hover {{
+                background-color: {COLORS['card']};
+            }}
         """)
         folder_layout.addWidget(QLabel("Files to process:"))
         folder_layout.addWidget(self.file_list)
@@ -179,7 +180,7 @@ class FolderImportDialog(QDialog):
         result_set_layout.addWidget(self.result_set_input)
 
         self.result_set_validation_label = QLabel("")
-        self.result_set_validation_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+        self.result_set_validation_label.setStyleSheet(f"color: {COLORS['danger']}; font-size: 13px;")
         self.result_set_validation_label.setWordWrap(True)
         result_set_layout.addWidget(self.result_set_validation_label)
 
@@ -191,42 +192,42 @@ class FolderImportDialog(QDialog):
         progress_layout = QVBoxLayout(progress_group)
 
         self.progress_label = QLabel("Ready to import")
-        self.progress_label.setStyleSheet("color: #7f8b9a;")
+        self.progress_label.setStyleSheet(f"color: {COLORS['muted']};")
         progress_layout.addWidget(self.progress_label)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: #0a0c10;
-                border: 1px solid #2c313a;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: {COLORS['background']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 height: 24px;
                 text-align: center;
-                color: #d1d5db;
-            }
-            QProgressBar::chunk {
-                background-color: #4a7d89;
+                color: {COLORS['text']};
+            }}
+            QProgressBar::chunk {{
+                background-color: {COLORS['accent']};
                 border-radius: 3px;
-            }
+            }}
         """)
         progress_layout.addWidget(self.progress_bar)
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.log_output.setMaximumHeight(100)
-        self.log_output.setStyleSheet("""
-            QTextEdit {
-                background-color: #0a0c10;
-                border: 1px solid #2c313a;
+        self.log_output.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {COLORS['background']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 padding: 8px;
-                color: #7f8b9a;
+                color: {COLORS['muted']};
                 font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 12px;
-            }
+                font-size: 13px;
+            }}
         """)
         progress_layout.addWidget(self.log_output)
 

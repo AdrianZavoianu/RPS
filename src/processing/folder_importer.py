@@ -14,6 +14,7 @@ from database.repository import (
     CacheRepository,
     ResultSetRepository,
     ResultCategoryRepository,
+    AbsoluteMaxMinDriftRepository,
 )
 from database.models import StoryDrift
 
@@ -246,12 +247,16 @@ class FolderImporter:
         """Generate wide-format cache tables for fast tabular display."""
         story_repo = StoryRepository(session)
         cache_repo = CacheRepository(session)
+        abs_maxmin_repo = AbsoluteMaxMinDriftRepository(session)
 
         # Get all stories for this project
         stories = story_repo.get_by_project(project_id)
 
         # Generate cache for Story Drifts
         self._cache_drifts(session, project_id, result_set_id, stories, cache_repo)
+
+        # Calculate and store absolute max/min drifts
+        self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_maxmin_repo)
 
     def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo):
         """Generate cache for story drifts."""
@@ -303,3 +308,61 @@ class FolderImporter:
             Number of files
         """
         return len(self.excel_files)
+
+    def _calculate_absolute_maxmin(self, session, project_id: int, result_set_id: int, abs_maxmin_repo):
+        """Calculate and store absolute maximum drifts from Max/Min comparison.
+        
+        Args:
+            session: Database session
+            project_id: Project ID
+            result_set_id: Result set ID
+            abs_maxmin_repo: AbsoluteMaxMinDriftRepository instance
+        """
+        from database.models import StoryDrift, LoadCase, Story
+        
+        # Get all drifts for this project and result set
+        drifts = (
+            session.query(StoryDrift, LoadCase, Story)
+            .join(LoadCase, StoryDrift.load_case_id == LoadCase.id)
+            .join(Story, StoryDrift.story_id == Story.id)
+            .filter(Story.project_id == project_id)
+            .filter(StoryDrift.result_category_id == self.result_category_id)
+            .all()
+        )
+        
+        # Group by story, load case, direction and calculate absolute max
+        drift_records = []
+        
+        for drift_obj, load_case, story in drifts:
+            # Get max and min values
+            max_val = drift_obj.max_drift if drift_obj.max_drift is not None else drift_obj.drift
+            min_val = drift_obj.min_drift if drift_obj.min_drift is not None else drift_obj.drift
+            
+            # Calculate absolute maximum
+            abs_max = abs(max_val)
+            abs_min = abs(min_val)
+            
+            if abs_max >= abs_min:
+                absolute_max_drift = abs_max
+                sign = 'positive'
+            else:
+                absolute_max_drift = abs_min
+                sign = 'negative'
+            
+            # Create record
+            drift_records.append({
+                'project_id': project_id,
+                'result_set_id': result_set_id,
+                'story_id': story.id,
+                'load_case_id': load_case.id,
+                'direction': drift_obj.direction,
+                'absolute_max_drift': absolute_max_drift,
+                'sign': sign,
+                'original_max': max_val,
+                'original_min': min_val,
+            })
+        
+        # Bulk insert
+        if drift_records:
+            abs_maxmin_repo.bulk_create(drift_records)
+            self._report_progress(f"Calculated absolute max/min for {len(drift_records)} drift records", 0, 1)

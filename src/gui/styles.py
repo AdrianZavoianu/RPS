@@ -177,6 +177,32 @@ QMainWindow {{
     opacity: 0.7;
 }}
 
+#dangerAction {{
+    background-color: transparent;
+    color: #ef4444;
+    border: 1px solid #ef4444;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 500;
+}}
+
+#dangerAction:hover {{
+    background-color: rgba(239, 68, 68, 0.1);
+    border-color: #dc2626;
+    color: #dc2626;
+}}
+
+#dangerAction:pressed {{
+    background-color: rgba(239, 68, 68, 0.2);
+}}
+
+#dangerAction:disabled {{
+    border-color: {COLORS['border']};
+    color: {COLORS['muted']};
+    background-color: transparent;
+    opacity: 0.7;
+}}
+
 #cardStatsContainer {{
     background-color: transparent;
 }}
@@ -198,12 +224,12 @@ QMainWindow {{
 
 #cardFooterLabel {{
     color: {COLORS['muted']};
-    font-size: 12px;
+    font-size: 13px;
 }}
 
 #cardFooterValue {{
     color: {COLORS['text']};
-    font-size: 12px;
+    font-size: 13px;
 }}
 
 #summaryCard {{
@@ -220,7 +246,7 @@ QMainWindow {{
 
 #summaryMetricLabel {{
     color: {COLORS['muted']};
-    font-size: 12px;
+    font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 1px;
 }}
@@ -596,8 +622,8 @@ QLabel[styleClass="header"] {{
 }}
 
 QLabel[styleClass="subheader"] {{
-    font-size: 16px;
-    font-weight: 500;
+    font-size: 22px;
+    font-weight: 600;
     color: {COLORS['text']};
     line-height: 1.4;
 }}

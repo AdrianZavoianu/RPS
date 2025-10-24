@@ -62,47 +62,50 @@ class ResultTransformer(ABC):
         return df
 
 
-class DriftTransformer(ResultTransformer):
-    """Transformer for drift results (X direction)."""
+class GenericResultTransformer(ResultTransformer):
+    """Generic transformer that works for any result type with direction suffix."""
 
+    def __init__(self, result_type: str):
+        super().__init__(result_type)
+
+    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep only columns ending with configured direction suffix."""
+        filtered_columns = [col for col in df.columns if col.endswith(self.config.direction_suffix)]
+        return df[filtered_columns].copy()  # Copy to avoid SettingWithCopyWarning
+
+
+class DriftTransformer(GenericResultTransformer):
+    """Transformer for drift results."""
     def __init__(self):
         super().__init__('Drifts')
 
-    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Keep only columns ending with _X."""
-        x_columns = [col for col in df.columns if col.endswith(self.config.direction_suffix)]
-        return df[x_columns].copy()  # Copy to avoid SettingWithCopyWarning
 
-
-class AccelerationTransformer(ResultTransformer):
-    """Transformer for acceleration results (UX direction)."""
-
+class AccelerationTransformer(GenericResultTransformer):
+    """Transformer for acceleration results."""
     def __init__(self):
         super().__init__('Accelerations')
 
-    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Keep only columns ending with _UX."""
-        ux_columns = [col for col in df.columns if col.endswith(self.config.direction_suffix)]
-        return df[ux_columns].copy()  # Copy to avoid SettingWithCopyWarning
 
-
-class ForceTransformer(ResultTransformer):
-    """Transformer for force results (VX direction)."""
-
+class ForceTransformer(GenericResultTransformer):
+    """Transformer for force results."""
     def __init__(self):
         super().__init__('Forces')
-
-    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Keep only columns ending with _VX."""
-        vx_columns = [col for col in df.columns if col.endswith(self.config.direction_suffix)]
-        return df[vx_columns].copy()  # Copy to avoid SettingWithCopyWarning
 
 
 # Transformer registry
 TRANSFORMERS = {
     'Drifts': DriftTransformer(),
+    'Drifts_X': GenericResultTransformer('Drifts_X'),
+    'Drifts_Y': GenericResultTransformer('Drifts_Y'),
     'Accelerations': AccelerationTransformer(),
+    'Accelerations_X': GenericResultTransformer('Accelerations_X'),
+    'Accelerations_Y': GenericResultTransformer('Accelerations_Y'),
     'Forces': ForceTransformer(),
+    'Forces_X': GenericResultTransformer('Forces_X'),
+    'Forces_Y': GenericResultTransformer('Forces_Y'),
+    'Displacements': GenericResultTransformer('Displacements'),
+    'Displacements_X': GenericResultTransformer('Displacements_X'),
+    'Displacements_Y': GenericResultTransformer('Displacements_Y'),
 }
 
 

@@ -43,7 +43,7 @@ class VisualizationWidget(QWidget):
 
         subtitle_label = QLabel("Interactive plots and analysis")
         subtitle_label.setProperty("styleClass", "muted")
-        subtitle_label.setStyleSheet("font-size: 12px; padding: 0; background: transparent;")
+        subtitle_label.setStyleSheet("font-size: 13px; padding: 0; background: transparent;")
 
         title_layout.addWidget(header_label)
         title_layout.addWidget(subtitle_label)
@@ -52,7 +52,7 @@ class VisualizationWidget(QWidget):
         header_layout.addStretch()
 
         # Export button
-        export_button = QPushButton("📊 Export")
+        export_button = QPushButton("⊞ Export")
         export_button.setMinimumHeight(36)
         export_button.setProperty("styleClass", "secondary")
         export_button.clicked.connect(self._on_export)
@@ -77,15 +77,15 @@ class VisualizationWidget(QWidget):
 
         # Time-history tab
         self.time_history_widget = self._create_time_history_tab()
-        self.tabs.addTab(self.time_history_widget, "📈 Time History")
+        self.tabs.addTab(self.time_history_widget, "≡ Time History")
 
         # Envelope tab
         self.envelope_widget = self._create_envelope_tab()
-        self.tabs.addTab(self.envelope_widget, "📊 Envelope")
+        self.tabs.addTab(self.envelope_widget, "▤ Envelope")
 
         # Comparison tab
         self.comparison_widget = self._create_comparison_tab()
-        self.tabs.addTab(self.comparison_widget, "🔄 Comparison")
+        self.tabs.addTab(self.comparison_widget, "◐ Comparison")
 
         layout.addWidget(self.tabs)
 

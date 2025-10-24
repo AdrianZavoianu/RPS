@@ -77,6 +77,11 @@ class ExcelParser:
 
         Returns:
             Tuple of (DataFrame, load_cases, stories)
+
+        Note:
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            sort_order = index in this list (0=first story in Excel, typically ground floor).
+            For plotting: higher sort_order = higher in building.
         """
         sheet = "Story Drifts"
         columns = [0, 1, 3, 4, 5]  # Output Case, Story, Direction, Drift columns
@@ -88,8 +93,8 @@ class ExcelParser:
         load_cases = unique_vals["Output Case"]
         stories = unique_vals["Story"]
 
-        # Reverse stories to get top-down order
-        stories.reverse()
+        # Keep stories in Excel order (no reversal - maintain source order)
+        # ETABS typically exports bottom-to-top (Ground, 1st, 2nd, ..., Roof)
 
         return df, load_cases, stories
 
@@ -98,6 +103,9 @@ class ExcelParser:
 
         Returns:
             Tuple of (DataFrame, load_cases, stories)
+
+        Note:
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
         """
         sheet = "Story Accelerations"
         columns = [0, 1, 3, 4, 5]  # Output Case, Story, Direction, UX, UY
@@ -109,7 +117,7 @@ class ExcelParser:
         load_cases = unique_vals["Output Case"]
         stories = unique_vals["Story"]
 
-        stories.reverse()
+        # Keep stories in Excel order (no reversal - maintain source order)
 
         return df, load_cases, stories
 
@@ -118,6 +126,9 @@ class ExcelParser:
 
         Returns:
             Tuple of (DataFrame, load_cases, stories)
+
+        Note:
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
         """
         sheet = "Story Forces"
         columns = [0, 1, 3, 4, 6, 7]  # Output Case, Story, Location, Direction, VX, VY
@@ -129,7 +140,7 @@ class ExcelParser:
         load_cases = unique_vals["Output Case"]
         stories = unique_vals["Story"]
 
-        stories.reverse()
+        # Keep stories in Excel order (no reversal - maintain source order)
 
         return df, load_cases, stories
 

@@ -41,7 +41,7 @@ class ResultsBrowser(QWidget):
 
         subtitle_label = QLabel("Browse imported projects")
         subtitle_label.setProperty("styleClass", "muted")
-        subtitle_label.setStyleSheet("font-size: 12px; padding: 0;")
+        subtitle_label.setStyleSheet("font-size: 13px; padding: 0;")
 
         header_layout.addWidget(header_label)
         header_layout.addWidget(subtitle_label)
@@ -85,7 +85,7 @@ class ResultsBrowser(QWidget):
             # Create tree structure with modern styling
             for project in projects:
                 # Project node with icon-like prefix
-                project_item = QTreeWidgetItem(self.tree, [f"📁 {project.name}"])
+                project_item = QTreeWidgetItem(self.tree, [f"▸ {project.name}"])
                 project_item.setExpanded(True)
 
                 # Make project name bold
@@ -98,7 +98,7 @@ class ResultsBrowser(QWidget):
                 load_cases = case_repo.get_by_project(project.id)
 
                 if load_cases:
-                    cases_node = QTreeWidgetItem(project_item, [f"📊 Load Cases ({len(load_cases)})"])
+                    cases_node = QTreeWidgetItem(project_item, [f"◆ Load Cases ({len(load_cases)})"])
                     cases_node.setExpanded(False)  # Collapsed by default
 
                     for case in load_cases:
@@ -108,7 +108,7 @@ class ResultsBrowser(QWidget):
                         case_item = QTreeWidgetItem(cases_node, [case_display])
 
                 # Results node
-                results_node = QTreeWidgetItem(project_item, ["📈 Results"])
+                results_node = QTreeWidgetItem(project_item, ["◇ Results"])
                 results_node.setExpanded(True)
 
                 # Result types with modern icons

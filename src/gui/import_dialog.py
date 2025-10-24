@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from pathlib import Path
 from .ui_helpers import create_styled_button, create_styled_label, apply_button_style
+from .styles import COLORS
 
 
 class ImportDialog(QDialog):
@@ -33,10 +34,10 @@ class ImportDialog(QDialog):
         self._create_ui()
 
         # Apply modern styling
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #161b22;
-            }
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['card']};
+            }}
         """)
 
     def _create_ui(self):
@@ -63,7 +64,7 @@ class ImportDialog(QDialog):
         self.file_path_edit.setPlaceholderText("No file selected...")
         self.file_path_edit.setMinimumHeight(40)
 
-        browse_button = create_styled_button("📁 Browse Files...", "secondary")
+        browse_button = create_styled_button("› Browse Files...", "secondary")
         browse_button.setMinimumHeight(40)
         browse_button.clicked.connect(self._on_browse)
 
@@ -91,7 +92,7 @@ class ImportDialog(QDialog):
         self.result_set_edit.setMinimumHeight(40)
 
         self.result_set_validation_label = QLabel("")
-        self.result_set_validation_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+        self.result_set_validation_label.setStyleSheet(f"color: {COLORS['danger']}; font-size: 13px;")
         self.result_set_validation_label.setWordWrap(True)
 
         # Analysis type
@@ -113,11 +114,11 @@ class ImportDialog(QDialog):
 
         # Info label
         info_label = QLabel(
-            "💡 The importer will process Story Drifts, Accelerations, and Forces from the Excel file."
+            "ⓘ The importer will process Story Drifts, Accelerations, and Forces from the Excel file."
         )
         info_label.setWordWrap(True)
         info_label.setProperty("styleClass", "muted")
-        info_label.setStyleSheet("font-size: 12px; padding: 12px; background-color: #1c2128; border-radius: 6px;")
+        info_label.setStyleSheet(f"font-size: 13px; padding: 12px; background-color: {COLORS['hover']}; border-radius: 6px;")
         layout.addWidget(info_label)
 
         layout.addStretch()

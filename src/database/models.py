@@ -332,3 +332,43 @@ class GlobalResultsCache(Base):
 
     def __repr__(self):
         return f"<GlobalResultsCache(project_id={self.project_id}, type='{self.result_type}', story_id={self.story_id})>"
+
+
+class AbsoluteMaxMinDrift(Base):
+    """Stores absolute maximum drifts comparing Max and Min values for each load case.
+
+    For each load case and direction, stores:
+    - The absolute maximum drift (larger of |Max| or |Min|)
+    - Whether it was positive (+) or negative (-)
+    """
+
+    __tablename__ = "absolute_maxmin_drifts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    result_set_id = Column(Integer, ForeignKey("result_sets.id"), nullable=False)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    direction = Column(String(10), nullable=False)  # 'X' or 'Y'
+
+    # Absolute maximum drift value
+    absolute_max_drift = Column(Float, nullable=False)
+
+    # Sign of the absolute maximum: 'positive' or 'negative'
+    sign = Column(String(10), nullable=False)
+
+    # Original Max and Min values for reference
+    original_max = Column(Float, nullable=False)
+    original_min = Column(Float, nullable=False)
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Composite unique constraint
+    __table_args__ = (
+        Index("ix_absmaxmin_lookup", "project_id", "result_set_id", "story_id", "load_case_id", "direction", unique=True),
+        Index("ix_absmaxmin_resultset", "result_set_id"),
+    )
+
+    def __repr__(self):
+        return f"<AbsoluteMaxMinDrift(story_id={self.story_id}, load_case_id={self.load_case_id}, dir={self.direction}, abs_max={self.absolute_max_drift}, sign={self.sign})>"

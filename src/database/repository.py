@@ -17,6 +17,7 @@ from .models import (
     ResultSet,
     ResultCategory,
     GlobalResultsCache,
+    AbsoluteMaxMinDrift,
 )
 
 
@@ -109,6 +110,10 @@ class LoadCaseRepository:
             .all()
         )
 
+    def get_by_id(self, load_case_id: int) -> Optional[LoadCase]:
+        """Get a load case by ID."""
+        return self.session.query(LoadCase).filter(LoadCase.id == load_case_id).first()
+
 
 class StoryRepository:
     """Repository for Story operations."""
@@ -149,11 +154,15 @@ class StoryRepository:
         return story
 
     def get_by_project(self, project_id: int) -> List[Story]:
-        """Get all stories for a project, ordered by sort_order."""
+        """Get all stories for a project, ordered by sort_order (bottom to top).
+
+        Returns stories in ascending sort_order (0=ground, increasing with height).
+        This matches Excel source order where stories are listed bottom-to-top.
+        """
         return (
             self.session.query(Story)
             .filter(Story.project_id == project_id)
-            .order_by(Story.sort_order.desc())
+            .order_by(Story.sort_order.asc())
             .all()
         )
 
@@ -376,10 +385,13 @@ class CacheRepository:
         project_id: int,
         result_type: str,
         result_set_id: Optional[int] = None,
-    ) -> List[GlobalResultsCache]:
-        """Get all cache entries for a result type, ordered by story sort_order."""
+    ) -> List[tuple]:
+        """Get all cache entries for a result type, ordered by story sort_order (bottom to top).
+
+        Returns list of tuples: (GlobalResultsCache, Story) in ascending sort_order to match Excel source order.
+        """
         query = (
-            self.session.query(GlobalResultsCache)
+            self.session.query(GlobalResultsCache, Story)
             .join(Story, GlobalResultsCache.story_id == Story.id)
             .filter(
                 and_(
@@ -392,7 +404,7 @@ class CacheRepository:
         if result_set_id is not None:
             query = query.filter(GlobalResultsCache.result_set_id == result_set_id)
 
-        return query.order_by(Story.sort_order.desc()).all()
+        return query.order_by(Story.sort_order.asc()).all()
 
     def clear_cache_for_project(self, project_id: int, result_type: Optional[str] = None):
         """Clear cache entries for a project, optionally filtered by result type."""
@@ -491,3 +503,122 @@ class ResultCategoryRepository:
             )
             .first()
         )
+
+
+class AbsoluteMaxMinDriftRepository:
+    """Repository for AbsoluteMaxMinDrift operations."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def bulk_create(self, drift_records: List[dict]) -> int:
+        """Bulk create absolute max/min drift records.
+
+        Args:
+            drift_records: List of dictionaries with keys:
+                - project_id
+                - result_set_id
+                - story_id
+                - load_case_id
+                - direction
+                - absolute_max_drift
+                - sign
+                - original_max
+                - original_min
+
+        Returns:
+            Number of records created
+        """
+        # Clear existing records for this result set if any
+        if drift_records:
+            result_set_id = drift_records[0].get('result_set_id')
+            project_id = drift_records[0].get('project_id')
+
+            if result_set_id and project_id:
+                self.session.query(AbsoluteMaxMinDrift).filter(
+                    and_(
+                        AbsoluteMaxMinDrift.project_id == project_id,
+                        AbsoluteMaxMinDrift.result_set_id == result_set_id
+                    )
+                ).delete()
+                self.session.commit()  # Commit the deletion before inserting
+
+        # Create new records
+        records = [AbsoluteMaxMinDrift(**record) for record in drift_records]
+        self.session.bulk_save_objects(records)
+        self.session.commit()
+
+        return len(records)
+
+    def get_by_result_set(
+        self, project_id: int, result_set_id: int
+    ) -> List[AbsoluteMaxMinDrift]:
+        """Get all absolute max/min drifts for a result set.
+
+        Args:
+            project_id: Project ID
+            result_set_id: Result set ID
+
+        Returns:
+            List of AbsoluteMaxMinDrift objects
+        """
+        return (
+            self.session.query(AbsoluteMaxMinDrift)
+            .filter(
+                and_(
+                    AbsoluteMaxMinDrift.project_id == project_id,
+                    AbsoluteMaxMinDrift.result_set_id == result_set_id
+                )
+            )
+            .order_by(AbsoluteMaxMinDrift.story_id, AbsoluteMaxMinDrift.load_case_id)
+            .all()
+        )
+
+    def get_by_result_set_and_direction(
+        self, project_id: int, result_set_id: int, direction: str
+    ) -> List[AbsoluteMaxMinDrift]:
+        """Get absolute max/min drifts for a specific direction.
+
+        Args:
+            project_id: Project ID
+            result_set_id: Result set ID
+            direction: 'X' or 'Y'
+
+        Returns:
+            List of AbsoluteMaxMinDrift objects
+        """
+        return (
+            self.session.query(AbsoluteMaxMinDrift)
+            .filter(
+                and_(
+                    AbsoluteMaxMinDrift.project_id == project_id,
+                    AbsoluteMaxMinDrift.result_set_id == result_set_id,
+                    AbsoluteMaxMinDrift.direction == direction
+                )
+            )
+            .order_by(AbsoluteMaxMinDrift.story_id, AbsoluteMaxMinDrift.load_case_id)
+            .all()
+        )
+
+    def delete_by_result_set(self, project_id: int, result_set_id: int) -> int:
+        """Delete all absolute max/min drifts for a result set.
+
+        Args:
+            project_id: Project ID
+            result_set_id: Result set ID
+
+        Returns:
+            Number of records deleted
+        """
+        count = (
+            self.session.query(AbsoluteMaxMinDrift)
+            .filter(
+                and_(
+                    AbsoluteMaxMinDrift.project_id == project_id,
+                    AbsoluteMaxMinDrift.result_set_id == result_set_id
+                )
+            )
+            .delete()
+        )
+        self.session.commit()
+        return count

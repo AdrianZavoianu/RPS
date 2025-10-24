@@ -1,13 +1,30 @@
 """Results table widget - displays tabular data with GMP styling."""
 
 import pandas as pd
-from PyQt6.QtCore import Qt, pyqtSignal, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QRect, QEvent
 from PyQt6.QtGui import QColor, QFont, QPainter
 from PyQt6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView,
                              QSizePolicy, QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget, QStyleOptionHeader, QStyle)
 from config.result_config import get_config
 from utils.color_utils import get_gradient_color
+
+
+class ClickableTableWidget(QTableWidget):
+    """Custom QTableWidget that emits row click signals."""
+
+    rowClicked = pyqtSignal(int)  # Signal emitted when a row is clicked
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def mousePressEvent(self, event):
+        """Override mouse press to emit row click signal."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.pos())
+            if item:
+                self.rowClicked.emit(item.row())
+        super().mousePressEvent(event)
 
 
 class SelectableHeaderView(QHeaderView):
@@ -59,7 +76,7 @@ class SelectableHeaderView(QHeaderView):
         super().leaveEvent(event)
 
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
-        """Paint header section with custom styling for selected sections."""
+        """Paint header section with custom styling for selected and hovered sections."""
         painter.save()
 
         # Get the column name from parent table
@@ -68,12 +85,15 @@ class SelectableHeaderView(QHeaderView):
             item = table.horizontalHeaderItem(logicalIndex)
             col_name = item.text() if item else ""
 
-            # Check if this section is selected
+            # Check if this section is selected or hovered
             is_selected = col_name in self._selected_sections
+            is_hovered = logicalIndex == self._hovered_section
 
-            # Draw background
+            # Draw background (priority: selected > hovered > default)
             if is_selected:
                 painter.fillRect(rect, QColor("#2c5f6b"))  # Darker accent for selected
+            elif is_hovered:
+                painter.fillRect(rect, QColor("#1f2937"))  # Lighter background for hover
             else:
                 painter.fillRect(rect, QColor("#161b22"))  # Default background
 
@@ -87,8 +107,16 @@ class SelectableHeaderView(QHeaderView):
                 font = painter.font()
                 font.setBold(True)
                 painter.setFont(font)
+            elif is_hovered:
+                painter.setPen(QColor("#67e8f9"))  # Cyan text for hover
+                font = painter.font()
+                font.setBold(True)
+                painter.setFont(font)
             else:
                 painter.setPen(QColor("#4a7d89"))  # Default accent color
+                font = painter.font()
+                font.setBold(True)
+                painter.setFont(font)
 
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, col_name)
 
@@ -120,6 +148,9 @@ class ResultsTableWidget(QFrame):
         # Track Story column sort order
         self._story_sort_order = Qt.SortOrder.AscendingOrder
 
+        # Track selected rows manually (for click highlighting)
+        self._selected_rows = set()
+
         self.setup_ui()
 
     def setup_ui(self):
@@ -128,7 +159,10 @@ class ResultsTableWidget(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)  # No margins - table fills container edge-to-edge
         layout.setSpacing(0)
 
-        self.table = QTableWidget()
+        self.table = ClickableTableWidget()
+
+        # Connect row click signal
+        self.table.rowClicked.connect(self._on_row_clicked)
 
         # Set custom header view for highlighting selected columns
         custom_header = SelectableHeaderView(Qt.Orientation.Horizontal, self.table)
@@ -137,22 +171,32 @@ class ResultsTableWidget(QFrame):
         # Store reference to custom header
         self._custom_header = custom_header
 
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)  # Disable alternating row colors
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  # Disable Qt selection - use manual tracking
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(False)  # Disable automatic sorting - we'll handle manually
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Prevent focus styling
+
+        # Override palette to prevent Qt from changing text colors on selection
+        from PyQt6.QtGui import QPalette, QColor
+        palette = self.table.palette()
+        # Set highlight text color to match normal text (prevents color change)
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#d1d5db"))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 0, 0, 0))  # Transparent highlight
+        self.table.setPalette(palette)
 
         # Disable scrolling - table should fit all columns
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         # Set consistent font across entire table
-        table_font = QFont("Inter", 8)
+        table_font = QFont("Inter", 14)
         self.table.setFont(table_font)
         self.table.horizontalHeader().setFont(table_font)
 
         # Style matching GMP tables
+        # NOTE: No background rules for ::item to allow programmatic background styling
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #0a0c10;
@@ -165,13 +209,6 @@ class ResultsTableWidget(QFrame):
                 padding: 3px 4px;
                 border: none;
             }
-            QTableWidget::item:selected {
-                background-color: rgba(74, 125, 137, 0.2);
-                color: #4a7d89;
-            }
-            QTableWidget::item:hover {
-                background-color: #161b22;
-            }
             QHeaderView::section {
                 background-color: #161b22;
                 color: #4a7d89;
@@ -183,6 +220,7 @@ class ResultsTableWidget(QFrame):
             }
             QHeaderView::section:hover {
                 background-color: #1f2937;
+                color: #67e8f9;
             }
             QTableWidget QTableCornerButton::section {
                 background-color: #161b22;
@@ -200,6 +238,16 @@ class ResultsTableWidget(QFrame):
 
         self.table.verticalHeader().setVisible(False)
         self.table.setWordWrap(False)  # Prevent wrapping for compact display
+
+        # Enable mouse tracking for row hover effects
+        self.table.setMouseTracking(True)
+        self.table.viewport().setMouseTracking(True)
+
+        # Store references for hover tracking
+        self.table._hovered_row = -1
+
+        # Install event filter for hover effects only
+        self.table.viewport().installEventFilter(self)
 
         # Connect header click signal
         header.sectionClicked.connect(self._on_header_clicked)
@@ -249,7 +297,10 @@ class ResultsTableWidget(QFrame):
                 if col_idx == 0:  # Story column
                     item.setText(str(value))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    # Story column styling (use table font)
+                    # Story column styling - store default color
+                    default_color = QColor("#d1d5db")
+                    item.setForeground(default_color)
+                    item._original_color = QColor(default_color)  # Store a copy
                 else:
                     # Numeric columns
                     try:
@@ -266,7 +317,9 @@ class ResultsTableWidget(QFrame):
                         # Apply color based on column type
                         if col_name in ['Avg', 'Max', 'Min']:
                             # Summary columns - keep default text color
-                            item.setForeground(QColor("#d1d5db"))
+                            default_color = QColor("#d1d5db")
+                            item.setForeground(default_color)
+                            item._original_color = QColor(default_color)  # Store a copy
                         elif col_name != 'Story':
                             # Load case columns - apply gradient using color scheme
                             config = get_config(result_type)
@@ -277,6 +330,7 @@ class ResultsTableWidget(QFrame):
                                 config.color_scheme
                             )
                             item.setForeground(color)
+                            item._original_color = QColor(color)  # Store a copy
 
                     except (ValueError, TypeError):
                         item.setText(str(value))
@@ -308,6 +362,17 @@ class ResultsTableWidget(QFrame):
         # Container matches table width exactly (no extra margins)
         self.setMinimumWidth(total_width)
         self.setMaximumWidth(total_width)
+
+    def _on_row_clicked(self, row: int):
+        """Handle row click - toggle selection."""
+        # Toggle row selection
+        if row in self._selected_rows:
+            self._selected_rows.remove(row)
+        else:
+            self._selected_rows.add(row)
+
+        # Update row styling
+        self._apply_row_style(self.table, row)
 
     def _on_header_clicked(self, logical_index: int):
         """Handle header clicks - toggle selection for load case columns, allow sorting only for Story."""
@@ -342,6 +407,72 @@ class ResultsTableWidget(QFrame):
             self.table.horizontalHeader().setSortIndicator(logical_index, self._story_sort_order)
         # Avg, Max, Min columns - do nothing
 
+    def eventFilter(self, obj, event):
+        """Handle hover effects for table rows."""
+        table = obj.parent()
+        if not isinstance(table, ClickableTableWidget):
+            return False
+
+        if event.type() == QEvent.Type.MouseMove:
+            item = table.itemAt(event.pos())
+            new_row = item.row() if item else -1
+            old_row = getattr(table, '_hovered_row', -1)
+
+            if new_row != old_row:
+                if old_row >= 0:
+                    self._apply_row_hover(table, old_row, False)
+                if new_row >= 0:
+                    self._apply_row_hover(table, new_row, True)
+
+        elif event.type() == QEvent.Type.Leave:
+            # Clear hover when mouse leaves table
+            old_row = getattr(table, '_hovered_row', -1)
+            if old_row >= 0:
+                self._apply_row_hover(table, old_row, False)
+
+        return False
+
+    def _apply_row_style(self, table, row, hovered=None):
+        """Apply style to a row based on hover and selection state."""
+        from PyQt6.QtGui import QColor, QBrush
+
+        if row < 0 or row >= table.rowCount():
+            return
+
+        if hovered is None:
+            hovered = (row == getattr(table, '_hovered_row', -1))
+        is_selected = (row in self._selected_rows)
+
+        for col in range(table.columnCount()):
+            item = table.item(row, col)
+            if item and hasattr(item, '_original_color'):
+                # Always restore original foreground color
+                item.setForeground(item._original_color)
+
+                # Apply background overlay if hovered or selected
+                if hovered or is_selected:
+                    bg_color = QColor(103, 232, 249, 64 if hovered and not is_selected else 96)
+                    brush = QBrush(bg_color)
+                    item.setBackground(brush)
+                else:
+                    # Clear background completely
+                    item.setBackground(QBrush())
+
+        # Force table to repaint this row
+        table.viewport().update()
+
+    def _apply_row_hover(self, table, row, is_hovered):
+        """Apply or remove hover effect from a row."""
+        if row < 0 or row >= table.rowCount():
+            return
+
+        if is_hovered:
+            table._hovered_row = row
+        elif getattr(table, '_hovered_row', -1) == row:
+            table._hovered_row = -1
+
+        self._apply_row_style(table, row, hovered=is_hovered)
+
     def _update_header_styling(self):
         """Update header styling to highlight selected columns."""
         header = self.table.horizontalHeader()
@@ -353,3 +484,4 @@ class ResultsTableWidget(QFrame):
         self.table.setRowCount(0)
         self.table.setColumnCount(0)
         self._selected_load_cases.clear()
+        self._selected_rows.clear()

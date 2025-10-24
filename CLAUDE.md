@@ -33,14 +33,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Single-file import with validation
 - ✅ Project detail view: Browser | Table | Plot (3-panel)
 - ✅ Story drifts visualization with interactive column selection
+- ✅ Max/Min drifts visualization with separate plot/table views
 - ✅ Modern minimalist design system (Vercel/Linear inspired)
 - ✅ Hot-reload development environment
 
-**Data Hierarchy (NEW - 100% Complete):**
+**Data Hierarchy (100% Complete):**
 - ✅ Result sets with user-defined names (DES, MCE, SLE, etc.)
 - ✅ Load cases shared across all result sets
 - ✅ Result categories: Envelopes → Global Results
-- ✅ Support for: Drifts, Accelerations, Forces, Displacements
+- ✅ Support for: Drifts, Max/Min Drifts, Accelerations, Forces, Displacements
 - ✅ Full UI integration: tree browser + detail views
 - ✅ Duplicate validation for result set names
 - ✅ Database migration with backward compatibility
@@ -51,13 +52,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Pluggable result type system (add new types in ~10 lines)
 - ✅ Alembic migrations for schema evolution
 
-**Design System (NEW):**
+**Design System:**
 - ✅ Modern minimalist aesthetic (documented in DESIGN.md)
 - ✅ Geometric icon system (no colorful emojis)
 - ✅ Transparent layers with subtle interactions
 - ✅ Consistent 4px spacing grid
 - ✅ Cyan accent (#67e8f9) for selections
 - ✅ 14px base font size
+
+**Interactive Features (NEW - October 2025):**
+- ✅ Row hover highlighting with gentle cyan overlay (8% opacity)
+- ✅ Multi-row selection with toggle on click
+- ✅ Column header hover feedback (cyan text + background)
+- ✅ Legend-based plot interaction (hover/click on legend items)
+- ✅ Gradient color preservation in all interaction states
+- ✅ Manual selection system (no Qt default styling conflicts)
 
 ### 🎯 Next Steps
 
@@ -206,8 +215,20 @@ COLOR_SCHEMES['custom'] = ('#3b82f6', '#ff4757')
 
 ```python
 # utils/plot_builder.py - Change builder defaults
-def set_value_range(self, min_val, max_val, left_padding=0.05, right_padding=0.20):
-    # Adjust padding values
+
+# Plot padding (current: small margins for tight fit)
+def set_value_range(self, min_val, max_val, left_padding=0.03, right_padding=0.05):
+    # Both normal and min/max drifts use 3% left, 5% right padding
+    ...
+
+def set_story_range(self, num_stories, padding=0.02):
+    # 2% padding on vertical axis for all plots
+    ...
+
+# Tick spacing (dynamic with 1-2-5 pattern, capped at 0.5)
+def set_dynamic_tick_spacing(self, axis='bottom', min_val=None, max_val=None, num_intervals=6):
+    # Targets 6 intervals, rounds to nice numbers: 0.1, 0.2, 0.5 (max)
+    # Never exceeds 0.5 interval spacing for drift values
     ...
 
 # results_plot_widget.py - Adjust plot-specific logic
@@ -253,6 +274,58 @@ QWidget:selected {
 - Border: `#2c313a`
 
 **Spacing**: Use 4px increments (`4px, 8px, 12px, 16px, 24px`)
+
+---
+
+### Implementing Table Interactions
+
+**Manual Selection System** (no Qt default styling conflicts):
+
+```python
+# Disable Qt's default selection
+table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+# Enable mouse tracking
+table.setMouseTracking(True)
+table.viewport().setMouseTracking(True)
+
+# Track state manually
+table._hovered_row = -1
+table._selected_rows = set()
+
+# Install event filter for hover
+table.viewport().installEventFilter(self)
+
+# Connect signal for click
+table.cellClicked.connect(self._on_cell_clicked)
+```
+
+**Preserving Gradient Colors**:
+
+```python
+# Store original color when creating items
+gradient_color = get_gradient_color(value, min_val, max_val, 'blue_orange')
+item.setForeground(gradient_color)
+item._original_color = QColor(gradient_color)  # Store a COPY
+
+# Restore original color in all states
+def _apply_row_style(self, table, row):
+    for col in range(table.columnCount()):
+        item = table.item(row, col)
+        if item and hasattr(item, '_original_color'):
+            # Always restore original color first
+            item.setForeground(item._original_color)
+            # Then apply background overlay
+            if is_hovered or is_selected:
+                item.setBackground(QColor(103, 232, 249, 20))  # 8% opacity
+```
+
+**Key Points**:
+- Store QColor copies, not references (prevents mutation)
+- Use `cellClicked` signal instead of MouseButtonPress events
+- Apply background overlays only, never modify foreground colors
+- Event filter handles hover, signal handles click
 
 ---
 

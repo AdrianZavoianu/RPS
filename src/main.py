@@ -12,6 +12,7 @@ from PyQt6.QtGui import QFont
 from gui.main_window import MainWindow
 from gui.styles import get_stylesheet
 from gui.window_utils import set_windows_app_id
+from gui.icon_utils import set_app_icons
 from database.base import init_db
 from utils.env import is_dev_mode
 
@@ -37,6 +38,9 @@ def main():
     # Set modern font
     font = QFont("Segoe UI", 10)
     app.setFont(font)
+
+    # Set application icon
+    set_app_icons(app)
 
     # Apply modern dark theme stylesheet
     app.setStyleSheet(get_stylesheet())
