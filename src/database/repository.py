@@ -168,7 +168,7 @@ class StoryRepository:
 
 
 class ResultRepository:
-    """Repository for result data (drifts, accelerations, forces)."""
+    """Repository for result data (drifts, accelerations, forces, displacements)."""
 
     def __init__(self, session: Session):
         self.session = session
@@ -243,6 +243,36 @@ class ResultRepository:
         self.session.commit()
         self.session.refresh(story_force)
         return story_force
+
+    def create_story_displacement(
+        self,
+        story_id: int,
+        load_case_id: int,
+        direction: str,
+        displacement: float,
+        max_displacement: Optional[float] = None,
+        min_displacement: Optional[float] = None,
+    ) -> StoryDisplacement:
+        """Create story displacement record."""
+        record = StoryDisplacement(
+            story_id=story_id,
+            load_case_id=load_case_id,
+            direction=direction,
+            displacement=displacement,
+            max_displacement=max_displacement,
+            min_displacement=min_displacement,
+        )
+        self.session.add(record)
+        self.session.commit()
+        self.session.refresh(record)
+        return record
+
+    def bulk_create_displacements(self, displacements: List[StoryDisplacement]):
+        """Bulk insert displacement records."""
+        if not displacements:
+            return
+        self.session.bulk_save_objects(displacements)
+        self.session.commit()
 
     def get_drifts_by_project(self, project_id: int) -> List[StoryDrift]:
         """Get all drifts for a project."""

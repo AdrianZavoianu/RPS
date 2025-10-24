@@ -98,6 +98,46 @@ class ResultProcessor:
 
         return pd.DataFrame(results)
 
+
+    @staticmethod
+    def process_joint_displacements(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], direction_column: str
+    ) -> pd.DataFrame:
+        """Process joint displacement data for a specific translational direction."""
+        results = []
+
+        if direction_column not in df.columns:
+            return pd.DataFrame(results)
+
+        for story in stories:
+            story_df = df[df["Story"] == story]
+            if story_df.empty:
+                continue
+
+            for case in load_cases:
+                filtered = story_df[story_df["Output Case"] == case]
+                if filtered.empty:
+                    continue
+
+                values = pd.to_numeric(filtered[direction_column], errors="coerce").dropna()
+                if values.empty:
+                    continue
+
+                max_val = values.max()
+                min_val = values.min()
+                abs_max = values.abs().max()
+
+                results.append({
+                    "Story": story,
+                    "LoadCase": case,
+                    "Direction": direction_column.upper(),
+                    "Displacement": round(abs_max, 4),
+                    "MaxDisplacement": round(max_val, 4),
+                    "MinDisplacement": round(min_val, 4),
+                })
+
+        return pd.DataFrame(results)
+
     @staticmethod
     def process_story_forces(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], direction: str

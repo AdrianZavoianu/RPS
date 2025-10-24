@@ -1,7 +1,9 @@
 """Import data from Excel files into database."""
 
-from typing import Optional
+from typing import Optional, List, Callable
 from pathlib import Path
+
+from sqlalchemy.orm import Session
 
 from database.base import get_session
 from database.repository import (
@@ -12,8 +14,9 @@ from database.repository import (
     ResultSetRepository,
     ResultCategoryRepository,
     CacheRepository,
+    AbsoluteMaxMinDriftRepository,
 )
-from database.models import StoryDrift, StoryAcceleration, StoryForce
+from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
 
 from .excel_parser import ExcelParser
 from .result_processor import ResultProcessor
@@ -22,7 +25,15 @@ from .result_processor import ResultProcessor
 class DataImporter:
     """Import structural analysis results from Excel into database."""
 
-    def __init__(self, file_path: str, project_name: str, result_set_name: str, analysis_type: Optional[str] = None):
+    def __init__(
+        self,
+        file_path: str,
+        project_name: str,
+        result_set_name: str,
+        analysis_type: Optional[str] = None,
+        result_types: Optional[List[str]] = None,
+        session_factory: Optional[Callable[[], Session]] = None,
+    ):
         """Initialize importer.
 
         Args:
@@ -36,6 +47,8 @@ class DataImporter:
         self.result_set_name = result_set_name
         self.analysis_type = analysis_type or "General"
         self.parser = ExcelParser(file_path)
+        self.result_types = {rt.strip().lower() for rt in result_types} if result_types else None
+        self._session_factory = session_factory or get_session
 
     def import_all(self) -> dict:
         """Import all available data from Excel file.
@@ -43,7 +56,7 @@ class DataImporter:
         Returns:
             Dictionary with import statistics
         """
-        session = get_session()
+        session = self._session_factory()
         stats = {
             "project": None,
             "load_cases": 0,
@@ -51,6 +64,7 @@ class DataImporter:
             "drifts": 0,
             "accelerations": 0,
             "forces": 0,
+            "displacements": 0,
             "errors": [],
         }
 
@@ -86,19 +100,25 @@ class DataImporter:
             self.result_set_id = result_set.id
 
             # Import story drifts if available
-            if self.parser.validate_sheet_exists("Story Drifts"):
+            if self._should_import("Story Drifts") and self.parser.validate_sheet_exists("Story Drifts"):
                 drift_stats = self._import_story_drifts(session, project.id)
-                stats.update(drift_stats)
+                stats["load_cases"] += drift_stats.get("load_cases", 0)
+                stats["stories"] += drift_stats.get("stories", 0)
+                stats["drifts"] += drift_stats.get("drifts", 0)
 
             # Import story accelerations if available
-            if self.parser.validate_sheet_exists("Story Accelerations"):
+            if self._should_import("Story Accelerations") and self.parser.validate_sheet_exists("Story Accelerations"):
                 accel_stats = self._import_story_accelerations(session, project.id)
                 stats["accelerations"] += accel_stats.get("accelerations", 0)
 
             # Import story forces if available
-            if self.parser.validate_sheet_exists("Story Forces"):
+            if self._should_import("Story Forces") and self.parser.validate_sheet_exists("Story Forces"):
                 force_stats = self._import_story_forces(session, project.id)
                 stats["forces"] += force_stats.get("forces", 0)
+            # Import joint displacements if available
+            if self._should_import("Joint Displacements (Global)") and self.parser.validate_sheet_exists("Joint DisplacementsG"):
+                disp_stats = self._import_joint_displacements(session, project.id)
+                stats["displacements"] += disp_stats.get("displacements", 0)
 
             # Generate cache for fast display after all imports
             self._generate_cache(session, project.id, self.result_set_id)
@@ -113,6 +133,12 @@ class DataImporter:
             session.close()
 
         return stats
+
+    def _should_import(self, result_label: str) -> bool:
+        """Return True when the given result type should be imported."""
+        if not self.result_types:
+            return True
+        return result_label.strip().lower() in self.result_types
 
     def _import_story_drifts(self, session, project_id: int) -> dict:
         """Import story drift data."""
@@ -271,11 +297,65 @@ class DataImporter:
 
         return stats
 
+    def _import_joint_displacements(self, session, project_id: int) -> dict:
+        """Import joint displacement data (global story displacements)."""
+        stats = {"displacements": 0}
+
+        try:
+            df, load_cases, stories = self.parser.get_joint_displacements()
+
+            if df.empty:
+                return stats
+
+            case_repo = LoadCaseRepository(session)
+            story_repo = StoryRepository(session)
+            result_repo = ResultRepository(session)
+
+            for direction in ["Ux", "Uy"]:
+                processed = ResultProcessor.process_joint_displacements(
+                    df, load_cases, stories, direction
+                )
+
+                displacement_objects = []
+
+                for _, row in processed.iterrows():
+                    story = story_repo.get_or_create(
+                        project_id=project_id,
+                        name=row["Story"],
+                        sort_order=stories.index(row["Story"]) if row["Story"] in stories else None,
+                    )
+
+                    load_case = case_repo.get_or_create(
+                        project_id=project_id,
+                        name=row["LoadCase"],
+                        case_type="Time History",
+                    )
+
+                    displacement = StoryDisplacement(
+                        story_id=story.id,
+                        load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
+                        direction=row["Direction"],
+                        displacement=row["Displacement"],
+                        max_displacement=row.get("MaxDisplacement"),
+                        min_displacement=row.get("MinDisplacement"),
+                    )
+                    displacement_objects.append(displacement)
+
+                result_repo.bulk_create_displacements(displacement_objects)
+                stats["displacements"] += len(displacement_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing joint displacements: {e}")
+
+        return stats
+
     def _generate_cache(self, session, project_id: int, result_set_id: int):
         """Generate wide-format cache tables for fast tabular display."""
         story_repo = StoryRepository(session)
         cache_repo = CacheRepository(session)
         result_repo = ResultRepository(session)
+        abs_repo = AbsoluteMaxMinDriftRepository(session)
 
         # Get all stories for this project
         stories = story_repo.get_by_project(project_id)
@@ -284,6 +364,12 @@ class DataImporter:
         self._cache_drifts(session, project_id, result_set_id, stories, cache_repo, result_repo)
         self._cache_accelerations(session, project_id, result_set_id, stories, cache_repo, result_repo)
         self._cache_forces(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
+        self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
+        self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
 
     def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
         """Generate cache for story drifts."""
@@ -379,6 +465,87 @@ class DataImporter:
                 project_id=project_id,
                 story_id=story_id,
                 result_type="Forces",
+                results_matrix=results_matrix,
+                result_set_id=result_set_id,
+            )
+
+    def _calculate_absolute_maxmin(self, session, project_id: int, result_set_id: int, abs_repo):
+        """Compute and persist absolute max/min drifts per load case and direction."""
+        from sqlalchemy import and_
+        from database.models import StoryDrift, LoadCase, Story
+
+        drifts = (
+            session.query(StoryDrift, LoadCase, Story)
+            .join(LoadCase, StoryDrift.load_case_id == LoadCase.id)
+            .join(Story, StoryDrift.story_id == Story.id)
+            .filter(
+                and_(
+                    Story.project_id == project_id,
+                    StoryDrift.result_category_id == self.result_category_id,
+                )
+            )
+            .all()
+        )
+
+        abs_repo.delete_by_result_set(project_id, result_set_id)
+
+        if not drifts:
+            return
+
+        records = []
+        for drift, load_case, story in drifts:
+            max_val = drift.max_drift if drift.max_drift is not None else drift.drift
+            min_val = drift.min_drift if drift.min_drift is not None else drift.drift
+
+            if abs(max_val) >= abs(min_val):
+                abs_val = abs(max_val)
+                sign = "positive" if max_val >= 0 else "negative"
+            else:
+                abs_val = abs(min_val)
+                sign = "positive" if min_val >= 0 else "negative"
+
+            records.append({
+                "project_id": project_id,
+                "result_set_id": result_set_id,
+                "story_id": story.id,
+                "load_case_id": load_case.id,
+                "direction": drift.direction,
+                "absolute_max_drift": abs_val,
+                "sign": sign,
+                "original_max": max_val,
+                "original_min": min_val,
+            })
+
+        if records:
+            abs_repo.bulk_create(records)
+
+    def _cache_displacements(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
+        """Generate cache for joint displacements (global)."""
+        from database.models import StoryDisplacement, LoadCase, Story
+
+        displacements = (
+            session.query(StoryDisplacement, LoadCase.name)
+            .join(LoadCase, StoryDisplacement.load_case_id == LoadCase.id)
+            .join(Story, StoryDisplacement.story_id == Story.id)
+            .filter(Story.project_id == project_id)
+            .filter(StoryDisplacement.result_category_id == self.result_category_id)
+            .all()
+        )
+
+        story_matrices = {}
+        for displacement, load_case_name in displacements:
+            story_id = displacement.story_id
+            if story_id not in story_matrices:
+                story_matrices[story_id] = {}
+
+            key = f"{load_case_name}_{displacement.direction}"
+            story_matrices[story_id][key] = displacement.displacement
+
+        for story_id, results_matrix in story_matrices.items():
+            cache_repo.upsert_cache_entry(
+                project_id=project_id,
+                story_id=story_id,
+                result_type="Displacements",
                 results_matrix=results_matrix,
                 result_set_id=result_set_id,
             )

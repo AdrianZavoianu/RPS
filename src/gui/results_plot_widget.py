@@ -1,16 +1,25 @@
 """Results plot widget - PyQtGraph plots with GMP styling."""
 
+from __future__ import annotations
+
+from typing import Optional
+
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,
-    QFrame, QSpacerItem, QSizePolicy
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTabWidget,
+    QLabel,
+    QFrame,
+    QSpacerItem,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 import pandas as pd
-import numpy as np
-from config.result_config import get_config
-from utils.data_utils import parse_percentage_value
+
 from utils.plot_builder import PlotBuilder
+from processing.result_service import ResultDataset
 
 
 class ResultsPlotWidget(QWidget):
@@ -20,11 +29,12 @@ class ResultsPlotWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.current_data = None
-        self.current_result_type = None
+        self.current_dataset: Optional[ResultDataset] = None
         self._plot_legends = {}
         self._plot_items = {}  # Store plot items for highlighting: {load_case: plot_item}
         self._highlighted_case = None  # Track currently highlighted load case
+        self._current_selection: set[str] = set()
+        self._average_plot_item = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -203,49 +213,46 @@ class ResultsPlotWidget(QWidget):
         container._legend_layout.addWidget(item_widget)
         container._legend_items.append(item_widget)
 
-    def load_data(self, df: pd.DataFrame, result_type: str):
-        """Load data and generate plots."""
-        self.current_data = df
-        self.current_result_type = result_type
+    def load_dataset(self, dataset: ResultDataset) -> None:
+        """Load data and generate plots from a ResultDataset."""
+        self.current_dataset = dataset
+        self._current_selection.clear()
+        self._average_plot_item = None
 
-        # Clear previous plots
         self.clear_plots()
 
+        df = dataset.data
         if df.empty:
             return
 
-        # Use configuration to determine plot mode
-        config = get_config(result_type)
+        config = dataset.config
 
-        if config.plot_mode == 'building_profile':
+        if config.plot_mode == "building_profile":
             self.tabs.tabBar().hide()  # Hide tabs for clean single plot view
-            self._plot_building_profile(df, result_type)
+            self._plot_building_profile(dataset)
         else:
             self.tabs.tabBar().show()  # Show tabs for other result types
             # Generate standard plots for other result types
-            self._plot_envelope(df, result_type)
-            self._plot_comparison(df, result_type)
-            self._plot_profile(df, result_type)
+            self._plot_envelope(dataset)
+            self._plot_comparison(dataset)
+            self._plot_profile(dataset)
 
-    def _data_columns(self, df: pd.DataFrame) -> list[str]:
+    def _data_columns(self, dataset: ResultDataset) -> list[str]:
         """Return columns that represent load cases (exclude Story and summaries)."""
-        return [
-            col
-            for col in df.columns
-            if col != 'Story' and col not in self.SUMMARY_COLUMNS
-        ]
+        return list(dataset.load_case_columns)
 
-    def _plot_envelope(self, df: pd.DataFrame, result_type: str):
+    def _plot_envelope(self, dataset: ResultDataset):
         """Plot envelope values by story."""
         container = self.envelope_plot
         plot = self._get_plot_from_container(container)
         self._reset_plot(container)
 
+        df = dataset.data
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
 
         # Get numeric columns (exclude 'Story' column)
-        numeric_cols = self._data_columns(df)
+        numeric_cols = self._data_columns(dataset)
 
         if not numeric_cols:
             return
@@ -270,22 +277,27 @@ class ResultsPlotWidget(QWidget):
         axis = plot.getAxis('bottom')
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
         plot.setLabel('bottom', 'Story')
-        plot.setLabel('left', self._get_ylabel(result_type))
+        plot.setLabel('left', dataset.config.y_label)
 
         # Update title
-        plot.setTitle(f"Maximum {result_type} by Story", color='#4a7d89', size='12pt')
+        plot.setTitle(
+            f"Maximum {dataset.meta.display_name} by Story",
+            color='#4a7d89',
+            size='12pt',
+        )
 
-    def _plot_comparison(self, df: pd.DataFrame, result_type: str):
+    def _plot_comparison(self, dataset: ResultDataset):
         """Plot load case comparison."""
         container = self.comparison_plot
         plot = self._get_plot_from_container(container)
         self._reset_plot(container)
 
+        df = dataset.data
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
 
         # Get numeric columns
-        numeric_cols = self._data_columns(df)
+        numeric_cols = self._data_columns(dataset)
 
         if not numeric_cols:
             return
@@ -315,22 +327,27 @@ class ResultsPlotWidget(QWidget):
         axis = plot.getAxis('bottom')
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
         plot.setLabel('bottom', 'Story')
-        plot.setLabel('left', self._get_ylabel(result_type))
+        plot.setLabel('left', dataset.config.y_label)
 
         # Update title
-        plot.setTitle(f"{result_type} - Load Case Comparison", color='#4a7d89', size='12pt')
+        plot.setTitle(
+            f"{dataset.meta.display_name} - Load Case Comparison",
+            color='#4a7d89',
+            size='12pt',
+        )
 
-    def _plot_profile(self, df: pd.DataFrame, result_type: str):
+    def _plot_profile(self, dataset: ResultDataset):
         """Plot building profile (story height vs max value)."""
         container = self.profile_plot
         plot = self._get_plot_from_container(container)
         self._reset_plot(container)
 
+        df = dataset.data
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
 
         # Get numeric columns
-        numeric_cols = self._data_columns(df)
+        numeric_cols = self._data_columns(dataset)
 
         if not numeric_cols:
             return
@@ -366,34 +383,33 @@ class ResultsPlotWidget(QWidget):
         axis = plot.getAxis('left')
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
         plot.setLabel('left', 'Story')
-        plot.setLabel('bottom', self._get_ylabel(result_type))
+        plot.setLabel('bottom', dataset.config.y_label)
 
         # Update title
-        plot.setTitle(f"{result_type} - Building Profile", color='#4a7d89', size='12pt')
+        plot.setTitle(
+            f"{dataset.meta.display_name} - Building Profile", color='#4a7d89', size='12pt'
+        )
 
-    def _get_ylabel(self, result_type: str) -> str:
-        """Get y-axis label based on result type."""
-        config = get_config(result_type)
-        return config.y_label
-
-    def _plot_building_profile(self, df: pd.DataFrame, result_type: str):
+    def _plot_building_profile(self, dataset: ResultDataset):
         """Plot building profile - drift vs height."""
         # Use the envelope plot for the main view
         container = self.envelope_plot
         plot = self._get_plot_from_container(container)
         self._reset_plot(container)
 
+        df = dataset.data
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
 
         # Get numeric columns (load cases)
-        load_case_columns = self._data_columns(df)
+        load_case_columns = self._data_columns(dataset)
 
         if not load_case_columns:
             return
 
         # Clear plot items dictionary
         self._plot_items.clear()
+        self._average_plot_item = None
 
         # Highly distinct colors optimized for dark backgrounds
         colors = [
@@ -412,12 +428,11 @@ class ResultsPlotWidget(QWidget):
             '#f8b500',  # Golden yellow
         ]
 
+        numeric_df = df[load_case_columns].apply(pd.to_numeric, errors='coerce')
+
         # Plot each load case as a line
         for idx, load_case in enumerate(load_case_columns):
-            # Convert values to numeric (handles both strings and floats)
-            values = df[load_case].fillna(0).tolist()
-            numeric_values = [parse_percentage_value(val) for val in values]
-
+            numeric_values = numeric_df[load_case].fillna(0.0).tolist()
             color = colors[idx % len(colors)]
 
             # Plot horizontal (drift on x-axis, story on y-axis)
@@ -433,14 +448,8 @@ class ResultsPlotWidget(QWidget):
 
         # Calculate and plot average line (bold, dashed)
         if len(load_case_columns) > 1:
-            avg_values = []
-            for story_idx in range(len(stories)):
-                story_values = [
-                    parse_percentage_value(df[load_case].iloc[story_idx])
-                    for load_case in load_case_columns
-                ]
-                story_values = [v for v in story_values if v != 0.0]  # Filter zeros
-                avg_values.append(sum(story_values) / len(story_values) if story_values else 0)
+            avg_series = numeric_df.mean(axis=1, skipna=True).fillna(0.0)
+            avg_values = avg_series.tolist()
 
             # Plot average with bold, dashed line in bright orange
             self._average_plot_item = plot.plot(
@@ -451,8 +460,7 @@ class ResultsPlotWidget(QWidget):
             self._add_legend_item(container, '#ffa500', 'Average')
 
         # Use PlotBuilder for common configuration
-        config = get_config(result_type)
-        builder = PlotBuilder(plot, config)
+        builder = PlotBuilder(plot, dataset.config)
 
         # Configure axes with story labels
         builder.setup_axes(stories)
@@ -461,12 +469,14 @@ class ResultsPlotWidget(QWidget):
         builder.set_story_range(len(stories), padding=0.02)
 
         # Calculate x-axis range from all values
-        all_values = []
-        for load_case in load_case_columns:
-            all_values.extend([parse_percentage_value(val) for val in df[load_case]])
+        all_values = [
+            float(value)
+            for value in numeric_df.to_numpy().flatten()
+            if not pd.isna(value)
+        ]
 
         # Filter out zeros and set range with small padding
-        all_values = [v for v in all_values if v != 0.0]
+        all_values = [v for v in all_values if abs(v) > 0.0]
         if all_values:
             min_val = min(all_values)
             max_val = max(all_values)
@@ -480,7 +490,7 @@ class ResultsPlotWidget(QWidget):
         plot.showGrid(x=True, y=True, alpha=0.5)
 
         # Set title
-        builder.set_title("Story Drifts")
+        builder.set_title(dataset.meta.display_name)
 
     def highlight_load_cases(self, selected_cases: list):
         """Highlight multiple selected load cases, dim others, always show average at full opacity."""
@@ -569,6 +579,8 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(self.profile_plot)
         self._plot_items.clear()
         self._highlighted_case = None
+        self._average_plot_item = None
+        self.current_dataset = None
 
     def _reset_plot(self, container):
         """Clear plot curves and legend entries."""

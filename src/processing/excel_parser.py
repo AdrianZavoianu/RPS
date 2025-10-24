@@ -144,6 +144,35 @@ class ExcelParser:
 
         return df, load_cases, stories
 
+    def get_joint_displacements(self) -> Tuple[pd.DataFrame, List[str], List[str]]:
+        """Parse joint displacement data (global) from Excel file.
+
+        Only the 'Joint DisplacementsG' sheet is considered valid for global story displacements.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories)
+        """
+        sheet = "Joint DisplacementsG"
+
+        if not self.validate_sheet_exists(sheet):
+            return pd.DataFrame(), [], []
+
+        # Columns: Story, Label, Unique Name, Output Case, Case Type, Step Type, Ux, Uy, Uz, Rx, Ry, Rz
+        df = self.read_sheet(sheet, columns=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11], skiprows=[0, 2])
+        df = df.rename(columns=lambda c: str(c).strip())
+
+        expected_columns = {"Story", "Output Case", "Ux", "Uy"}
+        missing = expected_columns - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing expected columns in 'Joint DisplacementsG': {missing}")
+
+        df = df[["Story", "Output Case", "Ux", "Uy"]].dropna(subset=["Story", "Output Case"])
+
+        load_cases = df["Output Case"].unique().tolist()
+        stories = df["Story"].unique().tolist()
+
+        return df, load_cases, stories
+
     def get_available_sheets(self) -> List[str]:
         """Get list of available sheets in the Excel file.
 

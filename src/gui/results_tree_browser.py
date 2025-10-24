@@ -168,9 +168,9 @@ class ResultsTreeBrowser(QWidget):
         self._add_drifts_section(global_item, result_set.id)
 
         # Other result types
-        self._add_result_type_with_directions(global_item, "› Accelerations", result_set.id, "Envelopes", "Accelerations")
-        self._add_result_type_with_directions(global_item, "› Shears", result_set.id, "Envelopes", "Forces")
-        self._add_result_type_with_directions(global_item, "› Displacements", result_set.id, "Envelopes", "Displacements")
+        self._add_result_type_with_directions(global_item, "> Story Accelerations", result_set.id, "Envelopes", "Accelerations")
+        self._add_result_type_with_directions(global_item, "> Story Forces", result_set.id, "Envelopes", "Forces")
+        self._add_result_type_with_directions(global_item, "> Joint Displacements (Global)", result_set.id, "Envelopes", "Displacements")
 
         # Time-Series category (placeholder)
         timeseries_item = QTreeWidgetItem(result_set_item)
@@ -312,3 +312,6 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = data.get("result_type")
             self.selection_changed.emit(result_set_id, category, result_type, "")
+
+
+

@@ -1,8 +1,8 @@
 """Database base configuration and session management."""
 
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from pathlib import Path
 
 # Create data directory if it doesn't exist
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -21,7 +21,7 @@ engine = create_engine(
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create declarative base
+# Declarative base
 Base = declarative_base()
 
 

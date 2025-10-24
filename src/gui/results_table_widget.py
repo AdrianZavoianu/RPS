@@ -1,13 +1,27 @@
 """Results table widget - displays tabular data with GMP styling."""
 
+from __future__ import annotations
+
+from typing import List, Optional, Set, TYPE_CHECKING
+
 import pandas as pd
-from PyQt6.QtCore import Qt, pyqtSignal, QRect, QEvent
+from PyQt6.QtCore import QEvent, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter
-from PyQt6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView,
-                             QSizePolicy, QTableWidget, QTableWidgetItem,
-                             QVBoxLayout, QWidget, QStyleOptionHeader, QStyle)
-from config.result_config import get_config
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from utils.color_utils import get_gradient_color
+
+if TYPE_CHECKING:
+    from processing.result_service import ResultDataset
 
 
 class ClickableTableWidget(QTableWidget):
@@ -60,8 +74,11 @@ class SelectableHeaderView(QHeaderView):
                 item = table.horizontalHeaderItem(logical_index)
                 if item:
                     col_name = item.text()
+                    non_selectable = getattr(
+                        table, "_non_selectable_columns", {'Story', 'Avg', 'Max', 'Min'}
+                    )
                     # Only emit for load case columns (not Story, Avg, Max, Min)
-                    if col_name not in ['Story', 'Avg', 'Max', 'Min']:
+                    if col_name not in non_selectable:
                         self.section_hovered.emit(col_name)
 
             self.viewport().update()
@@ -150,6 +167,12 @@ class ResultsTableWidget(QFrame):
 
         # Track selected rows manually (for click highlighting)
         self._selected_rows = set()
+
+        self._dataset: Optional["ResultDataset"] = None
+        self._column_names: List[str] = []
+        self._load_case_columns: List[str] = []
+        self._load_case_column_set: Set[str] = set()
+        self._non_selectable_columns: Set[str] = {"Story"}
 
         self.setup_ui()
 
@@ -242,6 +265,8 @@ class ResultsTableWidget(QFrame):
         # Enable mouse tracking for row hover effects
         self.table.setMouseTracking(True)
         self.table.viewport().setMouseTracking(True)
+        self.table.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.table.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         # Store references for hover tracking
         self.table._hovered_row = -1
@@ -259,109 +284,137 @@ class ResultsTableWidget(QFrame):
 
         layout.addWidget(self.table)
 
-    def load_data(self, df: pd.DataFrame, result_type: str):
-        """Load data from DataFrame into table."""
+    def load_dataset(self, dataset: "ResultDataset"):
+        """Load data from a ResultDataset into the table."""
+        df = dataset.data
+        self._dataset = dataset
+        self._selected_load_cases.clear()
+        self._selected_rows.clear()
+        self._load_case_columns = list(dataset.load_case_columns)
+        self._load_case_column_set = set(self._load_case_columns)
+        self._non_selectable_columns = {"Story", *dataset.summary_columns}
+        self._story_sort_order = Qt.SortOrder.AscendingOrder
+
+        header = self.table.horizontalHeader()
+        if isinstance(header, QHeaderView):
+            header.setSortIndicatorShown(False)
+
         if df.empty:
             self.clear_data()
             return
 
-        # Set table dimensions
-        self.table.setRowCount(len(df))
-        self.table.setColumnCount(len(df.columns))
-        self.table.setHorizontalHeaderLabels(df.columns.tolist())
+        column_names = df.columns.tolist()
+        self._column_names = column_names
 
-        # Calculate min/max across load case columns for gradient coloring
-        load_case_cols = [col for col in df.columns if col not in ['Story', 'Avg', 'Max', 'Min']]
-        all_load_case_values = []
+        row_count = len(df.index)
+        column_count = len(column_names)
 
-        if load_case_cols:
-            for col in load_case_cols:
-                for val in df[col]:
-                    try:
-                        all_load_case_values.append(float(val))
-                    except (ValueError, TypeError):
-                        pass
+        self.table.setRowCount(row_count)
+        self.table.setColumnCount(column_count)
+        self.table.setHorizontalHeaderLabels(column_names)
 
-        min_val = min(all_load_case_values) if all_load_case_values else 0
-        max_val = max(all_load_case_values) if all_load_case_values else 1
-        value_range = max_val - min_val if max_val != min_val else 1
+        min_val, max_val = self._compute_value_range(df, self._load_case_columns)
+        config = dataset.config
 
-        # Populate data
-        for row_idx, (_, row) in enumerate(df.iterrows()):
-            for col_idx, value in enumerate(row):
+        for row_idx in range(row_count):
+            for col_idx, col_name in enumerate(column_names):
                 item = QTableWidgetItem()
+                value = df.iloc[row_idx, col_idx]
 
-                # Format value based on column
-                col_name = df.columns[col_idx]
-
-                if col_idx == 0:  # Story column
+                if col_name == "Story":
                     item.setText(str(value))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    # Story column styling - store default color
                     default_color = QColor("#d1d5db")
                     item.setForeground(default_color)
-                    item._original_color = QColor(default_color)  # Store a copy
+                    item._original_color = QColor(default_color)
                 else:
-                    # Numeric columns
-                    try:
-                        numeric_value = float(value)
+                    item.setText(self._format_value(value, config))
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                        # Format based on result type configuration
-                        config = get_config(result_type)
-                        converted_value = numeric_value * config.multiplier
-                        formatted = f"{converted_value:.{config.decimal_places}f}{config.unit}"
-
-                        item.setText(formatted)
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                        # Apply color based on column type
-                        if col_name in ['Avg', 'Max', 'Min']:
-                            # Summary columns - keep default text color
-                            default_color = QColor("#d1d5db")
-                            item.setForeground(default_color)
-                            item._original_color = QColor(default_color)  # Store a copy
-                        elif col_name != 'Story':
-                            # Load case columns - apply gradient using color scheme
-                            config = get_config(result_type)
-                            color = get_gradient_color(
-                                numeric_value,
-                                min_val,
-                                max_val,
-                                config.color_scheme
-                            )
-                            item.setForeground(color)
-                            item._original_color = QColor(color)  # Store a copy
-
-                    except (ValueError, TypeError):
-                        item.setText(str(value))
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    if col_name in dataset.summary_columns:
+                        default_color = QColor("#d1d5db")
+                        item.setForeground(default_color)
+                        item._original_color = QColor(default_color)
+                    elif col_name in self._load_case_column_set:
+                        numeric_value = self._safe_numeric(value)
+                        color = get_gradient_color(
+                            numeric_value,
+                            min_val,
+                            max_val,
+                            config.color_scheme,
+                        )
+                        item.setForeground(color)
+                        item._original_color = QColor(color)
+                    else:
+                        default_color = QColor("#d1d5db")
+                        item.setForeground(default_color)
+                        item._original_color = QColor(default_color)
 
                 self.table.setItem(row_idx, col_idx, item)
 
-        # Set column widths - first column (Story) different from data columns
-        story_column_width = 70  # Width for Story column
-        data_column_width = 55   # Width for data columns (TH01, TH02, Avg, Max, Min, etc.)
+        self._resize_columns(column_count)
+        self._update_header_styling()
 
-        for col_idx in range(len(df.columns)):
-            if col_idx == 0:  # First column (Story)
+    def _resize_columns(self, column_count: int) -> None:
+        """Apply width constraints based on column type counts."""
+        story_column_width = 70
+        data_column_width = 55
+
+        for col_idx in range(column_count):
+            if col_idx == 0:
                 self.table.setColumnWidth(col_idx, story_column_width)
-            else:  # Data columns
+            else:
                 self.table.setColumnWidth(col_idx, data_column_width)
 
-        # Store column names for later reference
-        self._column_names = df.columns.tolist()
-
-        # Auto-fit container to table content
-        # Calculate actual table width needed (columns + small buffer for borders)
-        total_width = story_column_width + (len(df.columns) - 1) * data_column_width + 2
-
-        # Set table to this size
+        total_width = story_column_width + max(0, column_count - 1) * data_column_width + 2
         self.table.setMinimumWidth(total_width)
         self.table.setMaximumWidth(total_width)
-
-        # Container matches table width exactly (no extra margins)
         self.setMinimumWidth(total_width)
         self.setMaximumWidth(total_width)
+
+    def _format_value(self, value, config) -> str:
+        """Format numeric table value with unit string."""
+        if pd.isna(value):
+            return "-"
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return f"{numeric_value:.{config.decimal_places}f}{config.unit}"
+
+    @staticmethod
+    def _safe_numeric(value) -> float:
+        """Convert table value to float for gradient evaluation."""
+        try:
+            if pd.isna(value):
+                return 0.0
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _compute_value_range(self, df: pd.DataFrame, columns: List[str]) -> tuple[float, float]:
+        """Determine min/max values across load case columns."""
+        values: List[float] = []
+        for col in columns:
+            if col not in df:
+                continue
+            series = df[col]
+            for val in series:
+                if pd.isna(val):
+                    continue
+                try:
+                    values.append(float(val))
+                except (TypeError, ValueError):
+                    continue
+
+        if not values:
+            return 0.0, 1.0
+
+        min_val = min(values)
+        max_val = max(values)
+        if min_val == max_val:
+            return min_val, min_val + 1e-6
+        return min_val, max_val
 
     def _on_row_clicked(self, row: int):
         """Handle row click - toggle selection."""
@@ -381,8 +434,8 @@ class ResultsTableWidget(QFrame):
 
         col_name = self._column_names[logical_index]
 
-        # Check if it's a load case column (not Story, Avg, Max, Min)
-        if col_name not in ['Story', 'Avg', 'Max', 'Min']:
+        # Check if it's a selectable load case column
+        if col_name not in self._non_selectable_columns:
             # Toggle selection
             if col_name in self._selected_load_cases:
                 self._selected_load_cases.remove(col_name)
@@ -413,8 +466,13 @@ class ResultsTableWidget(QFrame):
         if not isinstance(table, ClickableTableWidget):
             return False
 
-        if event.type() == QEvent.Type.MouseMove:
-            item = table.itemAt(event.pos())
+        if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
+            if hasattr(event, "pos"):
+                pos = event.pos()
+            else:
+                # QHoverEvent exposes position() returning QPointF
+                pos = event.position().toPoint()
+            item = table.itemAt(pos)
             new_row = item.row() if item else -1
             old_row = getattr(table, '_hovered_row', -1)
 
@@ -424,7 +482,7 @@ class ResultsTableWidget(QFrame):
                 if new_row >= 0:
                     self._apply_row_hover(table, new_row, True)
 
-        elif event.type() == QEvent.Type.Leave:
+        elif event.type() in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
             # Clear hover when mouse leaves table
             old_row = getattr(table, '_hovered_row', -1)
             if old_row >= 0:
@@ -443,20 +501,36 @@ class ResultsTableWidget(QFrame):
             hovered = (row == getattr(table, '_hovered_row', -1))
         is_selected = (row in self._selected_rows)
 
+        hover_color = QColor("#1c2128")
+        selection_color = QColor("#1f2937")
+        combined_color = QColor("#264653")
+
         for col in range(table.columnCount()):
             item = table.item(row, col)
-            if item and hasattr(item, '_original_color'):
-                # Always restore original foreground color
-                item.setForeground(item._original_color)
+            if not item:
+                continue
 
-                # Apply background overlay if hovered or selected
-                if hovered or is_selected:
-                    bg_color = QColor(103, 232, 249, 64 if hovered and not is_selected else 96)
-                    brush = QBrush(bg_color)
-                    item.setBackground(brush)
-                else:
-                    # Clear background completely
-                    item.setBackground(QBrush())
+            original_color = getattr(item, '_original_color', None)
+            if original_color is not None:
+                item.setForeground(original_color)
+
+            # Apply background overlay if hovered or selected
+            if hovered and is_selected:
+                bg_color = combined_color
+            elif is_selected:
+                bg_color = selection_color
+            elif hovered:
+                bg_color = hover_color
+            else:
+                bg_color = None
+
+            if bg_color:
+                brush = QBrush(bg_color)
+                item.setBackground(brush)
+                item.setData(Qt.ItemDataRole.BackgroundRole, bg_color)
+            else:
+                item.setBackground(QBrush())
+                item.setData(Qt.ItemDataRole.BackgroundRole, None)
 
         # Force table to repaint this row
         table.viewport().update()
@@ -485,3 +559,13 @@ class ResultsTableWidget(QFrame):
         self.table.setColumnCount(0)
         self._selected_load_cases.clear()
         self._selected_rows.clear()
+        self._dataset = None
+        self._column_names = []
+        self._load_case_columns = []
+        self._load_case_column_set.clear()
+        self._non_selectable_columns = {"Story"}
+        self.table._hovered_row = -1
+        header = self.table.horizontalHeader()
+        if isinstance(header, QHeaderView):
+            header.setSortIndicatorShown(False)
+        self._update_header_styling()

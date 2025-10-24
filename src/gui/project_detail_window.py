@@ -8,8 +8,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QPushButton,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt
 
 from database.base import get_session
 from database.repository import (
@@ -20,11 +19,10 @@ from database.repository import (
     LoadCaseRepository,
     AbsoluteMaxMinDriftRepository,
 )
-from processing.result_transformers import get_transformer
+from processing.result_service import ResultDataService
 from .results_tree_browser import ResultsTreeBrowser
-from .results_table_widget import ResultsTableWidget
-from .results_plot_widget import ResultsPlotWidget
 from .maxmin_drifts_widget import MaxMinDriftsWidget
+from .result_views import StandardResultView
 from .ui_helpers import create_styled_button, create_styled_label
 from .window_utils import enable_dark_title_bar
 from .styles import COLORS
@@ -46,6 +44,14 @@ class ProjectDetailWindow(QMainWindow):
         self.story_repo = StoryRepository(self.session)
         self.load_case_repo = LoadCaseRepository(self.session)
         self.abs_maxmin_repo = AbsoluteMaxMinDriftRepository(self.session)
+
+        self.result_service = ResultDataService(
+            project_id=self.project_id,
+            cache_repo=self.cache_repo,
+            story_repo=self.story_repo,
+            load_case_repo=self.load_case_repo,
+            abs_maxmin_repo=self.abs_maxmin_repo,
+        )
 
         # Current selection
         self.current_result_type = None  # 'Drifts', 'Accelerations', 'Forces'
@@ -170,41 +176,10 @@ class ProjectDetailWindow(QMainWindow):
 
         layout.addWidget(content_header, stretch=0)
 
-        # Content splitter (table | plots) - HORIZONTAL layout
-        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.content_splitter.setChildrenCollapsible(False)
-        self.content_splitter.setHandleWidth(8)  # Reduced gap between table and plot (was 16)
-        self.content_splitter.setStyleSheet("""
-            QSplitter {
-                padding: 0px;
-                margin: 0px;
-            }
-            QSplitter::handle {
-                background-color: transparent;
-                margin: 0px 4px;
-            }
-        """)
-
-        # Table widget (compact, on left) - will size to content
-        self.table_widget = ResultsTableWidget()
-        self.content_splitter.addWidget(self.table_widget)
-
-        # Plot widget (takes remaining space, on right)
-        self.plot_widget = ResultsPlotWidget()
-        self.content_splitter.addWidget(self.plot_widget)
-
-        # Connect table load case selection to plot highlighting (multi-select)
-        self.table_widget.selection_changed.connect(self.plot_widget.highlight_load_cases)
-
-        # Connect hover signals for temporary highlighting
-        self.table_widget.load_case_hovered.connect(self.plot_widget.hover_load_case)
-        self.table_widget.hover_cleared.connect(self.plot_widget.clear_hover)
-
-        # Table takes minimum needed space, plot takes all remaining
-        self.content_splitter.setStretchFactor(0, 0)  # Table: don't stretch
-        self.content_splitter.setStretchFactor(1, 1)  # Plot: take all remaining space
-
-        layout.addWidget(self.content_splitter)
+        # Standard result view (table + plot)
+        self.standard_view = StandardResultView()
+        self.standard_view.clear()
+        layout.addWidget(self.standard_view, stretch=1)
 
         # Max/Min Drifts widget (initially hidden)
         self.maxmin_widget = MaxMinDriftsWidget()
@@ -215,6 +190,7 @@ class ProjectDetailWindow(QMainWindow):
 
     def load_project_data(self):
         """Load project data and populate browser."""
+        self.result_service.invalidate_all()
         try:
             # Get result sets
             result_sets = self.result_set_repo.get_by_project(self.project_id)
@@ -246,106 +222,46 @@ class ProjectDetailWindow(QMainWindow):
         self.current_direction = direction
 
         if result_type and result_set_id:
-            # Check if this is MaxMinDrifts
             if result_type == "MaxMinDrifts":
-                self.content_title.setText("› Max/Min Drifts")
-                # Hide regular table/plot, show MaxMin widget
-                self.content_splitter.hide()
+                self.content_title.setText("> Max/Min Drifts")
+                self.standard_view.hide()
                 self.maxmin_widget.show()
                 self.load_maxmin_results(result_set_id)
             else:
-                # Regular result type with direction
-                # Hide MaxMin widget, show regular table/plot
                 self.maxmin_widget.hide()
-                self.content_splitter.show()
-
-                # Map result type to display name
-                display_name = result_type
-                if result_type == "Drifts":
-                    display_name = f"Interstorey Drifts - {direction} Direction"
-                elif result_type == "Accelerations":
-                    display_name = f"Accelerations - {direction} Direction"
-                elif result_type == "Forces":
-                    display_name = f"Shears - {direction} Direction"
-                elif result_type == "Displacements":
-                    display_name = f"Displacements - {direction} Direction"
-
-                self.content_title.setText(f"› {display_name}")
-
-                # Combine result type and direction for config lookup
-                result_type_key = f"{result_type}_{direction}"
-                self.load_results(result_type_key, result_set_id)
+                self.standard_view.show()
+                self.load_standard_results(result_type, direction, result_set_id)
         else:
             self.content_title.setText("Select a result type")
             self.maxmin_widget.hide()
-            self.content_splitter.show()
-            self.table_widget.clear_data()
-            self.plot_widget.clear_plots()
+            self.standard_view.show()
+            self.standard_view.clear()
 
-    def load_results(self, result_type: str, result_set_id: int):
-        """Load and display results for the selected type.
-
-        Args:
-            result_type: Type of results to load (e.g., "Drifts_X", "Drifts_Y", "Accelerations_X")
-            result_set_id: ID of the result set to filter by
-        """
+    def load_standard_results(self, result_type: str, direction: str, result_set_id: int) -> None:
+        """Load and display directional results for the selected type."""
         try:
-            # Extract base result type for cache query (remove _X or _Y suffix)
-            base_result_type = result_type.replace('_X', '').replace('_Y', '')
+            dataset = self.result_service.get_standard_dataset(result_type, direction, result_set_id)
 
-            # Get cache data for display using base type
-            cache_entries = self.cache_repo.get_cache_for_display(
-                project_id=self.project_id,
-                result_type=base_result_type,
-                result_set_id=result_set_id,
-            )
-
-            if not cache_entries:
-                self.statusBar().showMessage(f"No data available for {result_type}")
-                self.table_widget.clear_data()
-                self.plot_widget.clear_plots()
+            if not dataset:
+                self.standard_view.clear()
+                self.statusBar().showMessage(
+                    f"No data available for {result_type} ({direction})"
+                )
                 return
 
-            # Convert cache to table format
-            import pandas as pd
+            self.content_title.setText(f"> {dataset.meta.display_name}")
+            self.standard_view.set_dataset(dataset)
 
-            # Build DataFrame from cache
-            # cache_entries is a list of tuples: (GlobalResultsCache, Story)
-            story_names = []
-            data_dicts = []
-
-            for cache_entry, story in cache_entries:
-                story_names.append(story.name)  # Use actual story name from database
-                data_dicts.append(cache_entry.results_matrix)
-
-            # Create DataFrame
-            df = pd.DataFrame(data_dicts)
-
-            # Transform data using result-type-specific transformer (with direction)
-            transformer = get_transformer(result_type)
-            df = transformer.transform(df)
-
-            # Insert Story column at the beginning
-            df.insert(0, 'Story', story_names)
-
-            # TEMPORARY FIX: Reverse DataFrame for existing data with old sort_order
-            # TODO: Remove this reversal after re-importing data with corrected sort_order
-            # This ensures lower floors appear at bottom of plot (Y=0), upper floors at top
-            df = df.iloc[::-1].reset_index(drop=True)
-
-            # Update table
-            self.table_widget.load_data(df, result_type)
-
-            # Update plots
-            self.plot_widget.load_data(df, result_type)
-
+            story_count = len(dataset.data.index)
             self.statusBar().showMessage(
-                f"Loaded {len(cache_entries)} stories for {result_type}"
+                f"Loaded {story_count} stories for {dataset.meta.display_name}"
             )
 
-        except Exception as e:
-            self.statusBar().showMessage(f"Error loading results: {str(e)}")
+        except Exception as exc:  # pragma: no cover - UI feedback
+            self.standard_view.clear()
+            self.statusBar().showMessage(f"Error loading results: {str(exc)}")
             import traceback
+
             traceback.print_exc()
 
     def load_maxmin_results(self, result_set_id: int):
@@ -355,68 +271,25 @@ class ProjectDetailWindow(QMainWindow):
             result_set_id: ID of the result set to filter by
         """
         try:
-            import pandas as pd
+            dataset = self.result_service.get_maxmin_dataset(result_set_id)
 
-            # Get absolute max/min drifts from database
-            abs_drifts = self.abs_maxmin_repo.get_by_result_set(
-                project_id=self.project_id,
-                result_set_id=result_set_id
-            )
-
-            if not abs_drifts:
-                self.statusBar().showMessage("No absolute max/min drift data available")
+            if not dataset or dataset.data.empty:
                 self.maxmin_widget.clear_data()
+                self.statusBar().showMessage("No absolute max/min drift data available")
                 return
 
-            # Get stories for ordering
-            stories = self.story_repo.get_by_project(self.project_id)
-            story_dict = {s.id: s for s in stories}
+            self.maxmin_widget.load_dataset(dataset)
 
-            # Organize data by story and load case
-            # We need to create a structure that matches the widget's expectations:
-            # DataFrame with columns: Story, Max_LC1_X, Min_LC1_X, Max_LC2_X, ...
-
-            data_by_story = {}
-
-            for drift in abs_drifts:
-                story_id = drift.story_id
-                if story_id not in data_by_story:
-                    data_by_story[story_id] = {'Story': story_dict[story_id].name}
-
-                # Get load case name
-                load_case = self.load_case_repo.get_by_id(drift.load_case_id)
-
-                # Store BOTH original Max and Min values (not just the absolute max)
-                # This ensures we display the actual data from the analysis
-                col_max = f"Max_{load_case.name}_{drift.direction}"
-                col_min = f"Min_{load_case.name}_{drift.direction}"
-
-                # Convert to percentage and store original values
-                data_by_story[story_id][col_max] = drift.original_max * 100.0
-                data_by_story[story_id][col_min] = drift.original_min * 100.0
-
-            # Convert to DataFrame (sorted by sort_order ascending = bottom to top)
-            df_list = []
-            for story_id in sorted(data_by_story.keys(), key=lambda x: story_dict[x].sort_order or 0):
-                df_list.append(data_by_story[story_id])
-
-            df_maxmin = pd.DataFrame(df_list)
-
-            # TEMPORARY FIX: Reverse DataFrame for existing data with old sort_order
-            # TODO: Remove this reversal after re-importing data with corrected sort_order
-            # This ensures lower floors appear at bottom of plot (Y=0), upper floors at top
-            df_maxmin = df_maxmin.iloc[::-1].reset_index(drop=True)
-
-            # Load into MaxMin widget
-            self.maxmin_widget.load_data(df_maxmin, "MaxMinDrifts")
-
+            story_count = len(dataset.data.index)
             self.statusBar().showMessage(
-                f"Loaded absolute max/min drifts for {len(abs_drifts)} records"
+                f"Loaded absolute max/min drifts for {story_count} stories"
             )
 
-        except Exception as e:
-            self.statusBar().showMessage(f"Error loading Max/Min results: {str(e)}")
+        except Exception as exc:
+            self.maxmin_widget.clear_data()
+            self.statusBar().showMessage(f"Error loading Max/Min results: {str(exc)}")
             import traceback
+
             traceback.print_exc()
 
     def load_data_from_folder(self):
@@ -437,7 +310,20 @@ class ProjectDetailWindow(QMainWindow):
 
             # Reload current result if selected
             if self.current_result_type and self.current_result_set_id:
-                self.load_results(self.current_result_type, self.current_result_set_id)
+                if self.current_result_type == "MaxMinDrifts":
+                    self.result_service.invalidate_maxmin_dataset(self.current_result_set_id)
+                    self.load_maxmin_results(self.current_result_set_id)
+                else:
+                    self.result_service.invalidate_standard_dataset(
+                        self.current_result_type,
+                        self.current_direction,
+                        self.current_result_set_id,
+                    )
+                    self.load_standard_results(
+                        self.current_result_type,
+                        self.current_direction,
+                        self.current_result_set_id,
+                    )
 
             QMessageBox.information(
                 self,
@@ -457,13 +343,25 @@ class ProjectDetailWindow(QMainWindow):
         try:
             # Check if it's MaxMinDrifts
             if self.current_result_type == "MaxMinDrifts":
+                self.result_service.invalidate_maxmin_dataset(self.current_result_set_id)
                 self.load_maxmin_results(self.current_result_set_id)
                 self.statusBar().showMessage("Max/Min drifts data reloaded", 3000)
             else:
                 # Regular result type
-                result_type_key = f"{self.current_result_type}_{self.current_direction}"
-                self.load_results(result_type_key, self.current_result_set_id)
-                self.statusBar().showMessage(f"{self.current_result_type} data reloaded", 3000)
+                self.result_service.invalidate_standard_dataset(
+                    self.current_result_type,
+                    self.current_direction,
+                    self.current_result_set_id,
+                )
+                self.load_standard_results(
+                    self.current_result_type,
+                    self.current_direction,
+                    self.current_result_set_id,
+                )
+                direction_suffix = f" ({self.current_direction})" if self.current_direction else ""
+                self.statusBar().showMessage(
+                    f"{self.current_result_type}{direction_suffix} data reloaded", 3000
+                )
 
         except Exception as e:
             self.statusBar().showMessage(f"Error reloading data: {str(e)}")

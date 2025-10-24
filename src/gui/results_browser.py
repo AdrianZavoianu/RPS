@@ -112,9 +112,10 @@ class ResultsBrowser(QWidget):
                 results_node.setExpanded(True)
 
                 # Result types with modern icons
-                QTreeWidgetItem(results_node, ["  Î” Story Drifts"])
-                QTreeWidgetItem(results_node, ["  â‰ˆ Story Accelerations"])
-                QTreeWidgetItem(results_node, ["  â†• Story Forces"])
+                QTreeWidgetItem(results_node, ["  • Story Drifts"])
+                QTreeWidgetItem(results_node, ["  • Story Accelerations"])
+                QTreeWidgetItem(results_node, ["  • Story Forces"])
+                QTreeWidgetItem(results_node, ["  • Joint Displacements (Global)"])
 
         finally:
             session.close()

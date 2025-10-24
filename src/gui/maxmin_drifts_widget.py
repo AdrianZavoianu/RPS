@@ -1,16 +1,28 @@
 """Max/Min Drifts widget - displays positive and negative drift envelopes."""
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QHBoxLayout, QHeaderView, QLabel, QSplitter,
-                             QTableWidget, QTableWidgetItem, QTabWidget,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from config.result_config import get_config
 from utils.plot_builder import PlotBuilder
-
 from .styles import COLORS
+
+if TYPE_CHECKING:
+    from processing.result_service import MaxMinDataset
 
 
 class InteractiveLegendItem(QWidget):
@@ -437,6 +449,14 @@ class MaxMinDriftsWidget(QWidget):
         container._table = table
         container._label = label
         return container
+
+    def load_dataset(self, dataset: "MaxMinDataset"):
+        """Load dataset from the result service."""
+        if not dataset or dataset.data.empty:
+            self.clear_data()
+            return
+
+        self.load_data(dataset.data, dataset.meta.result_type)
 
     def load_data(self, df: pd.DataFrame, result_type: str):
         """Load and display Max/Min drift data.
