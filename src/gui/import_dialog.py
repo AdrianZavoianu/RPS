@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt
 from pathlib import Path
 from .ui_helpers import create_styled_button, create_styled_label, apply_button_style
 from .styles import COLORS
+from services.project_service import get_project_context, ensure_project_context, result_set_exists
 
 
 class ImportDialog(QDialog):
@@ -182,22 +183,12 @@ class ImportDialog(QDialog):
         validation_message = ""
 
         if has_result_set and has_project:
-            # Check for duplicates
-            from database.base import get_session
-            from database.repository import ProjectRepository, ResultSetRepository
-
-            session = get_session()
-            try:
-                project_repo = ProjectRepository(session)
-                project = project_repo.get_by_name(self.project_name_edit.text().strip())
-
-                if project:
-                    result_set_repo = ResultSetRepository(session)
-                    if result_set_repo.check_duplicate(project.id, result_set_name):
-                        is_valid = False
-                        validation_message = f"⚠ Result set '{result_set_name}' already exists for this project"
-            finally:
-                session.close()
+            context = get_project_context(self.project_name_edit.text().strip())
+            if context and result_set_exists(context, result_set_name):
+                is_valid = False
+                validation_message = (
+                    f"⚠ Result set '{result_set_name}' already exists for this project"
+                )
 
         self.result_set_validation_label.setText(validation_message)
         self.ok_button.setEnabled(has_file and has_project and has_result_set and is_valid)
@@ -224,3 +215,4 @@ class ImportDialog(QDialog):
     def get_analysis_type(self):
         """Get the analysis type/subfolder."""
         return self.subfolder_edit.text().strip()
+

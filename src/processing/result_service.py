@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING, Set
 
 import pandas as pd
 
@@ -23,9 +23,12 @@ if TYPE_CHECKING:
 DISPLAY_NAME_OVERRIDES = {
     "Drifts": "Story Drifts",
     "Accelerations": "Story Accelerations",
-    "Forces": "Story Forces",
-    "Displacements": "Joint Displacements (Global)",
+    "Forces": "Story Shears",
+    "Displacements": "Floors Displacements",
     "MaxMinDrifts": "Max/Min Drifts",
+    "MaxMinAccelerations": "Max/Min Accelerations",
+    "MaxMinForces": "Max/Min Story Shears",
+    "MaxMinDisplacements": "Max/Min Floors Displacements",
 }
 
 
@@ -57,6 +60,7 @@ class MaxMinDataset:
     meta: ResultDatasetMeta
     data: pd.DataFrame
     directions: Tuple[str, ...] = ("X", "Y")
+    source_type: str = "Drifts"
 
 
 class ResultDataService:
@@ -71,18 +75,21 @@ class ResultDataService:
         story_repo: "StoryRepository",
         load_case_repo: "LoadCaseRepository",
         abs_maxmin_repo: Optional["AbsoluteMaxMinDriftRepository"] = None,
+        session=None,
     ) -> None:
         self.project_id = project_id
         self.cache_repo = cache_repo
         self.story_repo = story_repo
         self.load_case_repo = load_case_repo
         self.abs_maxmin_repo = abs_maxmin_repo
+        self.session = session
 
         self._story_index: Dict[int, Tuple[int, str]] = {}
         self._stories: List["Story"] = []
 
         self._standard_cache: Dict[Tuple[str, str, int], Optional[ResultDataset]] = {}
-        self._maxmin_cache: Dict[int, Optional[MaxMinDataset]] = {}
+        self._maxmin_cache: Dict[Tuple[str, int], Optional[MaxMinDataset]] = {}
+        self._category_cache: Dict[int, Optional[int]] = {}
 
     # --------------------------------------------------------------------- #
     # Public API
@@ -147,14 +154,16 @@ class ResultDataService:
         cache_key = (result_type, direction, result_set_id)
         self._standard_cache.pop(cache_key, None)
 
-    def invalidate_maxmin_dataset(self, result_set_id: int) -> None:
+    def invalidate_maxmin_dataset(self, result_set_id: int, base_result_type: str = "Drifts") -> None:
         """Remove cached absolute max/min dataset for a result set."""
-        self._maxmin_cache.pop(result_set_id, None)
+        cache_key = (base_result_type, result_set_id)
+        self._maxmin_cache.pop(cache_key, None)
 
     def invalidate_all(self) -> None:
         """Clear all cached datasets."""
         self._standard_cache.clear()
         self._maxmin_cache.clear()
+        self._category_cache.clear()
 
     # --------------------------------------------------------------------- #
     # Internal helpers
@@ -235,14 +244,29 @@ class ResultDataService:
             return f"{base_label} - {direction} Direction"
         return base_label
 
-    def get_maxmin_dataset(self, result_set_id: int) -> Optional[MaxMinDataset]:
-        """Return absolute max/min drift dataset for a result set."""
+    def get_maxmin_dataset(
+        self,
+        result_set_id: int,
+        base_result_type: str = "Drifts",
+    ) -> Optional[MaxMinDataset]:
+        """Return absolute max/min dataset for a result set and result type."""
 
+        cache_key = (base_result_type, result_set_id)
+        if cache_key in self._maxmin_cache:
+            return self._maxmin_cache[cache_key]
+
+        if base_result_type == "Drifts":
+            dataset = self._build_drift_maxmin_dataset(result_set_id)
+        else:
+            dataset = self._build_generic_maxmin_dataset(result_set_id, base_result_type)
+
+        self._maxmin_cache[cache_key] = dataset
+        return dataset
+
+    def _build_drift_maxmin_dataset(self, result_set_id: int) -> Optional[MaxMinDataset]:
+        """Existing absolute drift implementation (stored in dedicated table)."""
         if not self.abs_maxmin_repo:
             return None
-
-        if result_set_id in self._maxmin_cache:
-            return self._maxmin_cache[result_set_id]
 
         drifts = self.abs_maxmin_repo.get_by_result_set(
             project_id=self.project_id,
@@ -250,7 +274,6 @@ class ResultDataService:
         )
 
         if not drifts:
-            self._maxmin_cache[result_set_id] = None
             return None
 
         self._ensure_stories_loaded()
@@ -273,13 +296,14 @@ class ResultDataService:
 
             load_case = load_case_cache.get(drift.load_case_id)
             load_case_name = getattr(load_case, "name", f"LC{drift.load_case_id}")
-            direction = (drift.direction or "X").upper()
+            direction = self._normalize_direction(drift.direction)
+            if direction is None:
+                continue
 
             row[f"Max_{load_case_name}_{direction}"] = drift.original_max * 100.0
             row[f"Min_{load_case_name}_{direction}"] = drift.original_min * 100.0
 
         if not data_by_story:
-            self._maxmin_cache[result_set_id] = None
             return None
 
         ordered_rows = [
@@ -301,7 +325,154 @@ class ResultDataService:
             ),
             data=df,
             directions=("X", "Y"),
+            source_type="Drifts",
+        )
+        return dataset
+
+    def _build_generic_maxmin_dataset(
+        self,
+        result_set_id: int,
+        base_result_type: str,
+    ) -> Optional[MaxMinDataset]:
+        """Build max/min dataset for accelerations, forces, or displacements."""
+        if not self.session:
+            return None
+
+        category_id = self._get_global_category_id(result_set_id)
+        if not category_id:
+            return None
+
+        from database.models import (
+            StoryAcceleration,
+            StoryForce,
+            StoryDisplacement,
+            LoadCase,
+            Story,
         )
 
-        self._maxmin_cache[result_set_id] = dataset
+        model = None
+        max_attr = None
+        min_attr = None
+
+        if base_result_type == "Accelerations":
+            model = StoryAcceleration
+            max_attr = "max_acceleration"
+            min_attr = "min_acceleration"
+        elif base_result_type == "Forces":
+            model = StoryForce
+            max_attr = "max_force"
+            min_attr = "min_force"
+        elif base_result_type == "Displacements":
+            model = StoryDisplacement
+            max_attr = "max_displacement"
+            min_attr = "min_displacement"
+        else:
+            return None
+
+        records = (
+            self.session.query(model, LoadCase, Story)
+            .join(LoadCase, model.load_case_id == LoadCase.id)
+            .join(Story, model.story_id == Story.id)
+            .filter(
+                Story.project_id == self.project_id,
+                model.result_category_id == category_id,
+            )
+            .all()
+        )
+
+        if not records:
+            return None
+
+        self._ensure_stories_loaded()
+        story_lookup = {story.id: story for story in self._stories}
+        data_by_story: Dict[int, Dict[str, object]] = {}
+        directions_seen: Set[str] = set()
+
+        for record, load_case, story in records:
+            story_obj = story_lookup.get(story.id)
+            if not story_obj:
+                continue
+
+            direction = self._normalize_direction(getattr(record, "direction", ""))
+            if direction is None:
+                continue
+            directions_seen.add(direction)
+
+            max_val = getattr(record, max_attr, None)
+            min_val = getattr(record, min_attr, None)
+
+            if max_val is None and min_val is None:
+                continue
+
+            row = data_by_story.setdefault(story.id, {"Story": story_obj.name})
+            load_case_name = load_case.name
+
+            if max_val is not None:
+                row[f"Max_{load_case_name}_{direction}"] = abs(max_val)
+            if min_val is not None:
+                row[f"Min_{load_case_name}_{direction}"] = abs(min_val)
+
+        if not data_by_story:
+            return None
+
+        ordered_rows = [
+            data_by_story[story.id]
+            for story in sorted(self._stories, key=lambda s: (s.sort_order or 0, s.name or ""))
+            if story.id in data_by_story
+        ]
+
+        df = pd.DataFrame(ordered_rows)
+        if not df.empty:
+            df = df.iloc[::-1].reset_index(drop=True)
+
+        result_type_key = f"MaxMin{base_result_type}"
+        dataset = MaxMinDataset(
+            meta=ResultDatasetMeta(
+                result_type=result_type_key,
+                direction=None,
+                result_set_id=result_set_id,
+                display_name=DISPLAY_NAME_OVERRIDES.get(result_type_key, f"Max/Min {base_result_type}"),
+            ),
+            data=df,
+            directions=tuple(sorted(directions_seen)) or ("X", "Y"),
+            source_type=base_result_type,
+        )
         return dataset
+
+    def _get_global_category_id(self, result_set_id: int) -> Optional[int]:
+        """Memoized lookup for the 'Envelopes/Global' category id."""
+        if result_set_id in self._category_cache:
+            return self._category_cache[result_set_id]
+
+        if not self.session:
+            self._category_cache[result_set_id] = None
+            return None
+
+        from database.models import ResultCategory
+
+        category = (
+            self.session.query(ResultCategory)
+            .filter(
+                ResultCategory.result_set_id == result_set_id,
+                ResultCategory.category_name == "Envelopes",
+                ResultCategory.category_type == "Global",
+            )
+            .first()
+        )
+        category_id = category.id if category else None
+        self._category_cache[result_set_id] = category_id
+        return category_id
+
+    @staticmethod
+    def _normalize_direction(direction: Optional[str]) -> Optional[str]:
+        """Normalize raw direction (UX, VX, X) into X/Y for plotting."""
+        if not direction:
+            return None
+        raw = direction.strip().upper()
+        if raw.endswith("X"):
+            return "X"
+        if raw.endswith("Y"):
+            return "Y"
+        if raw in {"X", "Y"}:
+            return raw
+        return None

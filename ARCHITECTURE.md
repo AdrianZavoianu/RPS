@@ -1,8 +1,8 @@
 # Architecture Documentation
 ## Results Processing System (RPS)
 
-**Version**: 1.2
-**Last Updated**: 2025-10-24
+**Version**: 1.3
+**Last Updated**: 2025-10-25
 **Status**: Production-ready with refactored architecture
 
 ---
@@ -44,21 +44,28 @@
 src/
 ├── config/
 │   └── result_config.py          # Result type configurations (dataclasses)
+├── database/
+│   ├── base.py                   # Per-project DB helpers / engine factory
+│   ├── catalog_base.py           # Catalog engine + Base metadata
+│   ├── catalog_models.py         # Catalog ORM definitions
+│   ├── catalog_repository.py     # Catalog CRUD helpers
+│   ├── models.py                 # Project-scoped ORM models (hybrid schema)
+│   └── repository.py             # Project-scoped repositories
 ├── gui/
 │   ├── styles.py                 # GMP design system
-│   ├── main_window.py            # Project cards view
+│   ├── main_window.py            # Project cards view + actions
 │   ├── project_detail_window.py  # 3-panel layout (browser|table|plot)
 │   ├── results_table_widget.py   # Compact table display
 │   └── results_plot_widget.py    # PyQtGraph building profiles
 ├── processing/
 │   ├── excel_parser.py           # Excel file reading
 │   ├── result_transformers.py    # Pluggable transformers
-│   ├── data_importer.py          # Single file → DB pipeline
-│   └── folder_importer.py        # Batch folder → DB pipeline
-├── database/
-│   ├── models.py                 # ORM models (hybrid schema)
-│   └── repository.py             # Data access layer (CRUD)
+│   ├── data_importer.py          # Single file → DB pipeline (per project)
+│   └── folder_importer.py        # Batch folder → DB pipeline (context-aware)
+├── services/
+│   └── project_service.py        # Catalog + project context management
 └── utils/
+    ├── slug.py                   # Slug utilities for project folders
     ├── color_utils.py            # Gradient color interpolation
     ├── data_utils.py             # Parsing/formatting helpers
     └── plot_builder.py           # Declarative plot construction
@@ -72,6 +79,17 @@ src/
 - **Normalized tables**: Maintain data integrity and relationships
 - **Wide-format cache**: Optimize for fast tabular display
 - **Best of both worlds**: Reliable storage + high performance
+
+### Catalog + Project Databases
+- **Catalog DB (`data/catalog.db`)** tracks project metadata (name, slug, description, per-project DB path, timestamps).
+- **Per-project DBs** live under `data/projects/<slug>/project.db` and contain only that project's stories, load cases, caches, and result sets.
+- **ProjectContext** (see `services/project_service.py`) is the hand-off object used by UI/dialogs and importers to ensure they always open sessions against the correct project file while transparently creating it on first use.
+- **Lifecycle**: `ensure_project_context()` guarantees catalog entry + DB file, `list_project_contexts()` feeds project listings, and `delete_project_context()` removes catalog entry plus on-disk database folder.
+
+### Session Strategy
+- UI layers never call the old global `get_session()`; instead they request `context.session()` or `context.session_factory()` to obtain SQLAlchemy sessions bound to a specific project DB.
+- Import flows (`DataImporter`, `FolderImporter`) require a session factory and therefore cannot run without a resolved project context, preventing data from leaking across projects.
+- Background folder imports reuse the same factory inside worker threads so commits map to the same SQLite file without threading issues.
 
 ### Core Schema
 
@@ -462,9 +480,10 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | 2025-10-23 | Initial consolidated architecture doc |
-| 1.1 | 2025-10-24 | Added interactive features, plot configuration |
+| 1.3 | 2025-10-25 | Catalog/per-project DB split, ProjectContext, importer & UI updates |
 | 1.2 | 2025-10-24 | Condensed to ~600 lines, removed redundancy |
+| 1.1 | 2025-10-24 | Added interactive features, plot configuration |
+| 1.0 | 2025-10-23 | Initial consolidated architecture doc |
 
 ---
 

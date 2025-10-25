@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable, Set
+from typing import Any, Callable, Dict, List, Optional
 
-from database.base import get_session
+from sqlalchemy.orm import Session
+
 from database.repository import ProjectRepository, LoadCaseRepository, StoryRepository
 
 from .excel_parser import ExcelParser
@@ -15,7 +16,7 @@ TARGET_SHEETS = {
     "Story Drifts": "Story Drifts",
     "Story Accelerations": "Story Accelerations",
     "Story Forces": "Story Forces",
-    "Joint DisplacementsG": "Joint Displacements (Global)",
+    "Joint DisplacementsG": "Floors Displacements",
 }
 
 
@@ -28,6 +29,7 @@ class FolderImporter:
         project_name: str,
         result_set_name: str,
         result_types: Optional[List[str]] = None,
+        session_factory: Optional[Callable[[], Session]] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ):
         self.folder_path = Path(folder_path)
@@ -39,6 +41,9 @@ class FolderImporter:
         self.result_types = {rt.strip().lower() for rt in result_types} if result_types else None
         self.progress_callback = progress_callback
         self.excel_files = self._find_excel_files()
+        if session_factory is None:
+            raise ValueError("FolderImporter requires a session_factory")
+        self._session_factory = session_factory
 
     def _find_excel_files(self) -> List[Path]:
         files: List[Path] = []
@@ -100,6 +105,7 @@ class FolderImporter:
                     project_name=self.project_name,
                     result_set_name=self.result_set_name,
                     result_types=matched_labels,
+                    session_factory=self._session_factory,
                 )
                 file_stats = importer.import_all()
 
@@ -112,9 +118,10 @@ class FolderImporter:
                 stats["errors"].append(f"{excel_file.name}: {exc}")
 
         if stats["project"]:
-            session = get_session()
+            session = self._session_factory()
             try:
-                project = ProjectRepository(session).get_by_name(self.project_name)
+                project_repo = ProjectRepository(session)
+                project = project_repo.get_by_name(self.project_name)
                 if project:
                     load_cases = LoadCaseRepository(session).get_by_project(project.id)
                     stories = StoryRepository(session).get_by_project(project.id)

@@ -229,13 +229,13 @@ class ResultsTableWidget(QFrame):
                 color: #d1d5db;
             }
             QTableWidget::item {
-                padding: 3px 4px;
+                padding: 1px 2px;
                 border: none;
             }
             QHeaderView::section {
                 background-color: #161b22;
                 color: #4a7d89;
-                padding: 4px 6px;
+                padding: 2px 4px;
                 border: none;
                 border-bottom: 2px solid #2c313a;
                 font-weight: 600;
@@ -256,7 +256,7 @@ class ResultsTableWidget(QFrame):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         header.setStretchLastSection(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setDefaultSectionSize(55)  # Default column width
+        header.setDefaultSectionSize(48)  # Default column width
         header.setSectionsClickable(True)  # Enable clicking
 
         self.table.verticalHeader().setVisible(False)
@@ -270,6 +270,7 @@ class ResultsTableWidget(QFrame):
 
         # Store references for hover tracking
         self.table._hovered_row = -1
+        self._current_result_type = None
 
         # Install event filter for hover effects only
         self.table.viewport().installEventFilter(self)
@@ -288,6 +289,8 @@ class ResultsTableWidget(QFrame):
         """Load data from a ResultDataset into the table."""
         df = dataset.data
         self._dataset = dataset
+        self._current_result_type = dataset.meta.result_type or ""
+        self._apply_type_styles(self._base_result_type())
         self._selected_load_cases.clear()
         self._selected_rows.clear()
         self._load_case_columns = list(dataset.load_case_columns)
@@ -357,8 +360,8 @@ class ResultsTableWidget(QFrame):
 
     def _resize_columns(self, column_count: int) -> None:
         """Apply width constraints based on column type counts."""
-        story_column_width = 70
-        data_column_width = 55
+        story_column_width = 60
+        data_column_width = self._column_width_for_type()
 
         for col_idx in range(column_count):
             if col_idx == 0:
@@ -380,7 +383,12 @@ class ResultsTableWidget(QFrame):
             numeric_value = float(value)
         except (TypeError, ValueError):
             return str(value)
-        return f"{numeric_value:.{config.decimal_places}f}{config.unit}"
+        base_type = self._base_result_type()
+        if base_type in {"Accelerations", "Forces", "Displacements"}:
+            unit_suffix = ""
+        else:
+            unit_suffix = config.unit or ""
+        return f"{numeric_value:.{config.decimal_places}f}{unit_suffix}"
 
     @staticmethod
     def _safe_numeric(value) -> float:
@@ -565,7 +573,40 @@ class ResultsTableWidget(QFrame):
         self._load_case_column_set.clear()
         self._non_selectable_columns = {"Story"}
         self.table._hovered_row = -1
+        self._current_result_type = None
+        self._apply_type_styles("")
         header = self.table.horizontalHeader()
         if isinstance(header, QHeaderView):
             header.setSortIndicatorShown(False)
         self._update_header_styling()
+
+    def _column_width_for_type(self) -> int:
+        base = self._base_result_type()
+        if base == "Drifts":
+            return 58
+        if base == "Accelerations":
+            return 54
+        if base == "Forces":
+            return 60
+        if base == "Displacements":
+            return 56
+        return 50
+
+    def _base_result_type(self) -> str:
+        value = self._current_result_type or ""
+        if not value:
+            return ""
+        if value.startswith("MaxMin"):
+            value = value.replace("MaxMin", "", 1)
+        if "_" in value:
+            value = value.split("_", 1)[0]
+        return value
+
+    def _apply_type_styles(self, base_type: str) -> None:
+        font_size = 13
+        if base_type in {"Forces", "Displacements"}:
+            font_size = 12
+        font = QFont("Inter", font_size)
+        self.table.setFont(font)
+        header_font = QFont("Inter", font_size)
+        self.table.horizontalHeader().setFont(header_font)

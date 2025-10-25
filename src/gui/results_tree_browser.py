@@ -168,9 +168,33 @@ class ResultsTreeBrowser(QWidget):
         self._add_drifts_section(global_item, result_set.id)
 
         # Other result types
-        self._add_result_type_with_directions(global_item, "> Story Accelerations", result_set.id, "Envelopes", "Accelerations")
-        self._add_result_type_with_directions(global_item, "> Story Forces", result_set.id, "Envelopes", "Forces")
-        self._add_result_type_with_directions(global_item, "> Joint Displacements (Global)", result_set.id, "Envelopes", "Displacements")
+        self._add_result_type_with_directions(
+            global_item,
+            "> Story Accelerations",
+            result_set.id,
+            "Envelopes",
+            "Accelerations",
+            include_maxmin=True,
+            maxmin_label="Accelerations",
+        )
+        self._add_result_type_with_directions(
+            global_item,
+            "> Story Forces",
+            result_set.id,
+            "Envelopes",
+            "Forces",
+            include_maxmin=True,
+            maxmin_label="Story Forces",
+        )
+        self._add_result_type_with_directions(
+            global_item,
+            "> Floors Displacements",
+            result_set.id,
+            "Envelopes",
+            "Displacements",
+            include_maxmin=True,
+            maxmin_label="Floors Displacements",
+        )
 
         # Time-Series category (placeholder)
         timeseries_item = QTreeWidgetItem(result_set_item)
@@ -185,18 +209,6 @@ class ResultsTreeBrowser(QWidget):
         placeholder = QTreeWidgetItem(timeseries_item)
         placeholder.setText(0, "└ Coming soon")
         placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
-
-    def _add_result_type(self, parent_item: QTreeWidgetItem, label: str, result_set_id: int, category: str, result_type: str):
-        """Add a result type item to the tree."""
-        item = QTreeWidgetItem(parent_item)
-        item.setText(0, label)
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "result_type",
-            "result_set_id": result_set_id,
-            "category": category,
-            "result_type": result_type,
-            "direction": None  # No direction for non-directional types
-        })
 
     def _add_drifts_section(self, parent_item: QTreeWidgetItem, result_set_id: int):
         """Add Drifts section with directions and Max/Min subsection.
@@ -244,52 +256,64 @@ class ResultsTreeBrowser(QWidget):
         maxmin_item = QTreeWidgetItem(drifts_parent)
         maxmin_item.setText(0, "  └ Max/Min Drifts")
         maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "maxmin_drifts",
+            "type": "maxmin_results",
             "result_set_id": result_set_id,
             "category": "Envelopes",
             "result_type": "MaxMinDrifts"
         })
 
-    def _add_result_type_with_directions(self, parent_item: QTreeWidgetItem, label: str, result_set_id: int, category: str, result_type: str):
-        """Add a result type item with X/Y direction subsections.
-
-        Structure:
-        └── Drifts
-            ├── X Direction
-            └── Y Direction
-        """
-        # Parent result type item (non-clickable, just for grouping)
+    def _add_result_type_with_directions(
+        self,
+        parent_item: QTreeWidgetItem,
+        label: str,
+        result_set_id: int,
+        category: str,
+        result_type: str,
+        include_maxmin: bool = False,
+        maxmin_label: str | None = None,
+    ):
+        """Add a result type item with X/Y subsections and optional Max/Min child."""
         parent_result_item = QTreeWidgetItem(parent_item)
         parent_result_item.setText(0, label)
         parent_result_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "result_type_parent",
             "result_set_id": result_set_id,
             "category": category,
-            "result_type": result_type
+            "result_type": result_type,
         })
-        parent_result_item.setExpanded(True)  # Start expanded
+        parent_result_item.setExpanded(True)
 
-        # X Direction subsection
         x_item = QTreeWidgetItem(parent_result_item)
-        x_item.setText(0, "  ├ X Direction")
+        x_item.setText(0, "   X Direction")
         x_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "result_type",
             "result_set_id": result_set_id,
             "category": category,
             "result_type": result_type,
-            "direction": "X"
+            "direction": "X",
         })
 
-        # Y Direction subsection
         y_item = QTreeWidgetItem(parent_result_item)
-        y_item.setText(0, "  └ Y Direction")
+        y_item.setText(0, "   Y Direction")
         y_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "result_type",
             "result_set_id": result_set_id,
             "category": category,
             "result_type": result_type,
-            "direction": "Y"
+            "direction": "Y",
         })
+
+        if include_maxmin:
+            label_text = maxmin_label or label.replace('> ', '').strip()
+            maxmin_item = QTreeWidgetItem(parent_result_item)
+            maxmin_item.setText(0, f"   Max/Min {label_text}")
+            maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "maxmin_results",
+                "result_set_id": result_set_id,
+                "category": category,
+                "result_type": f"MaxMin{result_type}",
+            })
+
 
     def on_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle tree item click."""
@@ -306,12 +330,13 @@ class ResultsTreeBrowser(QWidget):
             result_type = data.get("result_type")
             direction = data.get("direction", "X")  # Default to X if not specified
             self.selection_changed.emit(result_set_id, category, result_type, direction)
-        elif item_type == "maxmin_drifts":
+        elif item_type == "maxmin_results":
             # Emit for Max/Min Drifts (no direction needed)
             result_set_id = data.get("result_set_id")
             category = data.get("category")
             result_type = data.get("result_type")
             self.selection_changed.emit(result_set_id, category, result_type, "")
+
 
 
 

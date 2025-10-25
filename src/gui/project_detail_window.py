@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from database.base import get_session
 from database.repository import (
     ProjectRepository,
     ResultSetRepository,
@@ -26,16 +25,16 @@ from .result_views import StandardResultView
 from .ui_helpers import create_styled_button, create_styled_label
 from .window_utils import enable_dark_title_bar
 from .styles import COLORS
+from services.project_service import ProjectContext
 
 
 class ProjectDetailWindow(QMainWindow):
     """Project detail window with results browser, table, and plots."""
 
-    def __init__(self, project_id: int, project_name: str, parent=None):
+    def __init__(self, context: ProjectContext, parent=None):
         super().__init__(parent)
-        self.project_id = project_id
-        self.project_name = project_name
-        self.session = get_session()
+        self.context = context
+        self.session = context.session()
 
         # Repositories
         self.project_repo = ProjectRepository(self.session)
@@ -45,12 +44,21 @@ class ProjectDetailWindow(QMainWindow):
         self.load_case_repo = LoadCaseRepository(self.session)
         self.abs_maxmin_repo = AbsoluteMaxMinDriftRepository(self.session)
 
+        project = self.project_repo.get_by_name(context.name)
+        if not project:
+            raise ValueError(f"Project '{context.name}' is not initialized in its database.")
+
+        self.project = project
+        self.project_id = project.id
+        self.project_name = project.name
+
         self.result_service = ResultDataService(
             project_id=self.project_id,
             cache_repo=self.cache_repo,
             story_repo=self.story_repo,
             load_case_repo=self.load_case_repo,
             abs_maxmin_repo=self.abs_maxmin_repo,
+            session=self.session,
         )
 
         # Current selection
@@ -190,6 +198,7 @@ class ProjectDetailWindow(QMainWindow):
 
     def load_project_data(self):
         """Load project data and populate browser."""
+        self.session.expire_all()
         self.result_service.invalidate_all()
         try:
             # Get result sets
@@ -222,11 +231,11 @@ class ProjectDetailWindow(QMainWindow):
         self.current_direction = direction
 
         if result_type and result_set_id:
-            if result_type == "MaxMinDrifts":
-                self.content_title.setText("> Max/Min Drifts")
+            if result_type.startswith("MaxMin"):
                 self.standard_view.hide()
                 self.maxmin_widget.show()
-                self.load_maxmin_results(result_set_id)
+                base_type = self._extract_base_result_type(result_type)
+                self.load_maxmin_results(result_set_id, base_type)
             else:
                 self.maxmin_widget.hide()
                 self.standard_view.show()
@@ -264,25 +273,27 @@ class ProjectDetailWindow(QMainWindow):
 
             traceback.print_exc()
 
-    def load_maxmin_results(self, result_set_id: int):
+    def load_maxmin_results(self, result_set_id: int, base_result_type: str = "Drifts"):
         """Load and display absolute Max/Min drift results from database.
 
         Args:
             result_set_id: ID of the result set to filter by
         """
         try:
-            dataset = self.result_service.get_maxmin_dataset(result_set_id)
+            dataset = self.result_service.get_maxmin_dataset(result_set_id, base_result_type)
 
             if not dataset or dataset.data.empty:
                 self.maxmin_widget.clear_data()
-                self.statusBar().showMessage("No absolute max/min drift data available")
+                self.content_title.setText("> Max/Min Results")
+                self.statusBar().showMessage("No absolute max/min data available")
                 return
 
             self.maxmin_widget.load_dataset(dataset)
+            self.content_title.setText(f"> {dataset.meta.display_name}")
 
             story_count = len(dataset.data.index)
             self.statusBar().showMessage(
-                f"Loaded absolute max/min drifts for {story_count} stories"
+                f"Loaded {dataset.meta.display_name} for {story_count} stories"
             )
 
         except Exception as exc:
@@ -298,21 +309,19 @@ class ProjectDetailWindow(QMainWindow):
         from .folder_import_dialog import FolderImportDialog
 
         # Create a modified dialog that uses the current project
-        dialog = FolderImportDialog(self)
-
-        # Pre-fill project name with current project
-        dialog.project_input.setText(self.project_name)
-        dialog.project_input.setEnabled(False)  # Don't allow changing project name
+        dialog = FolderImportDialog(self, context=self.context)
 
         if dialog.exec():
             # Data was imported, refresh the view
+            self.session.expire_all()
             self.load_project_data()
 
             # Reload current result if selected
             if self.current_result_type and self.current_result_set_id:
-                if self.current_result_type == "MaxMinDrifts":
-                    self.result_service.invalidate_maxmin_dataset(self.current_result_set_id)
-                    self.load_maxmin_results(self.current_result_set_id)
+                if self.current_result_type.startswith("MaxMin"):
+                    base_type = self._extract_base_result_type(self.current_result_type)
+                    self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
+                    self.load_maxmin_results(self.current_result_set_id, base_type)
                 else:
                     self.result_service.invalidate_standard_dataset(
                         self.current_result_type,
@@ -342,10 +351,11 @@ class ProjectDetailWindow(QMainWindow):
 
         try:
             # Check if it's MaxMinDrifts
-            if self.current_result_type == "MaxMinDrifts":
-                self.result_service.invalidate_maxmin_dataset(self.current_result_set_id)
-                self.load_maxmin_results(self.current_result_set_id)
-                self.statusBar().showMessage("Max/Min drifts data reloaded", 3000)
+            if self.current_result_type.startswith("MaxMin"):
+                base_type = self._extract_base_result_type(self.current_result_type)
+                self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
+                self.load_maxmin_results(self.current_result_set_id, base_type)
+                self.statusBar().showMessage(f"Max/Min {base_type.lower()} data reloaded", 3000)
             else:
                 # Regular result type
                 self.result_service.invalidate_standard_dataset(
@@ -378,3 +388,11 @@ class ProjectDetailWindow(QMainWindow):
         if self.session:
             self.session.close()
         event.accept()
+
+    @staticmethod
+    def _extract_base_result_type(result_type: str) -> str:
+        """Return the base result type name from a MaxMin identifier."""
+        if not result_type.startswith("MaxMin"):
+            return result_type or "Drifts"
+        base = result_type.replace("MaxMin", "", 1)
+        return base or "Drifts"

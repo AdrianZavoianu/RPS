@@ -45,15 +45,27 @@ class PlotBuilder:
             **{'font-size': '12pt'}
         )
 
-    def set_story_range(self, num_stories: int, padding: float = -0.05):
+    def set_story_range(self, num_stories: int, padding: float = 0.08):
         """
-        Set y-axis range for stories with tight fit.
+        Set y-axis range for stories with a compact margin.
 
         Args:
-            num_stories: Number of stories
-            padding: Padding factor (negative for tighter fit)
+            num_stories: Number of story labels plotted along Y
+            padding: Extra space (in story units) to keep above/below the data
         """
-        self.plot.setYRange(-0.5, num_stories - 0.5, padding=padding)
+        if num_stories <= 0:
+            return
+
+        padding = max(0.0, padding)
+        lower = -padding
+        upper = (num_stories - 1) + padding
+
+        # Ensure a minimum height when only one story exists
+        if upper <= lower:
+            upper = lower + 1.0
+
+        # padding=0 disables PyQtGraph's automatic margins
+        self.plot.setYRange(lower, upper, padding=0)
 
     def set_value_range(self, min_val: float, max_val: float,
                        left_padding: float = 0.02, right_padding: float = 0.15):
@@ -164,8 +176,8 @@ class PlotBuilder:
         # Scale back to original magnitude
         tick_interval = nice_interval * magnitude
 
-        # Cap at maximum 0.5 for drift values
-        if tick_interval > 0.5:
+        # Cap at 0.5 only when working with small drift-style ranges
+        if tick_interval > 0.5 and data_range <= 5:
             tick_interval = 0.5
 
         # Set tick spacing

@@ -1,6 +1,7 @@
-"""Max/Min Drifts widget - displays positive and negative drift envelopes."""
+"""Max/Min Results widget - displays positive and negative envelopes."""
 
-from typing import TYPE_CHECKING
+import math
+from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
 import pyqtgraph as pg
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.result_config import get_config
+from config.result_config import get_config, RESULT_CONFIGS
 from utils.plot_builder import PlotBuilder
 from .styles import COLORS
 
@@ -128,6 +129,8 @@ class MaxMinDriftsWidget(QWidget):
         super().__init__(parent)
         self.setup_ui()
         self.current_data = None
+        self.current_base_type = "Drifts"
+        self.current_display_name = "Max/Min Drifts"
 
         # Track plot items for highlighting
         self.x_plot_items = {}  # {load_case: {'max_item': item, 'min_item': item, 'color': color}}
@@ -137,6 +140,14 @@ class MaxMinDriftsWidget(QWidget):
 
         # Track manually selected rows for each table
         self._table_selected_rows = {}  # {table_id: set of row indices}
+
+        # Direction containers for visibility toggling
+        self.x_plot_container = None
+        self.y_plot_container = None
+        self.x_tables_container = None
+        self.y_tables_container = None
+        self.x_tables_label: Optional[QLabel] = None
+        self.y_tables_label: Optional[QLabel] = None
 
     def setup_ui(self):
         """Setup the UI with tabs for Plots and Tables."""
@@ -275,9 +286,11 @@ class MaxMinDriftsWidget(QWidget):
         if direction == "X":
             self.x_plot = plot_widget
             self.x_legend_layout = legend_layout
+            self.x_plot_container = container
         else:
             self.y_plot = plot_widget
             self.y_legend_layout = legend_layout
+            self.y_plot_container = container
 
         return container
 
@@ -347,9 +360,13 @@ class MaxMinDriftsWidget(QWidget):
         if direction == "X":
             self.x_min_table = min_table._table
             self.x_max_table = max_table._table
+            self.x_tables_container = container
+            self.x_tables_label = title_label
         else:
             self.y_min_table = min_table._table
             self.y_max_table = max_table._table
+            self.y_tables_container = container
+            self.y_tables_label = title_label
 
         return container
 
@@ -379,7 +396,7 @@ class MaxMinDriftsWidget(QWidget):
                 gridline-color: #2c313a;
             }
             QTableWidget::item {
-                padding: 8px;
+                padding: 4px 6px;
                 border: none;
             }
             QTableWidget::item:selected {
@@ -397,7 +414,7 @@ class MaxMinDriftsWidget(QWidget):
                 color: #4a7d89;
                 border: none;
                 border-bottom: 1px solid #2c313a;
-                padding: 8px;
+                padding: 4px 6px;
                 font-weight: 600;
             }
             QTableWidget QTableCornerButton::section {
@@ -456,55 +473,74 @@ class MaxMinDriftsWidget(QWidget):
             self.clear_data()
             return
 
-        self.load_data(dataset.data, dataset.meta.result_type)
+        self.load_data(dataset)
 
-    def load_data(self, df: pd.DataFrame, result_type: str):
-        """Load and display Max/Min drift data.
-
-        Args:
-            df: DataFrame with all drift data (contains Max and Min columns)
-            result_type: Type identifier (should be "MaxMinDrifts")
-        """
+    def load_data(self, dataset: "MaxMinDataset"):
+        """Load and display Max/Min data for any result type."""
+        df = dataset.data
         self.current_data = df
+        self.current_display_name = dataset.meta.display_name
+        base_result_type = dataset.source_type or self._infer_base_result_type(dataset.meta.result_type)
+        self.current_base_type = base_result_type
 
-        # Extract story names
         story_names = df['Story'].tolist() if 'Story' in df.columns else []
+        available_directions = tuple(dataset.directions or ("X", "Y"))
 
-        # Load X direction data
-        self._load_direction_data(df, 'X', story_names)
+        direction_visibility = {}
+        for direction in ("X", "Y"):
+            if direction in available_directions:
+                has_data = self._load_direction_data(df, direction, story_names, base_result_type)
+            else:
+                self._clear_direction(direction)
+                has_data = False
 
-        # Load Y direction data
-        self._load_direction_data(df, 'Y', story_names)
+            direction_visibility[direction] = has_data
+            self._set_direction_visibility(direction, has_data)
+            self._update_direction_label(direction)
 
-    def _load_direction_data(self, df: pd.DataFrame, direction: str, story_names: list):
+        if not any(direction_visibility.values()):
+            self.clear_data()
+
+    def _load_direction_data(self, df: pd.DataFrame, direction: str, story_names: list, base_result_type: str) -> bool:
         """Load data for a specific direction.
 
         Args:
             df: Full DataFrame
             direction: 'X' or 'Y'
             story_names: List of story names
+            base_result_type: Base result identifier (Drifts, Accelerations, etc.)
         """
         # Get columns for this direction
         suffix = f'_{direction}'
         direction_cols = [col for col in df.columns if col.endswith(suffix)]
 
         if not direction_cols:
-            return
+            self._clear_direction(direction)
+            return False
 
         # Separate into Max (positive) and Min (negative) columns
         # Assuming Max columns contain positive drift, Min contains negative
         max_cols = [col for col in direction_cols if 'Max' in col]
         min_cols = [col for col in direction_cols if 'Min' in col]
 
+        if not max_cols and not min_cols:
+            self._clear_direction(direction)
+            return False
+
+        config_key = self._get_config_key(base_result_type, direction)
+        config = get_config(config_key)
+
         # Plot and populate tables
         if direction == 'X':
-            self._plot_maxmin_data(self.x_plot, self.x_legend_layout, df, max_cols, min_cols, story_names, direction)
-            self._populate_min_max_tables(self.x_min_table, self.x_max_table, df, max_cols, min_cols, story_names, direction)
+            self._plot_maxmin_data(self.x_plot, self.x_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config)
+            self._populate_min_max_tables(self.x_min_table, self.x_max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config)
         else:
-            self._plot_maxmin_data(self.y_plot, self.y_legend_layout, df, max_cols, min_cols, story_names, direction)
-            self._populate_min_max_tables(self.y_min_table, self.y_max_table, df, max_cols, min_cols, story_names, direction)
+            self._plot_maxmin_data(self.y_plot, self.y_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config)
+            self._populate_min_max_tables(self.y_min_table, self.y_max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config)
 
-    def _plot_maxmin_data(self, plot_widget, legend_layout, df, max_cols, min_cols, story_names, direction):
+        return True
+
+    def _plot_maxmin_data(self, plot_widget, legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type: str, config):
         """Plot Max/Min drift data - horizontal orientation (drift on X, story on Y) - matches normal drift page."""
         plot_widget.clear()
 
@@ -522,11 +558,17 @@ class MaxMinDriftsWidget(QWidget):
         if not story_names:
             return
 
+        include_base_anchor = base_result_type == "Displacements"
         num_stories = len(story_names)
         story_indices = list(range(num_stories))
-
-        # Get config for styling
-        config = get_config(f'Drifts_{direction}')
+        if include_base_anchor:
+            story_labels = ["Base"] + list(story_names)
+            base_index = 0
+            story_indices = [idx + 1 for idx in range(len(story_names))]
+        else:
+            story_labels = list(story_names)
+            base_index = None
+            story_indices = list(range(len(story_names)))
 
         # Highly distinct colors matching normal drift page
         colors = [
@@ -550,6 +592,7 @@ class MaxMinDriftsWidget(QWidget):
 
         # Match Max and Min columns by load case
         load_cases_plotted = []
+        avg_color = "#ffa500"
 
         # Plot each load case - Max and Min with same color
         for idx, max_col in enumerate(max_cols):
@@ -572,8 +615,16 @@ class MaxMinDriftsWidget(QWidget):
             color = colors[idx % len(colors)]
 
             # Get values
-            max_values = df[max_col].values
-            min_values = -df[min_col].values  # Negate Min values to show on negative side
+            max_values = df[max_col].values.tolist()
+            min_values = (-df[min_col].values).tolist()  # Negated for negative side
+
+            y_positions = list(story_indices)
+
+            if include_base_anchor:
+                # Anchor all series at the base so plotted lines originate at (0, 0)
+                y_positions = [base_index] + y_positions
+                max_values = [0.0] + max_values
+                min_values = [0.0] + min_values
 
             # Collect values for range calculation
             all_values.extend(max_values)
@@ -582,14 +633,14 @@ class MaxMinDriftsWidget(QWidget):
             # Plot Max values (positive drifts) - SOLID line
             # Horizontal: drift on X-axis, story on Y-axis
             max_item = plot_widget.plot(
-                max_values, story_indices,
+                max_values, y_positions,
                 pen=pg.mkPen(color=color, width=2),
                 antialias=True
             )
 
             # Plot Min values (negative drifts) - DASHED line, SAME COLOR
             min_item = plot_widget.plot(
-                min_values, story_indices,
+                min_values, y_positions,
                 pen=pg.mkPen(color=color, width=2, style=Qt.PenStyle.DashLine),
                 antialias=True
             )
@@ -607,6 +658,41 @@ class MaxMinDriftsWidget(QWidget):
 
             load_cases_plotted.append(load_case)
 
+        # Plot average envelopes (drawn last so they sit on top)
+        max_avg_series = self._compute_average_series(df, max_cols)
+        if max_avg_series is not None:
+            avg_values = max_avg_series.tolist()
+            y_positions = list(story_indices)
+            if include_base_anchor:
+                avg_values = [0.0] + avg_values
+                y_positions = [base_index] + y_positions
+
+            avg_max_item = plot_widget.plot(
+                avg_values,
+                y_positions,
+                pen=pg.mkPen(avg_color, width=4, style=Qt.PenStyle.SolidLine),
+                antialias=True,
+            )
+            all_values.extend(avg_values)
+            self._add_static_legend_item(legend_layout, avg_color, "Avg Max", Qt.PenStyle.SolidLine)
+
+        min_avg_series = self._compute_average_series(df, min_cols, absolute=True)
+        if min_avg_series is not None:
+            avg_values = [-val for val in min_avg_series.tolist()]
+            y_positions = list(story_indices)
+            if include_base_anchor:
+                avg_values = [0.0] + avg_values
+                y_positions = [base_index] + y_positions
+
+            avg_min_item = plot_widget.plot(
+                avg_values,
+                y_positions,
+                pen=pg.mkPen(avg_color, width=4, style=Qt.PenStyle.DashLine),
+                antialias=True,
+            )
+            all_values.extend(avg_values)
+            self._add_static_legend_item(legend_layout, avg_color, "Avg Min", Qt.PenStyle.DashLine)
+
         # Add zero drift line for symmetry (vertical line at x=0)
         plot_widget.addLine(x=0, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DotLine))
 
@@ -614,11 +700,11 @@ class MaxMinDriftsWidget(QWidget):
         from utils.plot_builder import PlotBuilder
         builder = PlotBuilder(plot_widget, config)
 
-        # Configure axes with story labels
-        builder.setup_axes(story_names)
+        # Configure axes with story labels (include base if needed)
+        builder.setup_axes(story_labels)
 
         # Set y-axis range with tight padding
-        builder.set_story_range(len(story_names), padding=0.02)
+        builder.set_story_range(len(story_labels), padding=0.1)
 
         # Calculate x-axis range from all values
         # Filter out zeros and set range with small padding on all sides
@@ -640,19 +726,19 @@ class MaxMinDriftsWidget(QWidget):
         view_box = plot_widget.getPlotItem().getViewBox()
         view_box.enableAutoRange(enable=False)
 
-    def _populate_min_max_tables(self, min_table, max_table, df, max_cols, min_cols, story_names, direction):
+    def _populate_min_max_tables(self, min_table, max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config):
         """Populate separate Min and Max tables with color gradients."""
         from utils.color_utils import get_gradient_color
         from utils.data_utils import parse_percentage_value
         from PyQt6.QtGui import QColor
 
         # Populate Max table
-        self._populate_single_table(max_table, df, max_cols, story_names, direction, is_max=True)
+        self._populate_single_table(max_table, df, max_cols, story_names, direction, base_result_type, config.color_scheme, is_max=True)
 
         # Populate Min table
-        self._populate_single_table(min_table, df, min_cols, story_names, direction, is_max=False)
+        self._populate_single_table(min_table, df, min_cols, story_names, direction, base_result_type, config.color_scheme, is_max=False)
 
-    def _populate_single_table(self, table, df, cols, story_names, direction, is_max):
+    def _populate_single_table(self, table, df, cols, story_names, direction, base_result_type: str, color_scheme: str, is_max):
         """Populate a single table (Min or Max) with color gradients on text."""
         from utils.color_utils import get_gradient_color
         from utils.data_utils import parse_percentage_value
@@ -663,9 +749,9 @@ class MaxMinDriftsWidget(QWidget):
         if not cols or not story_names:
             return
 
-        # Set dimensions (WITH Story column as first column)
+        # Set dimensions (Story column + load cases + Avg)
         table.setRowCount(len(story_names))
-        table.setColumnCount(len(cols) + 1)  # +1 for Story column
+        table.setColumnCount(len(cols) + 2)
 
         # Extract load case names
         load_case_names = []
@@ -678,7 +764,7 @@ class MaxMinDriftsWidget(QWidget):
             load_case_names.append(load_case)
 
         # Set headers (Story + load case names)
-        headers = ['Story'] + load_case_names
+        headers = ['Story'] + load_case_names + ['Avg']
         table.setHorizontalHeaderLabels(headers)
 
         # Collect all values for gradient range calculation
@@ -705,6 +791,7 @@ class MaxMinDriftsWidget(QWidget):
 
         # Populate data with color gradients on text
         for row_idx in range(len(story_names)):
+            row_values = []
             # First column: Story name
             story_item = QTableWidgetItem(story_names[row_idx])
             story_item.setFlags(story_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -727,8 +814,8 @@ class MaxMinDriftsWidget(QWidget):
                         # Value is already numeric (likely from cache)
                         numeric_value = float(value)
 
-                    # Display absolute value (no sign)
-                    item = QTableWidgetItem(f"{abs(numeric_value):.2f}%")
+                    display_text = self._format_maxmin_number(numeric_value, base_result_type)
+                    item = QTableWidgetItem(display_text)
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -739,7 +826,7 @@ class MaxMinDriftsWidget(QWidget):
                     # Apply color gradient to text (use absolute value for coloring)
                     abs_value = abs(numeric_value)
                     if abs_value != 0.0 and min_val != max_val and min_val != 0:
-                        color_hex = get_gradient_color(abs_value, min_val, max_val, 'blue_orange')
+                        color_hex = get_gradient_color(abs_value, min_val, max_val, color_scheme)
                         gradient_color = QColor(color_hex)
                         item.setForeground(gradient_color)
                         # Store original color for hover/selection preservation
@@ -752,6 +839,11 @@ class MaxMinDriftsWidget(QWidget):
                         item._original_color = default_color
 
                     table.setItem(row_idx, col_idx + 1, item)  # +1 because Story is column 0
+                    row_values.append(numeric_value)
+
+            avg_value = self._calculate_row_average(row_values)
+            avg_item = self._create_average_item(avg_value, base_result_type)
+            table.setItem(row_idx, len(cols) + 1, avg_item)
 
         # Resize columns - Story column fixed width, data columns stretch
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -760,6 +852,57 @@ class MaxMinDriftsWidget(QWidget):
 
         # Resize table to show all rows (no internal scrolling)
         self._resize_table_to_content(table)
+
+    @staticmethod
+    def _calculate_row_average(values):
+        """Return the mean of valid numeric values, ignoring None/NaN."""
+        valid = [
+            val for val in values
+            if val is not None and not (isinstance(val, float) and math.isnan(val))
+        ]
+        if not valid:
+            return None
+        return sum(valid) / len(valid)
+
+    def _create_average_item(self, value, base_result_type: str) -> QTableWidgetItem:
+        """Create a styled table item for the Average column."""
+        from PyQt6.QtGui import QColor
+
+        item = QTableWidgetItem()
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            item.setText("-")
+        else:
+            item.setText(self._format_maxmin_number(value, base_result_type))
+
+        accent = QColor("#ffa500")
+        item.setForeground(accent)
+        item._original_color = QColor(accent)
+        return item
+
+    def _compute_average_series(self, df: pd.DataFrame, columns: list[str], absolute: bool = False):
+        """Return a per-story average series for the provided columns."""
+        if not columns:
+            return None
+
+        valid_cols = [col for col in columns if col in df.columns]
+        if not valid_cols:
+            return None
+
+        numeric_df = df[valid_cols].apply(pd.to_numeric, errors='coerce')
+        if numeric_df.empty:
+            return None
+
+        if absolute:
+            numeric_df = numeric_df.abs()
+
+        avg_series = numeric_df.mean(axis=1, skipna=True)
+        if avg_series.isna().all():
+            return None
+
+        return avg_series.fillna(0.0)
 
     def _resize_table_to_content(self, table):
         """Resize table height to show all rows without scrolling."""
@@ -784,6 +927,38 @@ class MaxMinDriftsWidget(QWidget):
         item_widget = InteractiveLegendItem(label, color, direction, self)
         legend_layout.addWidget(item_widget)
 
+    def _add_static_legend_item(self, legend_layout, color: str, label: str, pen_style: Qt.PenStyle):
+        """Add a non-interactive legend item (for aggregate lines like averages)."""
+        from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
+
+        item_widget = QWidget()
+        item_widget.setStyleSheet("background-color: transparent;")
+        item_widget.setContentsMargins(0, 3, 0, 3)
+
+        layout = QHBoxLayout(item_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        indicator = QLabel()
+        indicator.setStyleSheet(f"""
+            QLabel {{
+                min-width: 30px;
+                max-width: 30px;
+                min-height: 1px;
+                max-height: 1px;
+                border-bottom: 2px {'dashed' if pen_style == Qt.PenStyle.DashLine else 'solid'} {color};
+            }}
+        """)
+
+        text_label = QLabel(label)
+        text_label.setStyleSheet("QLabel { color: #d1d5db; font-size: 10pt; font-weight: 600; }")
+
+        layout.addWidget(indicator)
+        layout.addWidget(text_label)
+        layout.addStretch()
+
+        legend_layout.addWidget(item_widget)
+
     def _clear_legend(self, legend_layout):
         """Clear all items from the external legend."""
         while legend_layout.count():
@@ -791,6 +966,18 @@ class MaxMinDriftsWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+
+    def _base_type_decimals(self, base_type: str) -> int:
+        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0}
+        return mapping.get(base_type, 2)
+
+    def _format_maxmin_number(self, value: float, base_type: str) -> str:
+        decimals = self._base_type_decimals(base_type)
+        if decimals <= 0:
+            text = f"{round(value):.0f}"
+        else:
+            text = f"{value:.{decimals}f}"
+        return f"{text}%" if base_type == "Drifts" else text
 
     def eventFilter(self, obj, event):
         """Handle hover effects and clicks for table rows."""
@@ -884,29 +1071,89 @@ class MaxMinDriftsWidget(QWidget):
 
     def clear_data(self):
         """Clear all data from plots and tables."""
-        self.x_plot.clear()
-        self.y_plot.clear()
-
-        # Clear new table structure
-        if hasattr(self, 'x_min_table'):
-            self.x_min_table.clear()
-        if hasattr(self, 'x_max_table'):
-            self.x_max_table.clear()
-        if hasattr(self, 'y_min_table'):
-            self.y_min_table.clear()
-        if hasattr(self, 'y_max_table'):
-            self.y_max_table.clear()
+        self._clear_direction('X')
+        self._clear_direction('Y')
+        self._set_direction_visibility('X', True)
+        self._set_direction_visibility('Y', True)
 
         self.current_data = None
-
-        # Clear legends
-        if hasattr(self, 'x_legend_layout'):
-            self._clear_legend(self.x_legend_layout)
-        if hasattr(self, 'y_legend_layout'):
-            self._clear_legend(self.y_legend_layout)
+        self.current_base_type = "Drifts"
+        self.current_display_name = "Max/Min Drifts"
 
         # Clear selected rows tracking
         self._table_selected_rows.clear()
+
+    def _clear_direction(self, direction: str):
+        """Clear plot, legend, and tables for a direction."""
+        if direction == 'X':
+            plot = getattr(self, 'x_plot', None)
+            legend = getattr(self, 'x_legend_layout', None)
+            min_table = getattr(self, 'x_min_table', None)
+            max_table = getattr(self, 'x_max_table', None)
+            plot_items = self.x_plot_items
+            selection = self.x_current_selection
+        else:
+            plot = getattr(self, 'y_plot', None)
+            legend = getattr(self, 'y_legend_layout', None)
+            min_table = getattr(self, 'y_min_table', None)
+            max_table = getattr(self, 'y_max_table', None)
+            plot_items = self.y_plot_items
+            selection = self.y_current_selection
+
+        if plot:
+            plot.clear()
+        if legend:
+            self._clear_legend(legend)
+        if min_table:
+            min_table.clear()
+        if max_table:
+            max_table.clear()
+
+        if min_table:
+            self._table_selected_rows.pop(id(min_table), None)
+        if max_table:
+            self._table_selected_rows.pop(id(max_table), None)
+
+        plot_items.clear()
+        selection.clear()
+
+    def _set_direction_visibility(self, direction: str, visible: bool):
+        """Show or hide the UI containers for a direction."""
+        if direction == 'X':
+            plot_container = self.x_plot_container
+            tables_container = self.x_tables_container
+        else:
+            plot_container = self.y_plot_container
+            tables_container = self.y_tables_container
+
+        if plot_container is not None:
+            plot_container.setVisible(visible)
+        if tables_container is not None:
+            tables_container.setVisible(visible)
+
+    def _update_direction_label(self, direction: str):
+        """Update the direction title to reflect the current result type."""
+        label = self.x_tables_label if direction == 'X' else self.y_tables_label
+        if label:
+            label.setText(f"{direction} Direction - {self.current_base_type}")
+
+    @staticmethod
+    def _infer_base_result_type(result_type: Optional[str]) -> str:
+        """Infer the base result type name from a Max/Min identifier."""
+        if not result_type:
+            return "Drifts"
+        if result_type.startswith("MaxMin"):
+            base = result_type.replace("MaxMin", "", 1)
+            return base or "Drifts"
+        return result_type
+
+    @staticmethod
+    def _get_config_key(base_result_type: str, direction: str) -> str:
+        """Return the configuration key for a result type/direction."""
+        key = f"{base_result_type}_{direction}"
+        if key in RESULT_CONFIGS:
+            return key
+        return base_result_type
 
     def highlight_load_cases(self, selected_cases: list, direction: str):
         """Highlight selected load cases, dim others."""

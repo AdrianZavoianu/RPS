@@ -151,6 +151,9 @@ class StoryRepository:
         )
         if not story:
             story = self.create(project_id, name, sort_order=sort_order)
+        elif sort_order is not None and story.sort_order != sort_order:
+            # Keep database ordering in sync with the source Excel order
+            story.sort_order = sort_order
         return story
 
     def get_by_project(self, project_id: int) -> List[Story]:

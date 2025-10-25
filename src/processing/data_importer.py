@@ -4,8 +4,6 @@ from typing import Optional, List, Callable
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-
-from database.base import get_session
 from database.repository import (
     ProjectRepository,
     LoadCaseRepository,
@@ -48,7 +46,9 @@ class DataImporter:
         self.analysis_type = analysis_type or "General"
         self.parser = ExcelParser(file_path)
         self.result_types = {rt.strip().lower() for rt in result_types} if result_types else None
-        self._session_factory = session_factory or get_session
+        if session_factory is None:
+            raise ValueError("DataImporter requires a session_factory")
+        self._session_factory = session_factory
 
     def import_all(self) -> dict:
         """Import all available data from Excel file.
@@ -115,8 +115,8 @@ class DataImporter:
             if self._should_import("Story Forces") and self.parser.validate_sheet_exists("Story Forces"):
                 force_stats = self._import_story_forces(session, project.id)
                 stats["forces"] += force_stats.get("forces", 0)
-            # Import joint displacements if available
-            if self._should_import("Joint Displacements (Global)") and self.parser.validate_sheet_exists("Joint DisplacementsG"):
+            # Import floor displacements if available
+            if self._should_import("Floors Displacements") and self.parser.validate_sheet_exists("Joint DisplacementsG"):
                 disp_stats = self._import_joint_displacements(session, project.id)
                 stats["displacements"] += disp_stats.get("displacements", 0)
 
@@ -147,6 +147,7 @@ class DataImporter:
         try:
             # Parse data
             df, load_cases, stories = self.parser.get_story_drifts()
+            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
 
             # Create/get load cases
             case_repo = LoadCaseRepository(session)
@@ -168,7 +169,7 @@ class DataImporter:
                     story = story_repo.get_or_create(
                         project_id=project_id,
                         name=row["Story"],
-                        sort_order=stories.index(row["Story"]) if row["Story"] in stories else None,
+                        sort_order=story_order_lookup.get(row["Story"]),
                     )
 
                     # Get or create load case
@@ -209,6 +210,7 @@ class DataImporter:
         try:
             # Parse data
             df, load_cases, stories = self.parser.get_story_accelerations()
+            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
 
             case_repo = LoadCaseRepository(session)
             story_repo = StoryRepository(session)
@@ -224,7 +226,9 @@ class DataImporter:
 
                 for _, row in processed.iterrows():
                     story = story_repo.get_or_create(
-                        project_id=project_id, name=row["Story"]
+                        project_id=project_id,
+                        name=row["Story"],
+                        sort_order=story_order_lookup.get(row["Story"]),
                     )
                     load_case = case_repo.get_or_create(
                         project_id=project_id, name=row["LoadCase"]
@@ -256,6 +260,7 @@ class DataImporter:
         try:
             # Parse data
             df, load_cases, stories = self.parser.get_story_forces()
+            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
 
             case_repo = LoadCaseRepository(session)
             story_repo = StoryRepository(session)
@@ -271,7 +276,9 @@ class DataImporter:
 
                 for _, row in processed.iterrows():
                     story = story_repo.get_or_create(
-                        project_id=project_id, name=row["Story"]
+                        project_id=project_id,
+                        name=row["Story"],
+                        sort_order=story_order_lookup.get(row["Story"]),
                     )
                     load_case = case_repo.get_or_create(
                         project_id=project_id, name=row["LoadCase"]
@@ -303,6 +310,7 @@ class DataImporter:
 
         try:
             df, load_cases, stories = self.parser.get_joint_displacements()
+            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
 
             if df.empty:
                 return stats
@@ -322,7 +330,7 @@ class DataImporter:
                     story = story_repo.get_or_create(
                         project_id=project_id,
                         name=row["Story"],
-                        sort_order=stories.index(row["Story"]) if row["Story"] in stories else None,
+                        sort_order=story_order_lookup.get(row["Story"]),
                     )
 
                     load_case = case_repo.get_or_create(

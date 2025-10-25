@@ -1,40 +1,46 @@
-"""Database base configuration and session management."""
+"""Project database utilities."""
+
+from __future__ import annotations
 
 from pathlib import Path
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
-# Create data directory if it doesn't exist
+
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
+PROJECTS_DIR = DATA_DIR / "projects"
+PROJECTS_DIR.mkdir(exist_ok=True)
 
-# Database file path
-DB_PATH = DATA_DIR / "rps.db"
-
-# Create engine
-engine = create_engine(
-    f"sqlite:///{DB_PATH}",
-    echo=False,  # Set to True for SQL logging during development
-    connect_args={"check_same_thread": False},  # Needed for SQLite
-)
-
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Declarative base
 Base = declarative_base()
 
 
-def get_session():
-    """Get a database session."""
-    session = SessionLocal()
-    try:
-        return session
-    except Exception:
-        session.close()
-        raise
+def get_project_db_path(slug: str) -> Path:
+    return PROJECTS_DIR / slug / "project.db"
 
 
-def init_db():
-    """Initialize database - create all tables."""
+def _create_engine(db_path: Path):
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+
+
+def get_project_session(db_path: Path) -> Session:
+    engine = _create_engine(db_path)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return SessionLocal()
+
+
+def init_project_db(db_path: Path) -> None:
+    engine = _create_engine(db_path)
     Base.metadata.create_all(bind=engine)
+
+
+def init_db() -> None:
+    """Backward-compatible initializer used by legacy startup code."""
+    from database.catalog_base import init_catalog_db
+
+    init_catalog_db()

@@ -29,8 +29,14 @@ from .import_dialog import ImportDialog
 from .window_utils import enable_dark_title_bar
 from .project_detail_window import ProjectDetailWindow
 from .styles import COLORS
-from database.base import get_session
-from database.repository import ProjectRepository
+from services.project_service import (
+    ensure_project_context,
+    list_project_contexts,
+    get_project_context,
+    delete_project_context,
+    result_set_exists,
+)
+from database.repository import ProjectRepository, LoadCaseRepository, StoryRepository, ResultSetRepository
 from utils.env import is_dev_mode
 
 
@@ -330,32 +336,34 @@ class MainWindow(QMainWindow):
         self._set_active_nav("Doc")
 
     def _refresh_projects(self):
-        """Load projects from database and render cards."""
-        session = get_session()
+        """Load projects from catalog and render cards."""
         project_rows = []
         totals = {"projects": 0, "load_cases": 0, "stories": 0}
-        try:
-            repo = ProjectRepository(session)
-            projects = repo.get_all()
-            for project in projects:
-                load_cases = list(project.load_cases)
-                stories = list(project.stories)
+        contexts = list_project_contexts()
 
-                row = {
-                    "name": project.name,
-                    "description": project.description,
-                    "load_cases": len(load_cases),
-                    "stories": len(stories),
-                    "created_at": project.created_at,
-                }
-                project_rows.append(row)
+        for context in contexts:
+            session = context.session()
+            try:
+                project = ProjectRepository(session).get_by_name(context.name)
+                if not project:
+                    continue
+                load_case_count = len(project.load_cases)
+                story_count = len(project.stories)
+            finally:
+                session.close()
 
-                totals["projects"] += 1
-                totals["load_cases"] += row["load_cases"]
-                totals["stories"] += row["stories"]
+            row = {
+                "name": context.name,
+                "description": context.description or "Imported project ready for analysis.",
+                "load_cases": load_case_count,
+                "stories": story_count,
+                "created_at": context.created_at,
+            }
+            project_rows.append(row)
 
-        finally:
-            session.close()
+            totals["projects"] += 1
+            totals["load_cases"] += load_case_count
+            totals["stories"] += story_count
 
         # Clear existing cards
         while self.projects_layout.count():
@@ -478,36 +486,22 @@ class MainWindow(QMainWindow):
 
     def _open_project_detail(self, project_name: str):
         """Open project detail window."""
-        session = get_session()
-        try:
-            repo = ProjectRepository(session)
-            project = repo.get_by_name(project_name)
-
-            if not project:
-                QMessageBox.warning(
-                    self,
-                    "Project Not Found",
-                    f"Could not find project: {project_name}"
-                )
-                return
-
-            # Create and show project detail window
-            detail_window = ProjectDetailWindow(project.id, project.name, self)
-            if is_dev_mode():
-                detail_window.showMaximized()
-            else:
-                detail_window.show()
-
-            self.statusBar().showMessage(f"Opened project: {project_name}", 3000)
-
-        except Exception as e:
-            QMessageBox.critical(
+        context = get_project_context(project_name)
+        if not context:
+            QMessageBox.warning(
                 self,
-                "Error Opening Project",
-                f"Could not open project:\n\n{str(e)}"
+                "Project Not Found",
+                f"Could not find project: {project_name}"
             )
-        finally:
-            session.close()
+            return
+
+        detail_window = ProjectDetailWindow(context, self)
+        if is_dev_mode():
+            detail_window.showMaximized()
+        else:
+            detail_window.show()
+
+        self.statusBar().showMessage(f"Opened project: {project_name}", 3000)
 
     def _delete_project(self, project_name: str):
         """Delete a project after confirmation."""
@@ -532,22 +526,8 @@ class MainWindow(QMainWindow):
             return
 
         # Delete the project
-        session = get_session()
         try:
-            repo = ProjectRepository(session)
-            project = repo.get_by_name(project_name)
-
-            if not project:
-                QMessageBox.warning(
-                    self,
-                    "Project Not Found",
-                    f"Could not find project: {project_name}"
-                )
-                return
-
-            # Delete project (cascading deletes will handle related data)
-            success = repo.delete(project.id)
-
+            success = delete_project_context(project_name)
             if success:
                 QMessageBox.information(
                     self,
@@ -555,25 +535,19 @@ class MainWindow(QMainWindow):
                     f"Project '{project_name}' has been successfully deleted."
                 )
                 self.statusBar().showMessage(f"Deleted project: {project_name}", 5000)
-
-                # Refresh projects view
                 self._refresh_projects()
             else:
                 QMessageBox.warning(
                     self,
-                    "Delete Failed",
-                    f"Could not delete project: {project_name}"
+                    "Project Not Found",
+                    f"Could not find project: {project_name}"
                 )
-
         except Exception as e:
-            session.rollback()
             QMessageBox.critical(
                 self,
                 "Error Deleting Project",
                 f"An error occurred while deleting the project:\n\n{str(e)}"
             )
-        finally:
-            session.close()
 
     def _update_summary(self, totals: dict):
         """Update summary metrics at bottom of page."""
@@ -598,29 +572,16 @@ class MainWindow(QMainWindow):
         if not name:
             return
 
-        session = get_session()
         try:
-            repo = ProjectRepository(session)
-            if repo.get_by_name(name):
-                QMessageBox.warning(
-                    self,
-                    "Project Exists",
-                    "A project with that name already exists. Choose a different name.",
-                )
-                return
-
-            repo.create(name=name, description=description)
-            self.statusBar().showMessage(f"Created project: {name}", 5000)
+            context = ensure_project_context(name, description)
+            self.statusBar().showMessage(f"Project ready: {context.name}", 5000)
         except Exception as exc:
-            session.rollback()
             QMessageBox.critical(
                 self,
                 "Project Error",
                 f"Could not create project:\n\n{exc}",
             )
             return
-        finally:
-            session.close()
 
         self._refresh_projects()
 
@@ -640,8 +601,22 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Importing {file_path}...")
 
                 try:
-                    # Import data
-                    importer = DataImporter(file_path, project_name, result_set_name, analysis_type)
+                    context = ensure_project_context(project_name)
+                    if result_set_exists(context, result_set_name):
+                        QMessageBox.warning(
+                            self,
+                            "Duplicate Result Set",
+                            f"Result set '{result_set_name}' already exists for this project.",
+                        )
+                        return
+
+                    importer = DataImporter(
+                        file_path,
+                        context.name,
+                        result_set_name,
+                        analysis_type,
+                        session_factory=context.session_factory(),
+                    )
                     stats = importer.import_all()
 
                     # Show success message
@@ -652,7 +627,8 @@ class MainWindow(QMainWindow):
                         f"Stories: {stats['stories']}\n"
                         f"Drifts: {stats['drifts']}\n"
                         f"Accelerations: {stats['accelerations']}\n"
-                        f"Forces: {stats['forces']}"
+                        f"Forces: {stats['forces']}\n"
+                        f"Displacements: {stats['displacements']}"
                     )
 
                     if stats['errors']:
@@ -681,14 +657,28 @@ class MainWindow(QMainWindow):
 
         dialog = FolderImportDialog(self)
         if dialog.exec():
-            project_name = dialog.get_project_name()
+            project_name = dialog.get_project_name() or "Project"
+            result_set = dialog.get_result_set_name()
+            stats = dialog.get_import_stats() or {}
 
-            # Show success and refresh
+            summary_lines = [
+                f"Files processed: {stats.get('files_processed', 0)}/{stats.get('files_total', 0)}",
+                f"Drifts: {stats.get('drifts', 0)}",
+                f"Accelerations: {stats.get('accelerations', 0)}",
+                f"Forces: {stats.get('forces', 0)}",
+                f"Displacements: {stats.get('displacements', 0)}",
+            ]
+
+            detail_message = "\n".join(summary_lines)
+            title_line = f"Successfully imported project: {project_name}"
+            if result_set:
+                title_line += f"\nResult set: {result_set}"
+
             QMessageBox.information(
                 self,
                 "Folder Import Complete",
-                f"Successfully imported project: {project_name}\n\n"
-                f"Check the Projects page to view the imported data."
+                f"{title_line}\n\n{detail_message}\n\n"
+                "Review the Projects page to explore the new results.",
             )
 
             self.statusBar().showMessage(f"Folder import complete: {project_name}", 5000)
@@ -705,9 +695,14 @@ class MainWindow(QMainWindow):
 
     def _on_database_info(self):
         """Show database information."""
-        from database.base import DB_PATH
+        from database.catalog_base import CATALOG_DB_PATH
+        from database.base import PROJECTS_DIR
 
-        self.statusBar().showMessage(f"Database: {DB_PATH}", 5000)
+        message = (
+            f"Catalog: {CATALOG_DB_PATH} | "
+            f"Projects root: {PROJECTS_DIR}"
+        )
+        self.statusBar().showMessage(message, 7000)
 
     def _on_about(self):
         """Show about dialog."""

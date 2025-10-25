@@ -399,7 +399,16 @@ class ResultsPlotWidget(QWidget):
 
         df = dataset.data
         stories = df['Story'].tolist()
-        story_indices = list(range(len(stories)))
+
+        include_base_anchor = dataset.meta.result_type == "Displacements"
+        if include_base_anchor:
+            story_labels = ["Base"] + list(stories)
+            base_index = 0
+            story_positions = [idx + 1 for idx in range(len(stories))]
+        else:
+            story_labels = list(stories)
+            base_index = None
+            story_positions = list(range(len(stories)))
 
         # Get numeric columns (load cases)
         load_case_columns = self._data_columns(dataset)
@@ -433,12 +442,17 @@ class ResultsPlotWidget(QWidget):
         # Plot each load case as a line
         for idx, load_case in enumerate(load_case_columns):
             numeric_values = numeric_df[load_case].fillna(0.0).tolist()
+            y_positions = list(story_positions)
+            if include_base_anchor:
+                numeric_values = [0.0] + numeric_values
+                y_positions = [base_index] + y_positions
+
             color = colors[idx % len(colors)]
 
             # Plot horizontal (drift on x-axis, story on y-axis)
             plot_item = plot.plot(
                 numeric_values,
-                story_indices,
+                y_positions,
                 pen=pg.mkPen(color, width=2)
             )
             # Store the plot item for later highlighting
@@ -450,11 +464,15 @@ class ResultsPlotWidget(QWidget):
         if len(load_case_columns) > 1:
             avg_series = numeric_df.mean(axis=1, skipna=True).fillna(0.0)
             avg_values = avg_series.tolist()
+            y_positions = list(story_positions)
+            if include_base_anchor:
+                avg_values = [0.0] + avg_values
+                y_positions = [base_index] + y_positions
 
             # Plot average with bold, dashed line in bright orange
             self._average_plot_item = plot.plot(
                 avg_values,
-                story_indices,
+                y_positions,
                 pen=pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)  # Bright orange
             )
             self._add_legend_item(container, '#ffa500', 'Average')
@@ -463,10 +481,10 @@ class ResultsPlotWidget(QWidget):
         builder = PlotBuilder(plot, dataset.config)
 
         # Configure axes with story labels
-        builder.setup_axes(stories)
+        builder.setup_axes(story_labels)
 
         # Set y-axis range with tight padding
-        builder.set_story_range(len(stories), padding=0.02)
+        builder.set_story_range(len(story_labels), padding=0.1)
 
         # Calculate x-axis range from all values
         all_values = [
@@ -474,12 +492,17 @@ class ResultsPlotWidget(QWidget):
             for value in numeric_df.to_numpy().flatten()
             if not pd.isna(value)
         ]
+        if include_base_anchor:
+            all_values.append(0.0)
 
         # Filter out zeros and set range with small padding
         all_values = [v for v in all_values if abs(v) > 0.0]
         if all_values:
             min_val = min(all_values)
             max_val = max(all_values)
+            if include_base_anchor:
+                min_val = min(min_val, 0.0)
+                max_val = max(max_val, 0.0)
             # Small padding (3% on left, 5% on right for legend/label space)
             builder.set_value_range(min_val, max_val, left_padding=0.03, right_padding=0.05)
 
