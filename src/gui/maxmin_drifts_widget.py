@@ -19,107 +19,20 @@ from PyQt6.QtWidgets import (
 )
 
 from config.result_config import get_config, RESULT_CONFIGS
+from config.visual_config import (
+    AVERAGE_SERIES_COLOR,
+    ZERO_LINE_COLOR,
+    TABLE_CELL_PADDING,
+    TABLE_HEADER_PADDING,
+    STORY_PADDING_MAXMIN,
+    series_color,
+)
 from utils.plot_builder import PlotBuilder
+from gui.components.legend import InteractiveLegendItem, create_static_legend_item
 from .styles import COLORS
 
 if TYPE_CHECKING:
     from processing.result_service import MaxMinDataset
-
-
-class InteractiveLegendItem(QWidget):
-    """Interactive legend item that responds to hover and click."""
-
-    def __init__(self, label: str, color: str, direction: str, parent_widget):
-        super().__init__()
-        self.label = label
-        self.color = color
-        self.direction = direction
-        self.parent_widget = parent_widget
-        self.is_selected = False
-
-        # Set fixed border that's always visible
-        self.setStyleSheet(f"""
-            background-color: transparent;
-            border-left: 3px solid {color};
-            border-radius: 4px;
-            padding-left: 4px;
-        """)
-        self.setContentsMargins(0, 3, 0, 3)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Layout
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        # Color indicator
-        self.color_label = QLabel()
-        self.color_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {color};
-                border: none;
-                border-radius: 2px;
-                min-width: 30px;
-                max-width: 30px;
-                min-height: 3px;
-                max-height: 3px;
-            }}
-        """)
-
-        # Text label (always bold to prevent layout shifts)
-        self.text_label = QLabel(label)
-        self.text_label.setStyleSheet("QLabel { color: #d1d5db; font-size: 10pt; font-weight: 600; }")
-
-        layout.addWidget(self.color_label)
-        layout.addWidget(self.text_label)
-        layout.addStretch()
-
-    def enterEvent(self, event):
-        """Handle mouse enter - trigger hover highlight."""
-        self.parent_widget.hover_load_case(self.label, self.direction)
-        # Strong hover effect: white text + subtle background highlight
-        self.setStyleSheet(f"""
-            background-color: rgba(255, 255, 255, 0.08);
-            border-left: 3px solid {self.color};
-            border-radius: 4px;
-            padding-left: 4px;
-        """)
-        self.text_label.setStyleSheet("QLabel { color: #ffffff; font-size: 10pt; font-weight: 600; }")
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        """Handle mouse leave - clear hover."""
-        self.parent_widget.clear_hover(self.direction)
-        # Restore to selection state (call set_selected to restore proper background and text)
-        self.set_selected(self.is_selected)
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event):
-        """Handle click - toggle selection."""
-        self.parent_widget.toggle_load_case_selection(self.label, self.direction)
-        super().mousePressEvent(event)
-
-    def set_selected(self, selected: bool):
-        """Update visual state based on selection."""
-        self.is_selected = selected
-        if selected:
-            # Selected state: bright cyan text, cyan background highlight (border stays same color)
-            self.setStyleSheet(f"""
-                background-color: rgba(103, 232, 249, 0.15);
-                border-left: 3px solid {self.color};
-                border-radius: 4px;
-                padding-left: 4px;
-            """)
-            self.text_label.setStyleSheet("QLabel { color: #67e8f9; font-size: 10pt; font-weight: 600; }")
-        else:
-            # Normal state: transparent background (border stays same color, text always bold)
-            self.setStyleSheet(f"""
-                background-color: transparent;
-                border-left: 3px solid {self.color};
-                border-radius: 4px;
-                padding-left: 4px;
-            """)
-            self.text_label.setStyleSheet("QLabel { color: #d1d5db; font-size: 10pt; font-weight: 600; }")
 
 
 class MaxMinDriftsWidget(QWidget):
@@ -388,39 +301,39 @@ class MaxMinDriftsWidget(QWidget):
 
         # Table
         table = QTableWidget()
-        table.setStyleSheet("""
-            QTableWidget {
+        table.setStyleSheet(f"""
+            QTableWidget {{
                 background-color: #0a0c10;
                 border: 1px solid #2c313a;
                 border-radius: 0px;
                 gridline-color: #2c313a;
-            }
-            QTableWidget::item {
-                padding: 4px 6px;
+            }}
+            QTableWidget::item {{
+                padding: {TABLE_CELL_PADDING};
                 border: none;
-            }
-            QTableWidget::item:selected {
+            }}
+            QTableWidget::item:selected {{
                 background-color: transparent;
                 color: inherit;
-            }
-            QTableWidget::item:focus {
+            }}
+            QTableWidget::item:focus {{
                 background-color: transparent;
                 color: inherit;
                 border: none;
                 outline: none;
-            }
-            QHeaderView::section {
+            }}
+            QHeaderView::section {{
                 background-color: #161b22;
                 color: #4a7d89;
                 border: none;
                 border-bottom: 1px solid #2c313a;
-                padding: 4px 6px;
+                padding: {TABLE_HEADER_PADDING};
                 font-weight: 600;
-            }
-            QTableWidget QTableCornerButton::section {
+            }}
+            QTableWidget QTableCornerButton::section {{
                 background-color: #161b22;
                 border: none;
-            }
+            }}
         """)
 
         # Hide vertical header (row numbers) - matches normal drift page
@@ -570,29 +483,11 @@ class MaxMinDriftsWidget(QWidget):
             base_index = None
             story_indices = list(range(len(story_names)))
 
-        # Highly distinct colors matching normal drift page
-        colors = [
-            '#ff4757',  # Bright red
-            '#1e90ff',  # Dodger blue
-            '#2ed573',  # Bright green
-            '#ff6348',  # Tomato/coral
-            '#a29bfe',  # Periwinkle
-            '#00d2d3',  # Cyan
-            '#ffa502',  # Orange
-            '#ff6b81',  # Pink
-            '#5f27cd',  # Purple
-            '#01a3a4',  # Teal
-            '#48dbfb',  # Sky blue
-            '#c44569',  # Dark pink
-            '#f8b500',  # Golden yellow
-        ]
-
         # Collect all drift values for range calculation
         all_values = []
 
         # Match Max and Min columns by load case
         load_cases_plotted = []
-        avg_color = "#ffa500"
 
         # Plot each load case - Max and Min with same color
         for idx, max_col in enumerate(max_cols):
@@ -612,7 +507,7 @@ class MaxMinDriftsWidget(QWidget):
             if min_col not in min_cols:
                 continue
 
-            color = colors[idx % len(colors)]
+            color = series_color(idx)
 
             # Get values
             max_values = df[max_col].values.tolist()
@@ -670,11 +565,11 @@ class MaxMinDriftsWidget(QWidget):
             avg_max_item = plot_widget.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen(avg_color, width=4, style=Qt.PenStyle.SolidLine),
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.SolidLine),
                 antialias=True,
             )
             all_values.extend(avg_values)
-            self._add_static_legend_item(legend_layout, avg_color, "Avg Max", Qt.PenStyle.SolidLine)
+            self._add_static_legend_item(legend_layout, AVERAGE_SERIES_COLOR, "Avg Max", Qt.PenStyle.SolidLine)
 
         min_avg_series = self._compute_average_series(df, min_cols, absolute=True)
         if min_avg_series is not None:
@@ -687,14 +582,14 @@ class MaxMinDriftsWidget(QWidget):
             avg_min_item = plot_widget.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen(avg_color, width=4, style=Qt.PenStyle.DashLine),
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine),
                 antialias=True,
             )
             all_values.extend(avg_values)
-            self._add_static_legend_item(legend_layout, avg_color, "Avg Min", Qt.PenStyle.DashLine)
+            self._add_static_legend_item(legend_layout, AVERAGE_SERIES_COLOR, "Avg Min", Qt.PenStyle.DashLine)
 
         # Add zero drift line for symmetry (vertical line at x=0)
-        plot_widget.addLine(x=0, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DotLine))
+        plot_widget.addLine(x=0, pen=pg.mkPen(ZERO_LINE_COLOR, width=1, style=Qt.PenStyle.DotLine))
 
         # Use PlotBuilder for axis configuration (matching normal drift page)
         from utils.plot_builder import PlotBuilder
@@ -704,7 +599,7 @@ class MaxMinDriftsWidget(QWidget):
         builder.setup_axes(story_labels)
 
         # Set y-axis range with tight padding
-        builder.set_story_range(len(story_labels), padding=0.1)
+        builder.set_story_range(len(story_labels), padding=STORY_PADDING_MAXMIN)
 
         # Calculate x-axis range from all values
         # Filter out zeros and set range with small padding on all sides
@@ -921,43 +816,18 @@ class MaxMinDriftsWidget(QWidget):
 
     def _add_legend_item(self, legend_layout, color: str, label: str, direction: str):
         """Add an interactive legend item to the external legend."""
-        from PyQt6.QtWidgets import QHBoxLayout, QLabel
-
-        # Create interactive legend item widget
-        item_widget = InteractiveLegendItem(label, color, direction, self)
+        item_widget = InteractiveLegendItem(
+            label=label,
+            color=color,
+            on_toggle=lambda case: self.toggle_load_case_selection(case, direction),
+            on_hover=lambda case: self.hover_load_case(case, direction),
+            on_leave=lambda: self.clear_hover(direction),
+        )
         legend_layout.addWidget(item_widget)
 
     def _add_static_legend_item(self, legend_layout, color: str, label: str, pen_style: Qt.PenStyle):
         """Add a non-interactive legend item (for aggregate lines like averages)."""
-        from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
-
-        item_widget = QWidget()
-        item_widget.setStyleSheet("background-color: transparent;")
-        item_widget.setContentsMargins(0, 3, 0, 3)
-
-        layout = QHBoxLayout(item_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        indicator = QLabel()
-        indicator.setStyleSheet(f"""
-            QLabel {{
-                min-width: 30px;
-                max-width: 30px;
-                min-height: 1px;
-                max-height: 1px;
-                border-bottom: 2px {'dashed' if pen_style == Qt.PenStyle.DashLine else 'solid'} {color};
-            }}
-        """)
-
-        text_label = QLabel(label)
-        text_label.setStyleSheet("QLabel { color: #d1d5db; font-size: 10pt; font-weight: 600; }")
-
-        layout.addWidget(indicator)
-        layout.addWidget(text_label)
-        layout.addStretch()
-
-        legend_layout.addWidget(item_widget)
+        legend_layout.addWidget(create_static_legend_item(color, label, pen_style))
 
     def _clear_legend(self, legend_layout):
         """Clear all items from the external legend."""

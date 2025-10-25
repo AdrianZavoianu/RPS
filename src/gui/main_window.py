@@ -31,12 +31,11 @@ from .project_detail_window import ProjectDetailWindow
 from .styles import COLORS
 from services.project_service import (
     ensure_project_context,
-    list_project_contexts,
     get_project_context,
     delete_project_context,
     result_set_exists,
+    list_project_summaries,
 )
-from database.repository import ProjectRepository, LoadCaseRepository, StoryRepository, ResultSetRepository
 from utils.env import is_dev_mode
 
 
@@ -339,31 +338,22 @@ class MainWindow(QMainWindow):
         """Load projects from catalog and render cards."""
         project_rows = []
         totals = {"projects": 0, "load_cases": 0, "stories": 0}
-        contexts = list_project_contexts()
+        summaries = list_project_summaries()
 
-        for context in contexts:
-            session = context.session()
-            try:
-                project = ProjectRepository(session).get_by_name(context.name)
-                if not project:
-                    continue
-                load_case_count = len(project.load_cases)
-                story_count = len(project.stories)
-            finally:
-                session.close()
-
+        for summary in summaries:
+            context = summary.context
             row = {
                 "name": context.name,
                 "description": context.description or "Imported project ready for analysis.",
-                "load_cases": load_case_count,
-                "stories": story_count,
+                "load_cases": summary.load_cases,
+                "stories": summary.stories,
                 "created_at": context.created_at,
             }
             project_rows.append(row)
 
             totals["projects"] += 1
-            totals["load_cases"] += load_case_count
-            totals["stories"] += story_count
+            totals["load_cases"] += summary.load_cases
+            totals["stories"] += summary.stories
 
         # Clear existing cards
         while self.projects_layout.count():

@@ -20,6 +20,12 @@ import pandas as pd
 
 from utils.plot_builder import PlotBuilder
 from processing.result_service import ResultDataset
+from config.visual_config import (
+    AVERAGE_SERIES_COLOR,
+    STORY_PADDING_STANDARD,
+    series_color,
+)
+from gui.components.legend import create_static_legend_item
 
 
 class ResultsPlotWidget(QWidget):
@@ -182,34 +188,7 @@ class ResultsPlotWidget(QWidget):
 
     def _add_legend_item(self, container, color: str, label: str):
         """Add a legend item to the external legend."""
-        item_widget = QWidget()
-        item_widget.setStyleSheet("background-color: transparent;")
-        item_widget.setContentsMargins(0, 3, 0, 3)  # Vertical margins for spacing
-        item_layout = QHBoxLayout(item_widget)
-        item_layout.setContentsMargins(0, 0, 0, 0)
-        item_layout.setSpacing(10)
-
-        # Color box
-        color_label = QLabel()
-        color_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {color};
-                border-radius: 2px;
-                min-width: 30px;
-                max-width: 30px;
-                min-height: 3px;
-                max-height: 3px;
-            }}
-        """)
-
-        # Text label
-        text_label = QLabel(label)
-        text_label.setStyleSheet("QLabel { color: #d1d5db; font-size: 10pt; }")
-
-        item_layout.addWidget(color_label)
-        item_layout.addWidget(text_label)
-        item_layout.addStretch()
-
+        item_widget = create_static_legend_item(color, label)
         container._legend_layout.addWidget(item_widget)
         container._legend_items.append(item_widget)
 
@@ -302,16 +281,10 @@ class ResultsPlotWidget(QWidget):
         if not numeric_cols:
             return
 
-        # Color palette matching GMP
-        colors = [
-            '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
-            '#1abc9c', '#e67e22', '#34495e', '#16a085', '#27ae60'
-        ]
-
         # Plot up to 10 load cases
         for idx, col in enumerate(numeric_cols[:10]):
             values = df[col].fillna(0).tolist()
-            color = colors[idx % len(colors)]
+            color = series_color(idx)
 
             plot.plot(
                 story_indices,
@@ -420,23 +393,6 @@ class ResultsPlotWidget(QWidget):
         self._plot_items.clear()
         self._average_plot_item = None
 
-        # Highly distinct colors optimized for dark backgrounds
-        colors = [
-            '#ff4757',  # Bright red
-            '#1e90ff',  # Dodger blue
-            '#2ed573',  # Bright green
-            '#ff6348',  # Tomato/coral
-            '#a29bfe',  # Periwinkle
-            '#00d2d3',  # Cyan
-            '#ffa502',  # Orange (different from average)
-            '#ff6b81',  # Pink
-            '#5f27cd',  # Purple
-            '#01a3a4',  # Teal
-            '#48dbfb',  # Sky blue
-            '#c44569',  # Dark pink
-            '#f8b500',  # Golden yellow
-        ]
-
         numeric_df = df[load_case_columns].apply(pd.to_numeric, errors='coerce')
 
         # Plot each load case as a line
@@ -447,7 +403,7 @@ class ResultsPlotWidget(QWidget):
                 numeric_values = [0.0] + numeric_values
                 y_positions = [base_index] + y_positions
 
-            color = colors[idx % len(colors)]
+            color = series_color(idx)
 
             # Plot horizontal (drift on x-axis, story on y-axis)
             plot_item = plot.plot(
@@ -473,9 +429,9 @@ class ResultsPlotWidget(QWidget):
             self._average_plot_item = plot.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)  # Bright orange
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
             )
-            self._add_legend_item(container, '#ffa500', 'Average')
+            self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Average')
 
         # Use PlotBuilder for common configuration
         builder = PlotBuilder(plot, dataset.config)
@@ -484,7 +440,7 @@ class ResultsPlotWidget(QWidget):
         builder.setup_axes(story_labels)
 
         # Set y-axis range with tight padding
-        builder.set_story_range(len(story_labels), padding=0.1)
+        builder.set_story_range(len(story_labels), padding=STORY_PADDING_STANDARD)
 
         # Calculate x-axis range from all values
         all_values = [
@@ -549,7 +505,7 @@ class ResultsPlotWidget(QWidget):
         # Always keep average line at full opacity and bold
         if hasattr(self, '_average_plot_item') and self._average_plot_item:
             self._average_plot_item.setPen(
-                pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)
+                pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
             )
 
     def hover_load_case(self, load_case: str):
@@ -584,7 +540,7 @@ class ResultsPlotWidget(QWidget):
         # Keep average at full opacity
         if hasattr(self, '_average_plot_item') and self._average_plot_item:
             self._average_plot_item.setPen(
-                pg.mkPen('#ffa500', width=4, style=Qt.PenStyle.DashLine)
+                pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
             )
 
     def clear_hover(self):

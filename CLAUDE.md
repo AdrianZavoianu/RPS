@@ -86,43 +86,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Key Architecture (Quick Summary)
+## Architecture Overview
 
-> **Full details**: See [ARCHITECTURE.md](ARCHITECTURE.md)
-> **Design guidelines**: See [DESIGN.md](DESIGN.md)
+> **📐 Full Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md)
+> **🎨 Design System**: See [DESIGN.md](DESIGN.md)
+> **📋 Product Requirements**: See [PRD.md](PRD.md)
 
-### Configuration-Driven Design
-```python
-# config/result_config.py - Single source of truth
-RESULT_CONFIGS = {
-    'Drifts': ResultTypeConfig(
-        direction_suffix='_X',
-        unit='%',
-        multiplier=100.0,
-        color_scheme='blue_orange',
-        ...
-    ),
-}
-```
+**Key Principles:**
+- **Configuration-Driven**: Result types defined in `config/result_config.py` (~10 lines per type)
+- **Pluggable Transformers**: Strategy pattern for data processing (`processing/result_transformers.py`)
+- **Hybrid Data Model**: Normalized tables + wide-format cache for performance
+- **Component-Based UI**: Signal/slot communication between table and plot widgets
 
-### Pluggable Transformers
-```python
-# processing/result_transformers.py
-transformer = get_transformer('Drifts')
-df = transformer.transform(df)  # filter → clean → statistics
-```
-
-### Data Flow
-```
-Excel → FolderImporter → ResultTransformer → SQLite (normalized + cache) → Table/Plot
-```
-
-### UI Communication
-```
-Table Widget (signals) → Plot Widget (slots)
-- Column selection → highlight_lines
-- Column hover → preview_line
-```
+**Quick Reference:**
+- Data model and schema: [ARCHITECTURE.md Section 4](ARCHITECTURE.md#4-data-architecture)
+- Configuration system: [ARCHITECTURE.md Section 5](ARCHITECTURE.md#5-configuration-system)
+- Transformer pattern: [ARCHITECTURE.md Section 6](ARCHITECTURE.md#6-transformer-system)
+- UI architecture: [ARCHITECTURE.md Section 8](ARCHITECTURE.md#8-ui-architecture)
+- Extension points: [ARCHITECTURE.md Section 10](ARCHITECTURE.md#10-extension-points)
 
 ---
 
@@ -162,40 +143,15 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 
 ### Adding a New Result Type
 
-**Time Required**: ~10 minutes
+> **📐 See**: [ARCHITECTURE.md Section 10](ARCHITECTURE.md#10-extension-points) for complete example
 
-**Step 1**: Add configuration (5 lines)
-```python
-# config/result_config.py
-RESULT_CONFIGS['JointDisplacements'] = ResultTypeConfig(
-    name='JointDisplacements',
-    direction_suffix='_UX',
-    unit='mm',
-    decimal_places=2,
-    multiplier=1.0,
-    y_label='Displacement (mm)',
-    plot_mode='building_profile',
-    color_scheme='blue_orange',
-)
-```
+**Quick steps** (~10 minutes):
+1. Add config to `config/result_config.py` (~5 lines)
+2. Add transformer to `processing/result_transformers.py` (~10 lines)
+3. Register transformer in `TRANSFORMERS` dict
+4. Load data into cache via import
 
-**Step 2**: Add transformer (10 lines)
-```python
-# processing/result_transformers.py
-class JointDisplacementTransformer(ResultTransformer):
-    def __init__(self):
-        super().__init__('JointDisplacements')
-
-    def filter_columns(self, df):
-        cols = [col for col in df.columns if col.endswith(self.config.direction_suffix)]
-        return df[cols].copy()
-
-TRANSFORMERS['JointDisplacements'] = JointDisplacementTransformer()
-```
-
-**Step 3**: Load data into cache (database import)
-
-**Done!** Table, plot, colors, and formatting all work automatically.
+**Done!** Table, plot, colors, and formatting work automatically.
 
 ---
 
@@ -331,18 +287,32 @@ def _apply_row_style(self, table, row):
 
 ### Adding Database Columns
 
-```python
-# 1. Edit models.py
-class Project(Base):
-    new_field = Column(String(100))  # Add this
+> **📐 See**: [ARCHITECTURE.md Section 12](ARCHITECTURE.md#12-development-patterns) for details
 
+```bash
+# 1. Edit models.py (add new Column)
 # 2. Generate migration
-$ pipenv run alembic revision --autogenerate -m "Add new_field"
-
-# 3. Review migration file in alembic/versions/
-
+pipenv run alembic revision --autogenerate -m "Add new_field"
+# 3. Review migration file
 # 4. Apply migration
-$ pipenv run alembic upgrade head
+pipenv run alembic upgrade head
+```
+
+---
+
+### Managing Projects (Catalog Tools)
+
+> **📐 See**: [ARCHITECTURE.md Section 12](ARCHITECTURE.md#12-development-patterns) for details
+
+```bash
+# List all projects with metadata
+pipenv run python scripts/project_tools.py list
+
+# Delete project (interactive confirmation)
+pipenv run python scripts/project_tools.py delete --name "ProjectName"
+
+# Delete project (force, no confirmation)
+pipenv run python scripts/project_tools.py delete --name "ProjectName" --force
 ```
 
 ---
@@ -368,64 +338,44 @@ label = create_styled_label("Title", "header")
 
 ---
 
-## Project Structure (Key Locations)
+## Quick File Reference
 
-```
-src/
-├── config/
-│   └── result_config.py          # Result type configurations
-├── gui/
-│   ├── styles.py                 # GMP design system
-│   ├── project_detail_window.py  # Main UI orchestration
-│   ├── results_table_widget.py   # Table with interactions
-│   └── results_plot_widget.py    # PyQtGraph visualizations
-├── processing/
-│   ├── result_transformers.py    # Pluggable transformers
-│   └── folder_importer.py        # Batch import pipeline
-├── database/
-│   ├── models.py                 # SQLAlchemy ORM models
-│   └── repository.py             # Data access layer
-└── utils/
-    ├── color_utils.py            # Gradient coloring
-    ├── data_utils.py             # Parsing/formatting
-    └── plot_builder.py           # Declarative plotting
-```
+> **📐 Complete structure**: See [ARCHITECTURE.md Section 3](ARCHITECTURE.md#3-project-structure)
 
-> **Full structure with descriptions**: See [ARCHITECTURE.md Section 4](ARCHITECTURE.md#4-project-structure)
+**Most frequently edited files:**
+- `src/config/result_config.py` - Result type definitions
+- `src/config/visual_config.py` - Colors, styling, constants
+- `src/processing/result_transformers.py` - Data processing logic
+- `src/gui/styles.py` - GMP design system
+- `src/gui/project_detail_window.py` - Main 3-panel layout
+- `src/utils/color_utils.py` - Gradient color schemes
+- `src/utils/plot_builder.py` - Declarative plot API
 
 ---
 
-## Utility Functions Reference
+## Utility Functions Quick Reference
 
-### Color Utilities
+> **📐 See**: [ARCHITECTURE.md Section 7](ARCHITECTURE.md#7-utility-systems) for complete API
+
+**Color Utilities** (`utils/color_utils.py`):
 ```python
 from utils.color_utils import get_gradient_color
-
-# Get interpolated color for value in range
 color = get_gradient_color(value, min_val, max_val, 'blue_orange')
-# Available schemes: 'blue_orange', 'green_red', 'cool_warm', 'teal_yellow'
 ```
 
-### Data Utilities
+**Data Utilities** (`utils/data_utils.py`):
 ```python
-from utils.data_utils import parse_percentage_value, format_value, parse_numeric_safe
-
+from utils.data_utils import parse_percentage_value, format_value
 numeric = parse_percentage_value("1.23%")  # → 1.23
-numeric = parse_percentage_value(0.0123)   # → 1.23
 formatted = format_value(1.234, 2, '%')    # → "1.23%"
-safe_val = parse_numeric_safe("invalid", default=0.0)  # → 0.0
 ```
 
-### Plot Builder
+**Plot Builder** (`utils/plot_builder.py`):
 ```python
 from utils.plot_builder import PlotBuilder
-
 builder = PlotBuilder(plot_widget, config)
 builder.setup_axes(story_names)
-builder.set_story_range(num_stories, padding=-0.05)
-builder.set_value_range(min_val, max_val, left_padding=0.02, right_padding=0.15)
 builder.add_line(x_values, y_values, color='#3b82f6', width=2)
-builder.set_title("Story Drifts", bold=True)
 ```
 
 ---
@@ -532,21 +482,42 @@ def filter_columns(self, df):
 
 ---
 
-## File References (line numbers)
+## Key File Locations
 
-When referencing code, use this format for easy navigation:
+**Format**: Use `filename.py:line_number` for easy navigation
 
-- Configuration: `result_config.py:134-146` (Drifts config)
-- Transformer base: `result_transformers.py:8-63` (ResultTransformer class)
-- Drift transformer: `result_transformers.py:65-74` (DriftTransformer)
-- Plot builder: `plot_builder.py:8-108` (PlotBuilder class)
-- Color gradient: `color_utils.py:41-50` (get_gradient_color function)
-- Data parsing: `data_utils.py:4-19` (parse_percentage_value function)
-- Project detail: `project_detail_window.py:1-300` (main orchestration)
-- Table widget: `results_table_widget.py:98-356` (ResultsTableWidget class)
-- Plot widget: `results_plot_widget.py:1-end` (ResultsPlotWidget class)
+**Configuration:**
+- `config/result_config.py` - Result type definitions
+- `config/visual_config.py` - Colors, styling constants, legend config
+
+**Data Access:**
+- `database/catalog_models.py` - Catalog ORM (project metadata)
+- `database/catalog_repository.py` - Catalog CRUD operations
+- `database/models.py` - Per-project ORM (stories, load cases, results)
+- `database/repository.py` - Per-project data access
+- `services/project_service.py` - Project context management
+
+**Processing:**
+- `processing/result_transformers.py` - Pluggable transformer system
+- `processing/import_context.py` - ResultImportHelper (shared import utilities)
+- `processing/folder_importer.py` - Batch folder import
+- `processing/data_importer.py` - Single file import
+
+**UI Components:**
+- `gui/main_window.py` - Project cards view
+- `gui/project_detail_window.py` - 3-panel layout orchestration
+- `gui/results_table_widget.py` - Table with manual selection
+- `gui/results_plot_widget.py` - PyQtGraph building profiles
+- `gui/maxmin_drifts_widget.py` - Max/Min drifts view
+- `gui/components/legend.py` - Reusable legend widgets
+
+**Utilities:**
+- `utils/color_utils.py` - Gradient color interpolation
+- `utils/plot_builder.py` - Declarative plot API
+- `utils/slug.py` - Slug utilities for project folders
 
 ---
 
-**Last Updated**: 2025-10-23
+**Last Updated**: 2025-10-26
 **Status**: Production-ready, refactored architecture complete
+**Note**: Structural details moved to [ARCHITECTURE.md](ARCHITECTURE.md) - this file focuses on quick development tasks

@@ -33,6 +33,14 @@ class ProjectContext:
         return factory
 
 
+@dataclass
+class ProjectSummary:
+    context: ProjectContext
+    load_cases: int = 0
+    stories: int = 0
+    result_sets: int = 0
+
+
 def ensure_project_context(name: str, description: Optional[str] = None) -> ProjectContext:
     """Ensure catalog entry and project database exist for the given project name."""
     init_catalog_db()
@@ -109,6 +117,37 @@ def list_project_contexts() -> List[ProjectContext]:
         ]
     finally:
         session.close()
+
+
+def get_project_summary(context: ProjectContext) -> ProjectSummary:
+    """Return counts for load cases/stories/result sets for a project context."""
+    session = context.session()
+    try:
+        project_repo = ProjectRepository(session)
+        project = project_repo.get_by_name(context.name)
+        if not project:
+            return ProjectSummary(context=context)
+
+        load_case_count = len(project.load_cases)
+        story_count = len(project.stories)
+        result_set_count = len(project.result_sets)
+
+        return ProjectSummary(
+            context=context,
+            load_cases=load_case_count,
+            stories=story_count,
+            result_sets=result_set_count,
+        )
+    finally:
+        session.close()
+
+
+def list_project_summaries() -> List[ProjectSummary]:
+    """Return summaries for all known projects."""
+    summaries: List[ProjectSummary] = []
+    for context in list_project_contexts():
+        summaries.append(get_project_summary(context))
+    return summaries
 
 
 def result_set_exists(context: ProjectContext, result_set_name: str) -> bool:

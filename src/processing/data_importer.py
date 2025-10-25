@@ -6,7 +6,6 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from database.repository import (
     ProjectRepository,
-    LoadCaseRepository,
     StoryRepository,
     ResultRepository,
     ResultSetRepository,
@@ -18,6 +17,7 @@ from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisp
 
 from .excel_parser import ExcelParser
 from .result_processor import ResultProcessor
+from .import_context import ResultImportHelper
 
 
 class DataImporter:
@@ -145,13 +145,8 @@ class DataImporter:
         stats = {"load_cases": 0, "stories": 0, "drifts": 0}
 
         try:
-            # Parse data
             df, load_cases, stories = self.parser.get_story_drifts()
-            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
-
-            # Create/get load cases
-            case_repo = LoadCaseRepository(session)
-            story_repo = StoryRepository(session)
+            helper = ResultImportHelper(session, project_id, stories)
             result_repo = ResultRepository(session)
 
             # Process each direction
@@ -165,19 +160,8 @@ class DataImporter:
                 drift_objects = []
 
                 for _, row in processed.iterrows():
-                    # Get or create story
-                    story = story_repo.get_or_create(
-                        project_id=project_id,
-                        name=row["Story"],
-                        sort_order=story_order_lookup.get(row["Story"]),
-                    )
-
-                    # Get or create load case
-                    load_case = case_repo.get_or_create(
-                        project_id=project_id,
-                        name=row["LoadCase"],
-                        case_type="Time History",
-                    )
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(row["LoadCase"], case_type="Time History")
 
                     # Create drift object
                     drift = StoryDrift(
@@ -208,12 +192,8 @@ class DataImporter:
         stats = {"accelerations": 0}
 
         try:
-            # Parse data
             df, load_cases, stories = self.parser.get_story_accelerations()
-            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
-
-            case_repo = LoadCaseRepository(session)
-            story_repo = StoryRepository(session)
+            helper = ResultImportHelper(session, project_id, stories)
             result_repo = ResultRepository(session)
 
             # Process each direction
@@ -225,14 +205,8 @@ class DataImporter:
                 accel_objects = []
 
                 for _, row in processed.iterrows():
-                    story = story_repo.get_or_create(
-                        project_id=project_id,
-                        name=row["Story"],
-                        sort_order=story_order_lookup.get(row["Story"]),
-                    )
-                    load_case = case_repo.get_or_create(
-                        project_id=project_id, name=row["LoadCase"]
-                    )
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(row["LoadCase"])
 
                     accel = StoryAcceleration(
                         story_id=story.id,
@@ -258,12 +232,8 @@ class DataImporter:
         stats = {"forces": 0}
 
         try:
-            # Parse data
             df, load_cases, stories = self.parser.get_story_forces()
-            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
-
-            case_repo = LoadCaseRepository(session)
-            story_repo = StoryRepository(session)
+            helper = ResultImportHelper(session, project_id, stories)
             result_repo = ResultRepository(session)
 
             # Process each direction
@@ -275,14 +245,8 @@ class DataImporter:
                 force_objects = []
 
                 for _, row in processed.iterrows():
-                    story = story_repo.get_or_create(
-                        project_id=project_id,
-                        name=row["Story"],
-                        sort_order=story_order_lookup.get(row["Story"]),
-                    )
-                    load_case = case_repo.get_or_create(
-                        project_id=project_id, name=row["LoadCase"]
-                    )
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(row["LoadCase"])
 
                     force = StoryForce(
                         story_id=story.id,
@@ -310,13 +274,11 @@ class DataImporter:
 
         try:
             df, load_cases, stories = self.parser.get_joint_displacements()
-            story_order_lookup = {name: idx for idx, name in enumerate(stories)}
+            helper = ResultImportHelper(session, project_id, stories)
 
             if df.empty:
                 return stats
 
-            case_repo = LoadCaseRepository(session)
-            story_repo = StoryRepository(session)
             result_repo = ResultRepository(session)
 
             for direction in ["Ux", "Uy"]:
@@ -327,15 +289,9 @@ class DataImporter:
                 displacement_objects = []
 
                 for _, row in processed.iterrows():
-                    story = story_repo.get_or_create(
-                        project_id=project_id,
-                        name=row["Story"],
-                        sort_order=story_order_lookup.get(row["Story"]),
-                    )
-
-                    load_case = case_repo.get_or_create(
-                        project_id=project_id,
-                        name=row["LoadCase"],
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(
+                        row["LoadCase"],
                         case_type="Time History",
                     )
 

@@ -91,6 +91,11 @@ src/
 - Import flows (`DataImporter`, `FolderImporter`) require a session factory and therefore cannot run without a resolved project context, preventing data from leaking across projects.
 - Background folder imports reuse the same factory inside worker threads so commits map to the same SQLite file without threading issues.
 
+### Shared Import/Visualization Utilities
+- **ResultImportHelper (`processing/import_context.py`)** centralizes story and load-case lookups, caches ORM entities, and preserves Excel ordering for every importer.
+- **visual_config (`config/visual_config.py`)** holds the canonical palette, zero-line/average styling, and table/padding constants so tables and plots use one source of truth.
+- **Legend widgets (`gui/components/legend.py`)** provide reusable static and interactive entries consumed by both standard and Max/Min views for consistent hover/toggle behavior.
+
 ### Core Schema
 
 **Projects** → **ResultSets** → **GlobalResultsCache** (wide-format JSON)
@@ -460,6 +465,12 @@ $ pipenv run python dev_watch.py
 # Edit any .py file in src/ → app restarts automatically
 ```
 
+### Project Catalog Utilities
+- Run `pipenv run python scripts/project_tools.py list` to see every project stored in the catalog with counts of load cases/stories/result sets.
+- Run `pipenv run python scripts/project_tools.py delete --name <Project>` to remove the catalog entry **and** its per-project SQLite file (interactive confirmation unless `--force`).
+
+
+
 ---
 
 ## Appendix: Key Decisions
@@ -480,7 +491,7 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.3 | 2025-10-25 | Catalog/per-project DB split, ProjectContext, importer & UI updates |
+| 1.3 | 2025-10-25 | Catalog/per-project DB split, ResultImportHelper, shared visual config/legend components, project_tools CLI |
 | 1.2 | 2025-10-24 | Condensed to ~600 lines, removed redundancy |
 | 1.1 | 2025-10-24 | Added interactive features, plot configuration |
 | 1.0 | 2025-10-23 | Initial consolidated architecture doc |
