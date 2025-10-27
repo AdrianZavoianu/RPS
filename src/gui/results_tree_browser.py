@@ -11,11 +11,12 @@ from .ui_helpers import create_styled_label
 class ResultsTreeBrowser(QWidget):
     """Tree browser for navigating project results."""
 
-    selection_changed = pyqtSignal(int, str, str, str)  # (result_set_id, category, result_type, direction)
+    selection_changed = pyqtSignal(int, str, str, str, int)  # (result_set_id, category, result_type, direction, element_id)
 
     def __init__(self, project_id: int, parent=None):
         super().__init__(parent)
         self.project_id = project_id
+        self.elements = []  # Will be populated with project elements
         self.setup_ui()
 
     def setup_ui(self):
@@ -82,14 +83,16 @@ class ResultsTreeBrowser(QWidget):
 
         layout.addWidget(self.tree)
 
-    def populate_tree(self, result_sets, stories):
+    def populate_tree(self, result_sets, stories, elements=None):
         """Populate tree with project structure.
 
         Args:
             result_sets: List of ResultSet model instances
             stories: List of Story model instances
+            elements: List of Element model instances (optional)
         """
         self.tree.clear()
+        self.elements = elements or []
 
         # Project info item
         info_item = QTreeWidgetItem(self.tree)
@@ -196,6 +199,20 @@ class ResultsTreeBrowser(QWidget):
             maxmin_label="Floors Displacements",
         )
 
+        # Elements category
+        elements_item = QTreeWidgetItem(envelopes_item)
+        elements_item.setText(0, "◇ Elements")
+        elements_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category_type",
+            "result_set_id": result_set.id,
+            "category": "Envelopes",
+            "category_type": "Elements"
+        })
+        elements_item.setExpanded(True)
+
+        # Walls subsection under Elements
+        self._add_walls_section(elements_item, result_set.id)
+
         # Time-Series category (placeholder)
         timeseries_item = QTreeWidgetItem(result_set_item)
         timeseries_item.setText(0, "◆ Time-Series")
@@ -262,6 +279,168 @@ class ResultsTreeBrowser(QWidget):
             "result_type": "MaxMinDrifts"
         })
 
+    def _add_walls_section(self, parent_item: QTreeWidgetItem, result_set_id: int):
+        """Add Walls section with Shears and Quad Rotations subcategories.
+
+        Structure:
+        └── Walls
+            ├── Shears
+            │   ├── Pier1 (dynamic, from database)
+            │   │   ├── V2
+            │   │   ├── V3
+            │   │   └── Max/Min
+            │   └── Pier2
+            │       ├── V2
+            │       ├── V3
+            │       └── Max/Min
+            └── Quad Rotations
+                ├── Pier1
+                │   ├── Rotation
+                │   └── Max/Min
+                └── Pier2
+                    ├── Rotation
+                    └── Max/Min
+        """
+        # Walls parent item
+        walls_parent = QTreeWidgetItem(parent_item)
+        walls_parent.setText(0, "› Walls")
+        walls_parent.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "element_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "element_type": "Walls"
+        })
+        walls_parent.setExpanded(True)
+
+        # Filter elements to get only walls/piers
+        wall_elements = [elem for elem in self.elements if elem.element_type == "Wall"]
+
+        # Shears subsection under Walls
+        self._add_shears_section(walls_parent, result_set_id, wall_elements)
+
+        # Quad Rotations subsection under Walls
+        self._add_quad_rotations_section(walls_parent, result_set_id, wall_elements)
+
+    def _add_shears_section(self, parent_item: QTreeWidgetItem, result_set_id: int, wall_elements):
+        """Add Shears subsection with piers."""
+        shears_parent = QTreeWidgetItem(parent_item)
+        shears_parent.setText(0, "  › Shears")
+        shears_parent.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "wall_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "WallShears"
+        })
+        shears_parent.setExpanded(True)
+
+        if not wall_elements:
+            placeholder = QTreeWidgetItem(shears_parent)
+            placeholder.setText(0, "    └ No piers/walls found")
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            return
+
+        # Create section for each pier/wall under Shears
+        for element in wall_elements:
+            pier_item = QTreeWidgetItem(shears_parent)
+            pier_item.setText(0, f"    › {element.name}")
+            pier_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "element_parent",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "element_id": element.id,
+                "element_name": element.name
+            })
+            pier_item.setExpanded(True)
+
+            # V2 Direction
+            v2_item = QTreeWidgetItem(pier_item)
+            v2_item.setText(0, "      ├ V2")
+            v2_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "result_type",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "result_type": "WallShears",
+                "direction": "V2",
+                "element_id": element.id
+            })
+
+            # V3 Direction
+            v3_item = QTreeWidgetItem(pier_item)
+            v3_item.setText(0, "      ├ V3")
+            v3_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "result_type",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "result_type": "WallShears",
+                "direction": "V3",
+                "element_id": element.id
+            })
+
+            # Max/Min Shears subsection
+            maxmin_item = QTreeWidgetItem(pier_item)
+            maxmin_item.setText(0, "      └ Max/Min")
+            maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "element_maxmin_results",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "result_type": "MaxMinWallShears",
+                "element_id": element.id
+            })
+
+    def _add_quad_rotations_section(self, parent_item: QTreeWidgetItem, result_set_id: int, wall_elements):
+        """Add Quad Rotations subsection with piers."""
+        quad_parent = QTreeWidgetItem(parent_item)
+        quad_parent.setText(0, "  › Quad Rotations")
+        quad_parent.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "wall_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "QuadRotations"
+        })
+        quad_parent.setExpanded(True)
+
+        if not wall_elements:
+            placeholder = QTreeWidgetItem(quad_parent)
+            placeholder.setText(0, "    └ No piers/walls found")
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            return
+
+        # Create section for each pier/wall under Quad Rotations
+        for element in wall_elements:
+            pier_item = QTreeWidgetItem(quad_parent)
+            pier_item.setText(0, f"    › {element.name}")
+            pier_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "element_parent",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "element_id": element.id,
+                "element_name": element.name
+            })
+            pier_item.setExpanded(True)
+
+            # Rotation (no direction needed)
+            rotation_item = QTreeWidgetItem(pier_item)
+            rotation_item.setText(0, "      ├ Rotation")
+            rotation_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "result_type",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "result_type": "QuadRotations",
+                "direction": "",  # No direction for rotations
+                "element_id": element.id
+            })
+
+            # Max/Min Quad Rotations subsection
+            maxmin_item = QTreeWidgetItem(pier_item)
+            maxmin_item.setText(0, "      └ Max/Min")
+            maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "element_maxmin_results",
+                "result_set_id": result_set_id,
+                "category": "Envelopes",
+                "result_type": "MaxMinQuadRotations",
+                "element_id": element.id
+            })
+
     def _add_result_type_with_directions(
         self,
         parent_item: QTreeWidgetItem,
@@ -324,18 +503,26 @@ class ResultsTreeBrowser(QWidget):
         item_type = data.get("type")
 
         if item_type == "result_type":
-            # Emit with full hierarchy path including direction
+            # Emit with full hierarchy path including direction and optional element_id
             result_set_id = data.get("result_set_id")
             category = data.get("category")
             result_type = data.get("result_type")
             direction = data.get("direction", "X")  # Default to X if not specified
-            self.selection_changed.emit(result_set_id, category, result_type, direction)
+            element_id = data.get("element_id", 0)  # 0 means no specific element (global results)
+            self.selection_changed.emit(result_set_id, category, result_type, direction, element_id)
         elif item_type == "maxmin_results":
-            # Emit for Max/Min Drifts (no direction needed)
+            # Emit for Max/Min results (no direction needed, no element)
             result_set_id = data.get("result_set_id")
             category = data.get("category")
             result_type = data.get("result_type")
-            self.selection_changed.emit(result_set_id, category, result_type, "")
+            self.selection_changed.emit(result_set_id, category, result_type, "", 0)
+        elif item_type == "element_maxmin_results":
+            # Emit for element-specific Max/Min results (pier shears, etc.)
+            result_set_id = data.get("result_set_id")
+            category = data.get("category")
+            result_type = data.get("result_type")
+            element_id = data.get("element_id", 0)
+            self.selection_changed.emit(result_set_id, category, result_type, "", element_id)
 
 
 

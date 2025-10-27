@@ -144,6 +144,32 @@ class ExcelParser:
 
         return df, load_cases, stories
 
+    def get_pier_forces(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+        """Parse pier force data from Excel file.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories, piers)
+
+        Note:
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            Returns raw row-based data: each row contains Story, Pier, Output Case, Location, V2, V3, etc.
+        """
+        sheet = "Pier Forces"
+        # Columns: Story, Pier, Output Case, Step Type, Location, P, V2, V3, T, M2, M3
+        columns = [0, 1, 2, 4, 5, 7, 8]  # Story, Pier, Output Case, Location, P, V2, V3
+
+        df = self.read_sheet(sheet, columns)
+
+        # Get unique values
+        unique_vals = self.get_unique_values(df, ["Output Case", "Story", "Pier"])
+        load_cases = unique_vals["Output Case"]
+        stories = unique_vals["Story"]
+        piers = unique_vals["Pier"]
+
+        # Keep stories in Excel order (no reversal - maintain source order)
+
+        return df, load_cases, stories, piers
+
     def get_joint_displacements(self) -> Tuple[pd.DataFrame, List[str], List[str]]:
         """Parse joint displacement data (global) from Excel file.
 
@@ -196,3 +222,30 @@ class ExcelParser:
         """
         available_sheets = self.get_available_sheets()
         return sheet_name in available_sheets
+
+    def get_quad_rotations(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+        """Parse quad strain gauge rotation data from Excel file.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories, piers)
+
+        Note:
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            Returns raw row-based data: each row contains Story, quad Name, PropertyName (pier), Output Case, etc.
+            PropertyName column contains the pier/wall identifier.
+        """
+        sheet = "Quad Strain Gauge - Rotation"
+        # Columns: Story, Name, PropertyName, Output Case, CaseType, StepType, Direction, Rotation, MaxRotation, MinRotation
+        columns = [0, 1, 2, 3, 5, 6, 7, 8, 9]  # Story, Name, PropertyName, Output Case, StepType, Direction, Rotation, MaxRotation, MinRotation
+
+        df = self.read_sheet(sheet, columns)
+
+        # Get unique values
+        unique_vals = self.get_unique_values(df, ["Output Case", "Story", "PropertyName"])
+        load_cases = unique_vals["Output Case"]
+        stories = unique_vals["Story"]
+        piers = unique_vals["PropertyName"]  # PropertyName contains pier identifiers like "B-B"
+
+        # Keep stories in Excel order (no reversal - maintain source order)
+
+        return df, load_cases, stories, piers

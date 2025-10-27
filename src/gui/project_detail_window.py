@@ -17,6 +17,8 @@ from database.repository import (
     StoryRepository,
     LoadCaseRepository,
     AbsoluteMaxMinDriftRepository,
+    ElementRepository,
+    ElementCacheRepository,
 )
 from processing.result_service import ResultDataService
 from .results_tree_browser import ResultsTreeBrowser
@@ -43,6 +45,8 @@ class ProjectDetailWindow(QMainWindow):
         self.story_repo = StoryRepository(self.session)
         self.load_case_repo = LoadCaseRepository(self.session)
         self.abs_maxmin_repo = AbsoluteMaxMinDriftRepository(self.session)
+        self.element_repo = ElementRepository(self.session)
+        self.element_cache_repo = ElementCacheRepository(self.session)
 
         project = self.project_repo.get_by_name(context.name)
         if not project:
@@ -58,13 +62,16 @@ class ProjectDetailWindow(QMainWindow):
             story_repo=self.story_repo,
             load_case_repo=self.load_case_repo,
             abs_maxmin_repo=self.abs_maxmin_repo,
+            element_cache_repo=self.element_cache_repo,
+            element_repo=self.element_repo,
             session=self.session,
         )
 
         # Current selection
-        self.current_result_type = None  # 'Drifts', 'Accelerations', 'Forces'
+        self.current_result_type = None  # 'Drifts', 'Accelerations', 'Forces', 'WallShears'
         self.current_result_set_id = None
         self.current_direction = 'X'  # Default to X direction
+        self.current_element_id = 0  # 0 = global results, >0 = specific element
 
         self.setup_ui()
         self.load_project_data()
@@ -207,36 +214,54 @@ class ProjectDetailWindow(QMainWindow):
             # Get stories
             stories = self.story_repo.get_by_project(self.project_id)
 
+            # Get elements (walls, columns, beams, etc.)
+            elements = self.element_repo.get_by_project(self.project_id)
+
             # Populate browser
-            self.browser.populate_tree(result_sets, stories)
+            self.browser.populate_tree(result_sets, stories, elements)
 
             self.statusBar().showMessage(
                 f"Loaded project: {self.project_name} "
-                f"({len(stories)} stories, {len(result_sets)} result sets)"
+                f"({len(stories)} stories, {len(result_sets)} result sets, {len(elements)} elements)"
             )
         except Exception as e:
             self.statusBar().showMessage(f"Error loading project data: {str(e)}")
 
-    def on_browser_selection_changed(self, result_set_id: int, category: str, result_type: str, direction: str):
+    def on_browser_selection_changed(self, result_set_id: int, category: str, result_type: str, direction: str, element_id: int = 0):
         """Handle browser selection changes.
 
         Args:
             result_set_id: ID of the selected result set
             category: Category name (e.g., "Envelopes")
-            result_type: Result type (e.g., "Drifts", "Accelerations", "MaxMinDrifts")
-            direction: Direction ('X' or 'Y', empty for MaxMinDrifts)
+            result_type: Result type (e.g., "Drifts", "Accelerations", "WallShears")
+            direction: Direction ('X', 'Y', 'V22', 'V33', empty for MaxMin)
+            element_id: Element ID for element-specific results (0 for global results)
         """
         self.current_result_set_id = result_set_id
         self.current_result_type = result_type
         self.current_direction = direction
+        self.current_element_id = element_id
 
         if result_type and result_set_id:
-            if result_type.startswith("MaxMin"):
+            if result_type.startswith("MaxMin") and element_id > 0:
+                # Element-specific max/min results (pier shears max/min)
+                self.standard_view.hide()
+                self.maxmin_widget.show()
+                base_type = self._extract_base_result_type(result_type)
+                self.load_element_maxmin_results(element_id, result_set_id, base_type)
+            elif result_type.startswith("MaxMin"):
+                # Global max/min results (story drifts, forces, etc.)
                 self.standard_view.hide()
                 self.maxmin_widget.show()
                 base_type = self._extract_base_result_type(result_type)
                 self.load_maxmin_results(result_set_id, base_type)
+            elif element_id > 0:
+                # Element-specific directional results (pier shears V2/V3, etc.)
+                self.maxmin_widget.hide()
+                self.standard_view.show()
+                self.load_element_results(element_id, result_type, direction, result_set_id)
             else:
+                # Global directional results (story drifts X/Y, forces, etc.)
                 self.maxmin_widget.hide()
                 self.standard_view.show()
                 self.load_standard_results(result_type, direction, result_set_id)
@@ -273,6 +298,32 @@ class ProjectDetailWindow(QMainWindow):
 
             traceback.print_exc()
 
+    def load_element_results(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
+        """Load and display element-specific results (pier shears, etc.)."""
+        try:
+            dataset = self.result_service.get_element_dataset(element_id, result_type, direction, result_set_id)
+
+            if not dataset:
+                self.standard_view.clear()
+                self.statusBar().showMessage(
+                    f"No data available for element results"
+                )
+                return
+
+            self.content_title.setText(f"> {dataset.meta.display_name}")
+            self.standard_view.set_dataset(dataset)
+
+            story_count = len(dataset.data.index)
+            self.statusBar().showMessage(
+                f"Loaded {story_count} stories for {dataset.meta.display_name}"
+            )
+
+        except Exception as exc:
+            self.standard_view.clear()
+            self.statusBar().showMessage(f"Error loading element results: {str(exc)}")
+            import traceback
+            traceback.print_exc()
+
     def load_maxmin_results(self, result_set_id: int, base_result_type: str = "Drifts"):
         """Load and display absolute Max/Min drift results from database.
 
@@ -303,6 +354,38 @@ class ProjectDetailWindow(QMainWindow):
 
             traceback.print_exc()
 
+    def load_element_maxmin_results(self, element_id: int, result_set_id: int, base_result_type: str = "WallShears"):
+        """Load and display element-specific Max/Min results (pier shears).
+
+        Args:
+            element_id: ID of the element (pier/wall)
+            result_set_id: ID of the result set to filter by
+            base_result_type: Base result type (e.g., 'WallShears')
+        """
+        try:
+            dataset = self.result_service.get_element_maxmin_dataset(element_id, result_set_id, base_result_type)
+
+            if not dataset or dataset.data.empty:
+                self.maxmin_widget.clear_data()
+                self.content_title.setText("> Element Max/Min Results")
+                self.statusBar().showMessage("No element max/min data available")
+                return
+
+            self.maxmin_widget.load_dataset(dataset)
+            self.content_title.setText(f"> {dataset.meta.display_name}")
+
+            story_count = len(dataset.data.index)
+            self.statusBar().showMessage(
+                f"Loaded {dataset.meta.display_name} for {story_count} stories"
+            )
+
+        except Exception as exc:
+            self.maxmin_widget.clear_data()
+            self.statusBar().showMessage(f"Error loading element Max/Min results: {str(exc)}")
+            import traceback
+
+            traceback.print_exc()
+
     def load_data_from_folder(self):
         """Load data from folder into current project."""
         from PyQt6.QtWidgets import QMessageBox
@@ -322,6 +405,19 @@ class ProjectDetailWindow(QMainWindow):
                     base_type = self._extract_base_result_type(self.current_result_type)
                     self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
                     self.load_maxmin_results(self.current_result_set_id, base_type)
+                elif self.current_element_id > 0:
+                    self.result_service.invalidate_element_dataset(
+                        self.current_element_id,
+                        self.current_result_type,
+                        self.current_direction,
+                        self.current_result_set_id,
+                    )
+                    self.load_element_results(
+                        self.current_element_id,
+                        self.current_result_type,
+                        self.current_direction,
+                        self.current_result_set_id,
+                    )
                 else:
                     self.result_service.invalidate_standard_dataset(
                         self.current_result_type,
@@ -350,14 +446,37 @@ class ProjectDetailWindow(QMainWindow):
             return
 
         try:
-            # Check if it's MaxMinDrifts
-            if self.current_result_type.startswith("MaxMin"):
+            # Check if it's element max/min
+            if self.current_result_type.startswith("MaxMin") and self.current_element_id > 0:
+                base_type = self._extract_base_result_type(self.current_result_type)
+                self.load_element_maxmin_results(self.current_element_id, self.current_result_set_id, base_type)
+                self.statusBar().showMessage(f"Element Max/Min {base_type} data reloaded", 3000)
+            elif self.current_result_type.startswith("MaxMin"):
+                # Global max/min
                 base_type = self._extract_base_result_type(self.current_result_type)
                 self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
                 self.load_maxmin_results(self.current_result_set_id, base_type)
                 self.statusBar().showMessage(f"Max/Min {base_type.lower()} data reloaded", 3000)
+            elif self.current_element_id > 0:
+                # Element-specific result type
+                self.result_service.invalidate_element_dataset(
+                    self.current_element_id,
+                    self.current_result_type,
+                    self.current_direction,
+                    self.current_result_set_id,
+                )
+                self.load_element_results(
+                    self.current_element_id,
+                    self.current_result_type,
+                    self.current_direction,
+                    self.current_result_set_id,
+                )
+                direction_suffix = f" ({self.current_direction})" if self.current_direction else ""
+                self.statusBar().showMessage(
+                    f"Element {self.current_result_type}{direction_suffix} data reloaded", 3000
+                )
             else:
-                # Regular result type
+                # Regular global result type
                 self.result_service.invalidate_standard_dataset(
                     self.current_result_type,
                     self.current_direction,

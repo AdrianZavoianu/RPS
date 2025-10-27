@@ -54,6 +54,7 @@ class LoadCase(Base):
     story_accelerations = relationship("StoryAcceleration", back_populates="load_case", cascade="all, delete-orphan")
     story_forces = relationship("StoryForce", back_populates="load_case", cascade="all, delete-orphan")
     story_displacements = relationship("StoryDisplacement", back_populates="load_case", cascade="all, delete-orphan")
+    wall_shears = relationship("WallShear", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (Index("ix_project_loadcase", "project_id", "name", unique=True),)
@@ -100,6 +101,7 @@ class StoryDrift(Base):
     drift = Column(Float, nullable=False)
     max_drift = Column(Float, nullable=True)  # Maximum across all points
     min_drift = Column(Float, nullable=True)  # Minimum across all points
+    story_sort_order = Column(Integer, nullable=True)  # Story order from source sheet (Story Drifts)
 
     # Relationships
     story = relationship("Story", back_populates="drifts")
@@ -129,6 +131,7 @@ class StoryAcceleration(Base):
     acceleration = Column(Float, nullable=False)  # In g units
     max_acceleration = Column(Float, nullable=True)
     min_acceleration = Column(Float, nullable=True)
+    story_sort_order = Column(Integer, nullable=True)  # Story order from source sheet (Story Accelerations)
 
     # Relationships
     story = relationship("Story", back_populates="accelerations")
@@ -159,6 +162,7 @@ class StoryForce(Base):
     force = Column(Float, nullable=False)
     max_force = Column(Float, nullable=True)
     min_force = Column(Float, nullable=True)
+    story_sort_order = Column(Integer, nullable=True)  # Story order from source sheet (Story Forces)
 
     # Relationships
     story = relationship("Story", back_populates="forces")
@@ -188,6 +192,7 @@ class StoryDisplacement(Base):
     displacement = Column(Float, nullable=False)
     max_displacement = Column(Float, nullable=True)
     min_displacement = Column(Float, nullable=True)
+    story_sort_order = Column(Integer, nullable=True)  # Story order from source sheet (Joint DisplacementsG)
 
     # Relationships
     story = relationship("Story", back_populates="displacements")
@@ -213,10 +218,14 @@ class Element(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    element_type = Column(String(50), nullable=False)  # 'Column', 'Beam', 'Pier', 'Link'
+    element_type = Column(String(50), nullable=False)  # 'Wall', 'Column', 'Beam', 'Pier', 'Link'
     name = Column(String(100), nullable=False)
     unique_name = Column(String(100), nullable=True)  # From ETABS/SAP2000
     story_id = Column(Integer, ForeignKey("stories.id"), nullable=True)
+
+    # Relationships
+    wall_shears = relationship("WallShear", back_populates="element", cascade="all, delete-orphan")
+    quad_rotations = relationship("QuadRotation", back_populates="element", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (
@@ -290,6 +299,7 @@ class ResultCategory(Base):
     accelerations = relationship("StoryAcceleration", back_populates="result_category", cascade="all, delete-orphan")
     forces = relationship("StoryForce", back_populates="result_category", cascade="all, delete-orphan")
     displacements = relationship("StoryDisplacement", back_populates="result_category", cascade="all, delete-orphan")
+    wall_shears = relationship("WallShear", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (
@@ -317,6 +327,9 @@ class GlobalResultsCache(Base):
 
     # Wide-format data stored as JSON
     results_matrix = Column(JSON, nullable=False)
+
+    # Story ordering from source sheet (each result type preserves its own sheet order)
+    story_sort_order = Column(Integer, nullable=True)
 
     # Metadata
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -372,3 +385,113 @@ class AbsoluteMaxMinDrift(Base):
 
     def __repr__(self):
         return f"<AbsoluteMaxMinDrift(story_id={self.story_id}, load_case_id={self.load_case_id}, dir={self.direction}, abs_max={self.absolute_max_drift}, sign={self.sign})>"
+
+
+class WallShear(Base):
+    """Wall shear force results (element-level forces by story)."""
+
+    __tablename__ = "wall_shears"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    element_id = Column(Integer, ForeignKey("elements.id"), nullable=False)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
+    direction = Column(String(10), nullable=False)  # 'V2' or 'V3'
+    location = Column(String(20), nullable=True)  # 'Top' or 'Bottom' (only Bottom used for shears)
+    force = Column(Float, nullable=False)
+    max_force = Column(Float, nullable=True)
+    min_force = Column(Float, nullable=True)
+    story_sort_order = Column(Integer, nullable=True)  # Story order from Pier Forces sheet (per element)
+
+    # Relationships
+    element = relationship("Element", back_populates="wall_shears")
+    story = relationship("Story")
+    load_case = relationship("LoadCase", overlaps="wall_shears")
+    result_category = relationship("ResultCategory", overlaps="wall_shears")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_wallshear_element_story_case", "element_id", "story_id", "load_case_id", "direction"),
+        Index("ix_wallshear_category", "result_category_id"),
+    )
+
+    def __repr__(self):
+        return f"<WallShear(element_id={self.element_id}, story_id={self.story_id}, case={self.load_case_id}, dir={self.direction}, force={self.force})>"
+
+
+class QuadRotation(Base):
+    """Quad strain gauge rotation results (element-level rotations by story).
+
+    Data from 'Quad Strain Gauge - Rotation' sheet.
+    Rotations are stored in radians but displayed as percentages (multiplied by 100).
+    """
+
+    __tablename__ = "quad_rotations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    element_id = Column(Integer, ForeignKey("elements.id"), nullable=False)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
+    quad_name = Column(String(50), nullable=True)  # Quad element identifier (from 'Name' column)
+    direction = Column(String(20), nullable=True)  # Direction (typically 'Pier')
+    rotation = Column(Float, nullable=False)  # Rotation in radians
+    max_rotation = Column(Float, nullable=True)  # Max rotation in radians
+    min_rotation = Column(Float, nullable=True)  # Min rotation in radians
+    story_sort_order = Column(Integer, nullable=True)  # Story order from Quad Strain sheet (per element)
+
+    # Relationships
+    element = relationship("Element", back_populates="quad_rotations")
+    story = relationship("Story")
+    load_case = relationship("LoadCase", overlaps="quad_rotations")
+    result_category = relationship("ResultCategory", overlaps="quad_rotations")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_quadrot_element_story_case", "element_id", "story_id", "load_case_id"),
+        Index("ix_quadrot_category", "result_category_id"),
+    )
+
+    def __repr__(self):
+        return f"<QuadRotation(element={self.element_id}, story={self.story_id}, case={self.load_case_id}, rotation={self.rotation})>"
+
+
+class ElementResultsCache(Base):
+    """Wide-format cache for element-level results optimized for tabular display.
+
+    One row per (element, story), with all load cases stored as JSON for fast retrieval.
+    Similar to GlobalResultsCache but scoped to individual structural elements.
+    Format: {"TH01": 123.4, "TH02": 145.6, ...}
+    """
+
+    __tablename__ = "element_results_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    result_set_id = Column(Integer, ForeignKey("result_sets.id"), nullable=True)
+    result_type = Column(String(50), nullable=False)  # 'WallShears_V22', 'WallShears_V33', etc.
+    element_id = Column(Integer, ForeignKey("elements.id"), nullable=False)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+
+    # Wide-format data stored as JSON
+    results_matrix = Column(JSON, nullable=False)
+
+    # Story ordering from source sheet (per-element ordering for structural elements)
+    story_sort_order = Column(Integer, nullable=True)
+
+    # Metadata
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    result_set = relationship("ResultSet")
+
+    # Composite index for fast lookups
+    __table_args__ = (
+        Index("ix_elem_cache_lookup", "project_id", "result_set_id", "result_type", "element_id"),
+        Index("ix_elem_cache_element", "element_id"),
+        Index("ix_elem_cache_story", "story_id"),
+    )
+
+    def __repr__(self):
+        return f"<ElementResultsCache(project_id={self.project_id}, type='{self.result_type}', element_id={self.element_id}, story_id={self.story_id})>"

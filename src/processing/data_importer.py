@@ -12,8 +12,10 @@ from database.repository import (
     ResultCategoryRepository,
     CacheRepository,
     AbsoluteMaxMinDriftRepository,
+    ElementRepository,
+    ElementCacheRepository,
 )
-from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
+from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement, WallShear, QuadRotation
 
 from .excel_parser import ExcelParser
 from .result_processor import ResultProcessor
@@ -65,6 +67,8 @@ class DataImporter:
             "accelerations": 0,
             "forces": 0,
             "displacements": 0,
+            "pier_forces": 0,
+            "piers": 0,
             "errors": [],
         }
 
@@ -120,6 +124,18 @@ class DataImporter:
                 disp_stats = self._import_joint_displacements(session, project.id)
                 stats["displacements"] += disp_stats.get("displacements", 0)
 
+            # Import pier forces if available
+            if self._should_import("Pier Forces") and self.parser.validate_sheet_exists("Pier Forces"):
+                pier_stats = self._import_pier_forces(session, project.id)
+                stats["pier_forces"] += pier_stats.get("pier_forces", 0)
+                stats["piers"] += pier_stats.get("piers", 0)
+
+            # Import quad rotations if available
+            if self._should_import("Quad Rotations") and self.parser.validate_sheet_exists("Quad Strain Gauge - Rotation"):
+                quad_stats = self._import_quad_rotations(session, project.id)
+                stats["quad_rotations"] = quad_stats.get("quad_rotations", 0)
+                # Piers already counted from pier forces if both exist
+
             # Generate cache for fast display after all imports
             self._generate_cache(session, project.id, self.result_set_id)
 
@@ -172,6 +188,7 @@ class DataImporter:
                         drift=row["Drift"],
                         max_drift=row.get("MaxDrift"),
                         min_drift=row.get("MinDrift"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
                     )
                     drift_objects.append(drift)
 
@@ -216,6 +233,7 @@ class DataImporter:
                         acceleration=row["Acceleration"],
                         max_acceleration=row.get("MaxAcceleration"),
                         min_acceleration=row.get("MinAcceleration"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
                     )
                     accel_objects.append(accel)
 
@@ -257,6 +275,7 @@ class DataImporter:
                         force=row["Force"],
                         max_force=row.get("MaxForce"),
                         min_force=row.get("MinForce"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
                     )
                     force_objects.append(force)
 
@@ -303,6 +322,7 @@ class DataImporter:
                         displacement=row["Displacement"],
                         max_displacement=row.get("MaxDisplacement"),
                         min_displacement=row.get("MinDisplacement"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
                     )
                     displacement_objects.append(displacement)
 
@@ -311,6 +331,123 @@ class DataImporter:
 
         except Exception as e:
             raise ValueError(f"Error importing joint displacements: {e}")
+
+        return stats
+
+    def _import_pier_forces(self, session, project_id: int) -> dict:
+        """Import pier force data (element-level shear forces)."""
+        stats = {"pier_forces": 0, "piers": 0}
+
+        try:
+            df, load_cases, stories, piers = self.parser.get_pier_forces()
+            helper = ResultImportHelper(session, project_id, stories)
+            element_repo = ElementRepository(session)
+
+            # Get or create Element records for each pier
+            pier_elements = {}
+            for pier_name in piers:
+                element = element_repo.get_or_create(
+                    project_id=project_id,
+                    element_type="Wall",
+                    unique_name=pier_name,
+                    name=pier_name,
+                )
+                pier_elements[pier_name] = element
+
+            stats["piers"] = len(pier_elements)
+
+            # Process each direction (V2, V3)
+            for direction in ["V2", "V3"]:
+                processed = ResultProcessor.process_pier_forces(
+                    df, load_cases, stories, piers, direction
+                )
+
+                wall_shear_objects = []
+
+                for _, row in processed.iterrows():
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(row["LoadCase"])
+                    element = pier_elements[row["Pier"]]
+
+                    wall_shear = WallShear(
+                        element_id=element.id,
+                        story_id=story.id,
+                        load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
+                        direction=direction,
+                        location=row.get("Location", "Bottom"),
+                        force=row["Force"],
+                        max_force=row.get("MaxForce"),
+                        min_force=row.get("MinForce"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
+                    )
+                    wall_shear_objects.append(wall_shear)
+
+                # Bulk insert
+                session.bulk_save_objects(wall_shear_objects)
+                session.commit()
+                stats["pier_forces"] += len(wall_shear_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing pier forces: {e}")
+
+        return stats
+
+    def _import_quad_rotations(self, session, project_id: int) -> dict:
+        """Import quad strain gauge rotation data (element-level rotations)."""
+        stats = {"quad_rotations": 0, "piers": 0}
+
+        try:
+            df, load_cases, stories, piers = self.parser.get_quad_rotations()
+            helper = ResultImportHelper(session, project_id, stories)
+            element_repo = ElementRepository(session)
+
+            # Get or create Element records for each pier (from PropertyName)
+            pier_elements = {}
+            for pier_name in piers:
+                element = element_repo.get_or_create(
+                    project_id=project_id,
+                    element_type="Wall",
+                    unique_name=pier_name,
+                    name=pier_name,
+                )
+                pier_elements[pier_name] = element
+
+            stats["piers"] = len(pier_elements)
+
+            # Process quad rotations
+            processed = ResultProcessor.process_quad_rotations(
+                df, load_cases, stories, piers
+            )
+
+            quad_rotation_objects = []
+
+            for _, row in processed.iterrows():
+                story = helper.get_story(row["Story"])
+                load_case = helper.get_load_case(row["LoadCase"])
+                element = pier_elements[row["Pier"]]
+
+                quad_rotation = QuadRotation(
+                    element_id=element.id,
+                    story_id=story.id,
+                    load_case_id=load_case.id,
+                    result_category_id=self.result_category_id,
+                    quad_name=row.get("QuadName"),
+                    direction="Pier",  # Direction is typically 'Pier' in the data
+                    rotation=row["Rotation"],
+                    max_rotation=row.get("MaxRotation"),
+                    min_rotation=row.get("MinRotation"),
+                    story_sort_order=helper._story_order.get(row["Story"]),
+                )
+                quad_rotation_objects.append(quad_rotation)
+
+            # Bulk insert
+            session.bulk_save_objects(quad_rotation_objects)
+            session.commit()
+            stats["quad_rotations"] = len(quad_rotation_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing quad rotations: {e}")
 
         return stats
 
@@ -329,10 +466,8 @@ class DataImporter:
         self._cache_accelerations(session, project_id, result_set_id, stories, cache_repo, result_repo)
         self._cache_forces(session, project_id, result_set_id, stories, cache_repo, result_repo)
         self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
-        self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
-        self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
-        self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
-        self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
+        self._cache_pier_forces(session, project_id, result_set_id, stories)
+        self._cache_quad_rotations(session, project_id, result_set_id, stories)
         self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
 
     def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
@@ -350,12 +485,15 @@ class DataImporter:
             .all()
         )
 
-        # Group by story and build wide-format matrix
+        # Group by story and build wide-format matrix, track story_sort_order
         story_matrices = {}
+        story_sort_orders = {}
         for drift, load_case_name in drifts:
             story_id = drift.story_id
             if story_id not in story_matrices:
                 story_matrices[story_id] = {}
+                # Capture story_sort_order from first drift for this story
+                story_sort_orders[story_id] = drift.story_sort_order
 
             # Key format: LoadCase_Direction (e.g., TH01_X)
             key = f"{load_case_name}_{drift.direction}"
@@ -369,6 +507,7 @@ class DataImporter:
                 result_type="Drifts",
                 results_matrix=results_matrix,
                 result_set_id=result_set_id,
+                story_sort_order=story_sort_orders.get(story_id),
             )
 
     def _cache_accelerations(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
@@ -385,10 +524,12 @@ class DataImporter:
         )
 
         story_matrices = {}
+        story_sort_orders = {}
         for accel, load_case_name in accels:
             story_id = accel.story_id
             if story_id not in story_matrices:
                 story_matrices[story_id] = {}
+                story_sort_orders[story_id] = accel.story_sort_order
 
             key = f"{load_case_name}_{accel.direction}"
             story_matrices[story_id][key] = accel.acceleration
@@ -400,6 +541,7 @@ class DataImporter:
                 result_type="Accelerations",
                 results_matrix=results_matrix,
                 result_set_id=result_set_id,
+                story_sort_order=story_sort_orders.get(story_id),
             )
 
     def _cache_forces(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
@@ -416,10 +558,12 @@ class DataImporter:
         )
 
         story_matrices = {}
+        story_sort_orders = {}
         for force, load_case_name in forces:
             story_id = force.story_id
             if story_id not in story_matrices:
                 story_matrices[story_id] = {}
+                story_sort_orders[story_id] = force.story_sort_order
 
             key = f"{load_case_name}_{force.direction}"
             story_matrices[story_id][key] = force.force
@@ -431,7 +575,105 @@ class DataImporter:
                 result_type="Forces",
                 results_matrix=results_matrix,
                 result_set_id=result_set_id,
+                story_sort_order=story_sort_orders.get(story_id),
             )
+
+    def _cache_pier_forces(self, session, project_id: int, result_set_id: int, stories):
+        """Generate cache for pier forces (element-level shears)."""
+        from sqlalchemy import and_
+        from database.models import WallShear, LoadCase, Story, Element
+
+        element_repo = ElementRepository(session)
+        element_cache_repo = ElementCacheRepository(session)
+
+        # Get all pier elements for this project
+        piers = element_repo.get_by_project(project_id, element_type="Wall")
+
+        # For each pier and each direction, generate cache
+        for pier in piers:
+            for direction in ["V2", "V3"]:
+                result_type = f"WallShears_{direction}"
+
+                # Query wall shears for this pier and direction
+                shears = (
+                    session.query(WallShear, LoadCase.name, Story)
+                    .join(LoadCase, WallShear.load_case_id == LoadCase.id)
+                    .join(Story, WallShear.story_id == Story.id)
+                    .filter(WallShear.element_id == pier.id)
+                    .filter(WallShear.direction == direction)
+                    .filter(WallShear.result_category_id == self.result_category_id)
+                    .all()
+                )
+
+                # Build wide-format cache per story, track story_sort_order per element
+                story_data = {}
+                story_sort_orders = {}
+                for shear, case_name, story in shears:
+                    if story.id not in story_data:
+                        story_data[story.id] = {}
+                        # Capture story_sort_order from first shear for this element+story
+                        story_sort_orders[story.id] = shear.story_sort_order
+                    story_data[story.id][case_name] = shear.force
+
+                # Upsert cache entries
+                for story_id, results_matrix in story_data.items():
+                    element_cache_repo.upsert_cache_entry(
+                        project_id=project_id,
+                        element_id=pier.id,
+                        story_id=story_id,
+                        result_type=result_type,
+                        results_matrix=results_matrix,
+                        result_set_id=result_set_id,
+                        story_sort_order=story_sort_orders.get(story_id),
+                    )
+
+    def _cache_quad_rotations(self, session, project_id: int, result_set_id: int, stories):
+        """Generate cache for quad rotations (element-level rotations displayed as %)."""
+        from sqlalchemy import and_
+        from database.models import QuadRotation, LoadCase, Story, Element
+
+        element_repo = ElementRepository(session)
+        element_cache_repo = ElementCacheRepository(session)
+
+        # Get all pier elements for this project
+        piers = element_repo.get_by_project(project_id, element_type="Wall")
+
+        # For each pier, generate cache for rotations
+        for pier in piers:
+            result_type = "QuadRotations"
+
+            # Query quad rotations for this pier
+            rotations = (
+                session.query(QuadRotation, LoadCase.name, Story)
+                .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
+                .join(Story, QuadRotation.story_id == Story.id)
+                .filter(QuadRotation.element_id == pier.id)
+                .filter(QuadRotation.result_category_id == self.result_category_id)
+                .all()
+            )
+
+            # Build wide-format cache per story, track story_sort_order per element
+            story_data = {}
+            story_sort_orders = {}
+            for rotation, case_name, story in rotations:
+                if story.id not in story_data:
+                    story_data[story.id] = {}
+                    # Capture story_sort_order from first rotation for this element+story
+                    story_sort_orders[story.id] = rotation.story_sort_order
+                # Convert radians to percentage (* 100) for display
+                story_data[story.id][case_name] = rotation.rotation * 100.0
+
+            # Upsert cache entries
+            for story_id, results_matrix in story_data.items():
+                element_cache_repo.upsert_cache_entry(
+                    project_id=project_id,
+                    element_id=pier.id,
+                    story_id=story_id,
+                    result_type=result_type,
+                    results_matrix=results_matrix,
+                    result_set_id=result_set_id,
+                    story_sort_order=story_sort_orders.get(story_id),
+                )
 
     def _calculate_absolute_maxmin(self, session, project_id: int, result_set_id: int, abs_repo):
         """Compute and persist absolute max/min drifts per load case and direction."""
@@ -497,10 +739,12 @@ class DataImporter:
         )
 
         story_matrices = {}
+        story_sort_orders = {}
         for displacement, load_case_name in displacements:
             story_id = displacement.story_id
             if story_id not in story_matrices:
                 story_matrices[story_id] = {}
+                story_sort_orders[story_id] = displacement.story_sort_order
 
             key = f"{load_case_name}_{displacement.direction}"
             story_matrices[story_id][key] = displacement.displacement
@@ -512,4 +756,5 @@ class DataImporter:
                 result_type="Displacements",
                 results_matrix=results_matrix,
                 result_set_id=result_set_id,
+                story_sort_order=story_sort_orders.get(story_id),
             )

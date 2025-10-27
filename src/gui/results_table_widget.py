@@ -384,7 +384,7 @@ class ResultsTableWidget(QFrame):
         except (TypeError, ValueError):
             return str(value)
         base_type = self._base_result_type()
-        if base_type in {"Accelerations", "Forces", "Displacements"}:
+        if base_type in {"Accelerations", "Forces", "Displacements", "WallShears", "QuadRotations"}:
             unit_suffix = ""
         else:
             unit_suffix = config.unit or ""
@@ -590,6 +590,10 @@ class ResultsTableWidget(QFrame):
             return 60
         if base == "Displacements":
             return 56
+        if base == "WallShears":
+            return 60
+        if base == "QuadRotations":
+            return 58
         return 50
 
     def _base_result_type(self) -> str:
@@ -604,7 +608,7 @@ class ResultsTableWidget(QFrame):
 
     def _apply_type_styles(self, base_type: str) -> None:
         font_size = 13
-        if base_type in {"Forces", "Displacements"}:
+        if base_type in {"Forces", "Displacements", "WallShears", "QuadRotations"}:
             font_size = 12
         font = QFont("Inter", font_size)
         self.table.setFont(font)

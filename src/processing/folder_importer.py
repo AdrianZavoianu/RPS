@@ -17,6 +17,8 @@ TARGET_SHEETS = {
     "Story Accelerations": "Story Accelerations",
     "Story Forces": "Story Forces",
     "Joint DisplacementsG": "Floors Displacements",
+    "Pier Forces": "Pier Forces",
+    "Quad Strain Gauge - Rotation": "Quad Rotations",
 }
 
 

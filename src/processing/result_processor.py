@@ -186,6 +186,61 @@ class ResultProcessor:
         return pd.DataFrame(results)
 
     @staticmethod
+    def process_pier_forces(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], piers: List[str], direction: str
+    ) -> pd.DataFrame:
+        """Process pier force data for a specific direction.
+
+        Args:
+            df: Raw pier force data DataFrame (row-based format)
+            load_cases: List of load case names
+            stories: List of story names (top-down order)
+            piers: List of unique pier names
+            direction: 'V2' or 'V3'
+
+        Returns:
+            Processed DataFrame with columns: [Story, Pier, LoadCase, Direction, Location, Force, MaxForce, MinForce]
+        """
+        results = []
+
+        # Filter for Bottom location only (user requirement)
+        df_bottom = df[df["Location"] == "Bottom"].copy()
+
+        for story in stories:
+            for pier in piers:
+                for case in load_cases:
+                    # Filter data for this story, pier, and case
+                    filtered = df_bottom.loc[
+                        (df_bottom["Story"] == story)
+                        & (df_bottom["Pier"] == pier)
+                        & (df_bottom["Output Case"] == case)
+                    ]
+
+                    if not filtered.empty and direction in filtered.columns:
+                        # Get force values for this direction
+                        force_values = pd.to_numeric(filtered[direction], errors="coerce").dropna()
+
+                        if not force_values.empty:
+                            abs_max_force = force_values.abs().max()
+                            max_force = force_values.max()
+                            min_force = force_values.min()
+
+                            results.append(
+                                {
+                                    "Story": story,
+                                    "Pier": pier,
+                                    "LoadCase": case,
+                                    "Direction": direction,
+                                    "Location": "Bottom",
+                                    "Force": round(abs_max_force, 1),
+                                    "MaxForce": round(max_force, 1),
+                                    "MinForce": round(min_force, 1),
+                                }
+                            )
+
+        return pd.DataFrame(results)
+
+    @staticmethod
     def calculate_statistics(df: pd.DataFrame, value_column: str) -> Dict[str, float]:
         """Calculate statistics across load cases.
 
@@ -239,3 +294,64 @@ class ResultProcessor:
                 )
 
         return pd.DataFrame(envelope_data)
+
+    @staticmethod
+    def process_quad_rotations(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], piers: List[str]
+    ) -> pd.DataFrame:
+        """Process quad strain gauge rotation data.
+
+        Args:
+            df: Raw quad rotation data DataFrame (with columns: Story, Name, PropertyName, Output Case, StepType, Rotation, etc.)
+            load_cases: List of load case names
+            stories: List of story names
+            piers: List of pier names (from PropertyName column)
+
+        Returns:
+            Processed DataFrame with columns: [Story, Pier, QuadName, LoadCase, Rotation, MaxRotation, MinRotation]
+
+        Note:
+            Data has Max and Min step types for each load case.
+            Rotations are in radians and will be converted to percentage (multiply by 100) later.
+        """
+        results = []
+
+        for story in stories:
+            for pier in piers:
+                for case in load_cases:
+                    # Filter data for this story, pier (PropertyName), and case
+                    filtered = df.loc[
+                        (df["Story"] == story)
+                        & (df["PropertyName"] == pier)
+                        & (df["Output Case"] == case)
+                    ]
+
+                    if not filtered.empty:
+                        # Get Max and Min step type rows
+                        max_row = filtered[filtered["StepType"] == "Max"]
+                        min_row = filtered[filtered["StepType"] == "Min"]
+
+                        if not max_row.empty and not min_row.empty:
+                            # Extract rotation values
+                            max_rotation = max_row["Rotation"].values[0]
+                            min_rotation = min_row["Rotation"].values[0]
+
+                            # Get quad name from Name column
+                            quad_name = max_row["Name"].values[0] if "Name" in max_row.columns else None
+
+                            # Compute absolute max rotation
+                            abs_max_rotation = max(abs(max_rotation), abs(min_rotation))
+
+                            results.append(
+                                {
+                                    "Story": story,
+                                    "Pier": pier,
+                                    "QuadName": quad_name,
+                                    "LoadCase": case,
+                                    "Rotation": round(abs_max_rotation, 6),  # 6 decimals for radians
+                                    "MaxRotation": round(max_rotation, 6),
+                                    "MinRotation": round(min_rotation, 6),
+                                }
+                            )
+
+        return pd.DataFrame(results)

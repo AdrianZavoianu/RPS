@@ -25,10 +25,13 @@ DISPLAY_NAME_OVERRIDES = {
     "Accelerations": "Story Accelerations",
     "Forces": "Story Shears",
     "Displacements": "Floors Displacements",
+    "WallShears": "Wall Shears",
+    "QuadRotations": "Quad Rotations",
     "MaxMinDrifts": "Max/Min Drifts",
     "MaxMinAccelerations": "Max/Min Accelerations",
     "MaxMinForces": "Max/Min Story Shears",
     "MaxMinDisplacements": "Max/Min Floors Displacements",
+    "MaxMinQuadRotations": "Max/Min Quad Rotations",
 }
 
 
@@ -75,6 +78,8 @@ class ResultDataService:
         story_repo: "StoryRepository",
         load_case_repo: "LoadCaseRepository",
         abs_maxmin_repo: Optional["AbsoluteMaxMinDriftRepository"] = None,
+        element_cache_repo: Optional["ElementCacheRepository"] = None,
+        element_repo: Optional["ElementRepository"] = None,
         session=None,
     ) -> None:
         self.project_id = project_id
@@ -82,6 +87,8 @@ class ResultDataService:
         self.story_repo = story_repo
         self.load_case_repo = load_case_repo
         self.abs_maxmin_repo = abs_maxmin_repo
+        self.element_cache_repo = element_cache_repo
+        self.element_repo = element_repo
         self.session = session
 
         self._story_index: Dict[int, Tuple[int, str]] = {}
@@ -89,6 +96,7 @@ class ResultDataService:
 
         self._standard_cache: Dict[Tuple[str, str, int], Optional[ResultDataset]] = {}
         self._maxmin_cache: Dict[Tuple[str, int], Optional[MaxMinDataset]] = {}
+        self._element_cache: Dict[Tuple[int, str, str, int], Optional[ResultDataset]] = {}
         self._category_cache: Dict[int, Optional[int]] = {}
 
     # --------------------------------------------------------------------- #
@@ -163,7 +171,226 @@ class ResultDataService:
         """Clear all cached datasets."""
         self._standard_cache.clear()
         self._maxmin_cache.clear()
+        self._element_cache.clear()
+
+    def get_element_dataset(
+        self, element_id: int, result_type: str, direction: str, result_set_id: int
+    ) -> Optional[ResultDataset]:
+        """Return a transformed dataset for element-specific results (pier shears, etc.).
+
+        Args:
+            element_id: ID of the specific element (pier/wall)
+            result_type: Base result type (e.g., 'WallShears')
+            direction: Direction (e.g., 'V2', 'V3')
+            result_set_id: Result set ID
+
+        Returns:
+            ResultDataset with stories × load cases for this specific element
+        """
+        if not self.element_cache_repo:
+            return None
+
+        cache_key = (element_id, result_type, direction, result_set_id)
+        if cache_key in self._element_cache:
+            return self._element_cache[cache_key]
+
+        # Build full result type key (e.g., 'WallShears_V2', or 'QuadRotations' if no direction)
+        if direction:
+            full_result_type = f"{result_type}_{direction}"
+        else:
+            full_result_type = result_type
+
+        cache_entries = self.element_cache_repo.get_cache_for_display(
+            project_id=self.project_id,
+            element_id=element_id,
+            result_type=full_result_type,
+            result_set_id=result_set_id,
+        )
+
+        if not cache_entries:
+            self._element_cache[cache_key] = None
+            return None
+
+        # Order by story sort_order (same as global results)
+        ordered_entries = self._order_element_cache_entries(cache_entries)
+        dataframe = self._build_element_dataframe(ordered_entries, result_type, direction)
+
+        if dataframe.empty:
+            self._element_cache[cache_key] = None
+            return None
+
+        # Get element name for display
+        element_name = "Element"
+        if self.element_repo:
+            element = self.element_repo.get_by_id(element_id)
+            if element:
+                element_name = element.name
+
+        meta = ResultDatasetMeta(
+            result_type=result_type,
+            direction=direction,
+            result_set_id=result_set_id,
+            display_name=f"{element_name} - {self._build_display_label(result_type, direction)}",
+        )
+
+        config = get_config(full_result_type)
+
+        summary_columns = [col for col in self.SUMMARY_COLUMNS if col in dataframe.columns]
+        load_case_columns = [
+            col for col in dataframe.columns if col not in summary_columns and col != "Story"
+        ]
+
+        dataset = ResultDataset(
+            meta=meta,
+            data=dataframe,
+            config=config,
+            load_case_columns=load_case_columns,
+            summary_columns=summary_columns,
+        )
+
+        self._element_cache[cache_key] = dataset
+        return dataset
+
+    def invalidate_element_dataset(
+        self, element_id: int, result_type: str, direction: str, result_set_id: int
+    ) -> None:
+        """Remove a cached element dataset so it will be re-fetched next time."""
+        cache_key = (element_id, result_type, direction, result_set_id)
+        self._element_cache.pop(cache_key, None)
         self._category_cache.clear()
+
+    def get_element_maxmin_dataset(
+        self, element_id: int, result_set_id: int, base_result_type: str = "WallShears"
+    ) -> Optional[MaxMinDataset]:
+        """Return absolute max/min dataset for element-specific results (pier shears, quad rotations)."""
+        if not self.session or not self.element_repo:
+            return None
+
+        # Get element details
+        element = self.element_repo.get_by_id(element_id)
+        if not element:
+            return None
+
+        from database.models import WallShear, QuadRotation, LoadCase, Story
+
+        # Determine which model and attributes to use
+        if base_result_type == "WallShears":
+            model = WallShear
+            max_attr = "max_force"
+            min_attr = "min_force"
+            direction_attr = "direction"  # V2, V3
+        elif base_result_type == "QuadRotations":
+            model = QuadRotation
+            max_attr = "max_rotation"
+            min_attr = "min_rotation"
+            direction_attr = None  # No direction for rotations
+        else:
+            return None
+
+        # Query all wall shear records for this element
+        records = (
+            self.session.query(model, LoadCase, Story)
+            .join(LoadCase, model.load_case_id == LoadCase.id)
+            .join(Story, model.story_id == Story.id)
+            .filter(
+                Story.project_id == self.project_id,
+                model.element_id == element_id,
+            )
+            .all()
+        )
+
+        if not records:
+            return None
+
+        self._ensure_stories_loaded()
+        story_lookup = {story.id: story for story in self._stories}
+        data_by_story: Dict[int, Dict[str, object]] = {}
+        story_sort_orders: Dict[int, int] = {}  # Track story_sort_order from result records
+        directions_seen: Set[str] = set()
+
+        for record, load_case, story in records:
+            story_obj = story_lookup.get(story.id)
+            if not story_obj:
+                continue
+
+            # Capture story_sort_order from first record for this story
+            if story.id not in story_sort_orders:
+                story_sort_orders[story.id] = getattr(record, 'story_sort_order', None) or 0
+
+            # Get direction if applicable (WallShears has V2/V3, QuadRotations doesn't)
+            if direction_attr:
+                direction = getattr(record, direction_attr, "")
+                if not direction:
+                    continue
+                directions_seen.add(direction)
+            else:
+                # No direction for QuadRotations - use empty string
+                direction = ""
+                if not directions_seen:
+                    directions_seen.add("")
+
+            max_val = getattr(record, max_attr, None)
+            min_val = getattr(record, min_attr, None)
+
+            if max_val is None and min_val is None:
+                continue
+
+            row = data_by_story.setdefault(story.id, {"Story": story_obj.name})
+            load_case_name = load_case.name
+
+            # For QuadRotations, convert radians to percentage (* 100)
+            multiplier = 100.0 if base_result_type == "QuadRotations" else 1.0
+
+            if max_val is not None:
+                val = abs(max_val) * multiplier
+                if direction:
+                    row[f"Max_{load_case_name}_{direction}"] = val
+                else:
+                    row[f"Max_{load_case_name}"] = val
+            if min_val is not None:
+                val = abs(min_val) * multiplier
+                if direction:
+                    row[f"Min_{load_case_name}_{direction}"] = val
+                else:
+                    row[f"Min_{load_case_name}"] = val
+
+        if not data_by_story:
+            return None
+
+        # Order rows by story_sort_order from result records to preserve sheet order
+        ordered_rows = [
+            data_by_story[story_id]
+            for story_id in sorted(data_by_story.keys(), key=lambda sid: (story_sort_orders.get(sid, 0), story_lookup.get(sid).name or ""))
+        ]
+
+        df = pd.DataFrame(ordered_rows)
+        # Don't reverse - preserve sheet order as-is
+
+        result_type_key = f"MaxMin{base_result_type}"
+
+        # Set display name based on result type
+        if base_result_type == "WallShears":
+            display_name = f"{element.name} - Max/Min Wall Shears"
+            default_directions = ("V2", "V3")
+        elif base_result_type == "QuadRotations":
+            display_name = f"{element.name} - Max/Min Quad Rotations"
+            default_directions = ("",)  # No direction for rotations
+        else:
+            display_name = f"{element.name} - Max/Min {base_result_type}"
+            default_directions = ("X", "Y")
+
+        dataset = MaxMinDataset(
+            meta=ResultDatasetMeta(
+                result_type=result_type_key,
+                direction=None,
+                result_set_id=result_set_id,
+                display_name=display_name,
+            ),
+            data=df,
+            directions=tuple(sorted(directions_seen)) if directions_seen else default_directions,
+            source_type=base_result_type,
+        )
+        return dataset
 
     # --------------------------------------------------------------------- #
     # Internal helpers
@@ -182,19 +409,14 @@ class ResultDataService:
         }
 
     def _order_cache_entries(self, cache_entries):
-        """Return cache entries ordered from top story to bottom story."""
-        self._ensure_stories_loaded()
+        """Return cache entries preserving sheet-specific ordering.
 
-        def rank(story):
-            index = self._story_index.get(story.id)
-            if index is None:
-                # Fallback: append to the end while preserving order
-                return (len(self._stories), story.name or "")
-            return index
-
-        # Sort ascending using pre-computed rank, then reverse for top-to-bottom display
-        sorted_entries = sorted(cache_entries, key=lambda item: rank(item[1]))
-        return list(reversed(sorted_entries))
+        The repository already orders by GlobalResultsCache.story_sort_order ascending.
+        Since story_sort_order preserves the Excel sheet order exactly (0=first row, N=last row),
+        we return entries as-is to maintain the sheet's original order.
+        """
+        # Repository already ordered by story_sort_order - return as-is to preserve sheet order
+        return cache_entries
 
     def _build_dataframe(self, ordered_entries, result_type: str, direction: str) -> pd.DataFrame:
         """Construct a numeric DataFrame for presentation."""
@@ -232,6 +454,61 @@ class ResultDataService:
                 numeric_df[summary_columns] = (
                     numeric_df[summary_columns] * config.multiplier
                 )
+
+        # Insert story labels as first column
+        numeric_df.insert(0, "Story", story_labels)
+        return numeric_df
+
+    def _order_element_cache_entries(self, cache_entries):
+        """Return element cache entries preserving sheet-specific ordering.
+
+        The repository already orders by ElementResultsCache.story_sort_order ascending.
+        Since story_sort_order preserves the Excel sheet order exactly (0=first row, N=last row),
+        we return entries as-is to maintain the sheet's original order.
+        """
+        # Repository already ordered by story_sort_order - return as-is to preserve sheet order
+        return cache_entries
+
+    def _build_element_dataframe(self, ordered_entries, result_type: str, direction: str) -> pd.DataFrame:
+        """Construct a numeric DataFrame for element-specific results (piers, walls, etc.)."""
+
+        if not ordered_entries:
+            return pd.DataFrame()
+
+        story_labels: List[str] = []
+        result_dicts: List[dict] = []
+
+        for cache_entry, story in ordered_entries:
+            story_labels.append(story.name)
+            result_dicts.append(cache_entry.results_matrix or {})
+
+        raw_df = pd.DataFrame(result_dicts)
+
+        # Element results don't use transformer (data is already clean)
+        # Just convert to numeric and apply multiplier
+        numeric_df = raw_df.apply(pd.to_numeric, errors="coerce")
+
+        # Add summary columns
+        numeric_df['Avg'] = numeric_df.mean(axis=1)
+        numeric_df['Max'] = numeric_df.max(axis=1)
+        numeric_df['Min'] = numeric_df.min(axis=1)
+
+        # Apply multiplier if needed
+        if direction:
+            transformer_key = f"{result_type}_{direction}"
+        else:
+            transformer_key = result_type
+        config = get_config(transformer_key)
+
+        summary_columns = [col for col in self.SUMMARY_COLUMNS if col in numeric_df.columns]
+        value_columns = [
+            col for col in numeric_df.columns if col not in summary_columns
+        ]
+
+        if config.multiplier != 1.0:
+            numeric_df[value_columns] = numeric_df[value_columns] * config.multiplier
+            if summary_columns:
+                numeric_df[summary_columns] = numeric_df[summary_columns] * config.multiplier
 
         # Insert story labels as first column
         numeric_df.insert(0, "Story", story_labels)
@@ -281,6 +558,7 @@ class ResultDataService:
         story_lookup = {story.id: story for story in self._stories}
         load_case_cache: Dict[int, Optional["LoadCase"]] = {}
         data_by_story: Dict[int, Dict[str, object]] = {}
+        story_sort_orders: Dict[int, int] = {}  # Track from drift records (via StoryDrift)
 
         for drift in drifts:
             story = story_lookup.get(drift.story_id)
@@ -288,6 +566,11 @@ class ResultDataService:
                 continue
 
             row = data_by_story.setdefault(drift.story_id, {"Story": story.name})
+
+            # Note: AbsoluteMaxMinDrift doesn't have story_sort_order, need to query StoryDrift
+            # For now, fallback to Story.sort_order (will be fixed when AbsoluteMaxMinDrift is recalculated)
+            if drift.story_id not in story_sort_orders:
+                story_sort_orders[drift.story_id] = story.sort_order or 0
 
             if drift.load_case_id not in load_case_cache:
                 load_case_cache[drift.load_case_id] = self.load_case_repo.get_by_id(
@@ -306,15 +589,14 @@ class ResultDataService:
         if not data_by_story:
             return None
 
+        # Order by story_sort_order from tracked values to preserve sheet order
         ordered_rows = [
-            data_by_story[story.id]
-            for story in sorted(self._stories, key=lambda s: (s.sort_order or 0, s.name or ""))
-            if story.id in data_by_story
+            data_by_story[story_id]
+            for story_id in sorted(data_by_story.keys(), key=lambda sid: (story_sort_orders.get(sid, 0), story_lookup.get(sid).name or ""))
         ]
 
         df = pd.DataFrame(ordered_rows)
-        if not df.empty:
-            df = df.iloc[::-1].reset_index(drop=True)
+        # Don't reverse - preserve sheet order as-is
 
         dataset = MaxMinDataset(
             meta=ResultDatasetMeta(
@@ -386,12 +668,17 @@ class ResultDataService:
         self._ensure_stories_loaded()
         story_lookup = {story.id: story for story in self._stories}
         data_by_story: Dict[int, Dict[str, object]] = {}
+        story_sort_orders: Dict[int, int] = {}  # Track story_sort_order from result records
         directions_seen: Set[str] = set()
 
         for record, load_case, story in records:
             story_obj = story_lookup.get(story.id)
             if not story_obj:
                 continue
+
+            # Capture story_sort_order from first record for this story
+            if story.id not in story_sort_orders:
+                story_sort_orders[story.id] = getattr(record, 'story_sort_order', None) or 0
 
             direction = self._normalize_direction(getattr(record, "direction", ""))
             if direction is None:
@@ -415,15 +702,14 @@ class ResultDataService:
         if not data_by_story:
             return None
 
+        # Order rows by story_sort_order from result records to preserve sheet order
         ordered_rows = [
-            data_by_story[story.id]
-            for story in sorted(self._stories, key=lambda s: (s.sort_order or 0, s.name or ""))
-            if story.id in data_by_story
+            data_by_story[story_id]
+            for story_id in sorted(data_by_story.keys(), key=lambda sid: (story_sort_orders.get(sid, 0), story_lookup.get(sid).name or ""))
         ]
 
         df = pd.DataFrame(ordered_rows)
-        if not df.empty:
-            df = df.iloc[::-1].reset_index(drop=True)
+        # Don't reverse - preserve sheet order as-is
 
         result_type_key = f"MaxMin{base_result_type}"
         dataset = MaxMinDataset(

@@ -18,6 +18,8 @@ from .models import (
     ResultCategory,
     GlobalResultsCache,
     AbsoluteMaxMinDrift,
+    ElementResultsCache,
+    WallShear,
 )
 
 
@@ -143,7 +145,13 @@ class StoryRepository:
     def get_or_create(
         self, project_id: int, name: str, sort_order: Optional[int] = None
     ) -> Story:
-        """Get existing story or create new one."""
+        """Get existing story or create new one.
+
+        Note: sort_order is only set during initial creation. Once a story exists,
+        its sort_order is preserved to maintain canonical ordering from the first sheet.
+        This prevents later imports (e.g., Quad Rotations) from changing the display
+        order of all result types.
+        """
         story = (
             self.session.query(Story)
             .filter(and_(Story.project_id == project_id, Story.name == name))
@@ -151,9 +159,7 @@ class StoryRepository:
         )
         if not story:
             story = self.create(project_id, name, sort_order=sort_order)
-        elif sort_order is not None and story.sort_order != sort_order:
-            # Keep database ordering in sync with the source Excel order
-            story.sort_order = sort_order
+        # Do NOT update sort_order if story already exists - preserve canonical order
         return story
 
     def get_by_project(self, project_id: int) -> List[Story]:
@@ -382,6 +388,7 @@ class CacheRepository:
         result_type: str,
         results_matrix: dict,
         result_set_id: Optional[int] = None,
+        story_sort_order: Optional[int] = None,
     ) -> GlobalResultsCache:
         """Create or update cache entry for a story's results."""
         cache_entry = (
@@ -399,6 +406,8 @@ class CacheRepository:
 
         if cache_entry:
             cache_entry.results_matrix = results_matrix
+            if story_sort_order is not None:
+                cache_entry.story_sort_order = story_sort_order
         else:
             cache_entry = GlobalResultsCache(
                 project_id=project_id,
@@ -406,6 +415,7 @@ class CacheRepository:
                 result_type=result_type,
                 story_id=story_id,
                 results_matrix=results_matrix,
+                story_sort_order=story_sort_order,
             )
             self.session.add(cache_entry)
 
@@ -419,9 +429,10 @@ class CacheRepository:
         result_type: str,
         result_set_id: Optional[int] = None,
     ) -> List[tuple]:
-        """Get all cache entries for a result type, ordered by story sort_order (bottom to top).
+        """Get all cache entries for a result type, ordered by story_sort_order from cache (bottom to top).
 
-        Returns list of tuples: (GlobalResultsCache, Story) in ascending sort_order to match Excel source order.
+        Returns list of tuples: (GlobalResultsCache, Story) in ascending story_sort_order from the cache entry.
+        Each result type preserves its own sheet-specific story ordering.
         """
         query = (
             self.session.query(GlobalResultsCache, Story)
@@ -437,7 +448,7 @@ class CacheRepository:
         if result_set_id is not None:
             query = query.filter(GlobalResultsCache.result_set_id == result_set_id)
 
-        return query.order_by(Story.sort_order.asc()).all()
+        return query.order_by(GlobalResultsCache.story_sort_order.asc(), Story.name.asc()).all()
 
     def clear_cache_for_project(self, project_id: int, result_type: Optional[str] = None):
         """Clear cache entries for a project, optionally filtered by result type."""
@@ -655,3 +666,175 @@ class AbsoluteMaxMinDriftRepository:
         )
         self.session.commit()
         return count
+
+
+class ElementCacheRepository:
+    """Repository for ElementResultsCache operations - optimized for element-level tabular display."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def upsert_cache_entry(
+        self,
+        project_id: int,
+        element_id: int,
+        story_id: int,
+        result_type: str,
+        results_matrix: dict,
+        result_set_id: Optional[int] = None,
+        story_sort_order: Optional[int] = None,
+    ) -> ElementResultsCache:
+        """Create or update cache entry for an element's results at a specific story."""
+        cache_entry = (
+            self.session.query(ElementResultsCache)
+            .filter(
+                and_(
+                    ElementResultsCache.project_id == project_id,
+                    ElementResultsCache.element_id == element_id,
+                    ElementResultsCache.story_id == story_id,
+                    ElementResultsCache.result_type == result_type,
+                    ElementResultsCache.result_set_id == result_set_id,
+                )
+            )
+            .first()
+        )
+
+        if cache_entry:
+            cache_entry.results_matrix = results_matrix
+            if story_sort_order is not None:
+                cache_entry.story_sort_order = story_sort_order
+        else:
+            cache_entry = ElementResultsCache(
+                project_id=project_id,
+                result_set_id=result_set_id,
+                result_type=result_type,
+                element_id=element_id,
+                story_id=story_id,
+                results_matrix=results_matrix,
+                story_sort_order=story_sort_order,
+            )
+            self.session.add(cache_entry)
+
+        self.session.commit()
+        self.session.refresh(cache_entry)
+        return cache_entry
+
+    def get_cache_for_display(
+        self,
+        project_id: int,
+        element_id: int,
+        result_type: str,
+        result_set_id: Optional[int] = None,
+    ) -> List[tuple]:
+        """Get all cache entries for a specific element and result type, ordered by story_sort_order from cache.
+
+        Returns list of tuples: (ElementResultsCache, Story) ordered by story_sort_order from cache entry (ascending).
+        Each element preserves its own per-element story ordering from the source sheet.
+
+        Args:
+            project_id: Project ID
+            element_id: Specific element (pier/wall) ID
+            result_type: Result type (e.g., 'WallShears_V22')
+            result_set_id: Optional result set ID filter
+        """
+        query = (
+            self.session.query(ElementResultsCache, Story)
+            .join(Story, ElementResultsCache.story_id == Story.id)
+            .filter(
+                and_(
+                    ElementResultsCache.project_id == project_id,
+                    ElementResultsCache.element_id == element_id,
+                    ElementResultsCache.result_type == result_type,
+                )
+            )
+        )
+
+        if result_set_id is not None:
+            query = query.filter(ElementResultsCache.result_set_id == result_set_id)
+
+        return query.order_by(ElementResultsCache.story_sort_order.asc(), Story.name.asc()).all()
+
+    def clear_cache_for_project(self, project_id: int, result_type: Optional[str] = None):
+        """Clear cache entries for a project, optionally filtered by result type."""
+        query = self.session.query(ElementResultsCache).filter(
+            ElementResultsCache.project_id == project_id
+        )
+        if result_type:
+            query = query.filter(ElementResultsCache.result_type == result_type)
+
+        query.delete()
+        self.session.commit()
+
+    def bulk_upsert_cache(self, cache_entries: List[dict]):
+        """Bulk upsert cache entries for better performance."""
+        for entry_data in cache_entries:
+            self.upsert_cache_entry(**entry_data)
+
+
+class ElementRepository:
+    """Repository for Element operations."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(
+        self,
+        project_id: int,
+        element_type: str,
+        name: str,
+        unique_name: Optional[str] = None,
+        story_id: Optional[int] = None,
+    ) -> Element:
+        """Create a new element."""
+        element = Element(
+            project_id=project_id,
+            element_type=element_type,
+            name=name,
+            unique_name=unique_name,
+            story_id=story_id,
+        )
+        self.session.add(element)
+        self.session.commit()
+        self.session.refresh(element)
+        return element
+
+    def get_or_create(
+        self,
+        project_id: int,
+        element_type: str,
+        unique_name: str,
+        name: Optional[str] = None,
+        story_id: Optional[int] = None,
+    ) -> Element:
+        """Get existing element or create new one."""
+        element = (
+            self.session.query(Element)
+            .filter(
+                and_(
+                    Element.project_id == project_id,
+                    Element.element_type == element_type,
+                    Element.unique_name == unique_name,
+                )
+            )
+            .first()
+        )
+        if not element:
+            element = self.create(
+                project_id=project_id,
+                element_type=element_type,
+                name=name or unique_name,
+                unique_name=unique_name,
+                story_id=story_id,
+            )
+        return element
+
+    def get_by_project(self, project_id: int, element_type: Optional[str] = None) -> List[Element]:
+        """Get all elements for a project, optionally filtered by type."""
+        query = self.session.query(Element).filter(Element.project_id == project_id)
+        if element_type:
+            query = query.filter(Element.element_type == element_type)
+        return query.order_by(Element.name.asc()).all()
+
+    def get_by_id(self, element_id: int) -> Optional[Element]:
+        """Get element by ID."""
+        return self.session.query(Element).filter(Element.id == element_id).first()

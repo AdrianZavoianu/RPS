@@ -1,9 +1,9 @@
 # Architecture Documentation
 ## Results Processing System (RPS)
 
-**Version**: 1.3
-**Last Updated**: 2025-10-25
-**Status**: Production-ready with refactored architecture
+**Version**: 1.4
+**Last Updated**: 2025-10-27
+**Status**: Production-ready with element results and sheet-specific ordering
 
 ---
 
@@ -98,22 +98,90 @@ src/
 
 ### Core Schema
 
-**Projects** → **ResultSets** → **GlobalResultsCache** (wide-format JSON)
-**Projects** → **Stories** + **LoadCases** → **StoryDrift/Acceleration/Force** (normalized)
+**Projects** → **ResultSets** → **GlobalResultsCache** / **ElementResultsCache** (wide-format JSON)
+**Projects** → **Stories** + **LoadCases** → **Results** (normalized)
+**Projects** → **Elements** → **ElementResults** (normalized, per-pier data)
+
+**Global Results** (Story-level):
+```python
+StoryDrift/Acceleration/Force/Displacement:
+  story_id: FK → stories.id
+  load_case_id: FK → load_cases.id
+  result_category_id: FK → result_categories.id
+  direction: String('X', 'Y')
+  <value>: Float (drift, acceleration, force, displacement)
+  max_<value>: Float (max value for envelope)
+  min_<value>: Float (min value for envelope)
+  story_sort_order: Integer  # Sheet-specific ordering (NEW in v1.4)
+```
+
+**Element Results** (Per-element, per-story):
+```python
+WallShear (Pier Forces):
+  element_id: FK → elements.id
+  story_id: FK → stories.id
+  load_case_id: FK → load_cases.id
+  direction: String('V2', 'V3')
+  force: Float
+  max_force, min_force: Float
+  story_sort_order: Integer  # Per-element sheet ordering (NEW in v1.4)
+
+QuadRotation (Quad Strain Gauges):
+  element_id: FK → elements.id
+  story_id: FK → stories.id
+  load_case_id: FK → load_cases.id
+  rotation: Float (radians)
+  max_rotation, min_rotation: Float
+  quad_name: String (optional)
+  story_sort_order: Integer  # Per-element sheet ordering (NEW in v1.4)
+```
 
 **GlobalResultsCache** (Performance-optimized):
 ```python
 project_id: FK → projects.id
 result_set_id: FK → result_sets.id
-result_type: String('Drifts', 'Accelerations', 'Forces')
+result_type: String('Drifts', 'Accelerations', 'Forces', 'Displacements')
 story_id: FK → stories.id
-results_matrix: JSON  # {"TH01": 0.0123, "TH02": 0.0145, ...}
+results_matrix: JSON  # {"TH01_X": 0.0123, "TH02_X": 0.0145, ...}
+story_sort_order: Integer  # Preserves Excel sheet order (NEW in v1.4)
 ```
+
+**ElementResultsCache** (Element performance-optimized):
+```python
+project_id: FK → projects.id
+result_set_id: FK → result_sets.id
+result_type: String('WallShears_V2', 'WallShears_V3', 'QuadRotations')
+element_id: FK → elements.id
+story_id: FK → stories.id
+results_matrix: JSON  # {"TH01": 123.4, "TH02": 145.6, ...}
+story_sort_order: Integer  # Per-element sheet order (NEW in v1.4)
+```
+
+### Sheet-Specific Story Ordering (NEW in v1.4)
+
+**Problem Solved**: Different Excel sheets may have stories in different orders. For example:
+- Story Drifts sheet: S4, S3, S2, S1, Base (top to bottom)
+- Quad Strain sheet: S4, S2, Base (some piers don't span all stories)
+
+**Solution**: Each result record stores its `story_sort_order` from the source Excel sheet:
+- `story_sort_order = 0` for first row in Excel, `1` for second row, etc.
+- Display queries use `story_sort_order` from result/cache tables, NOT `Story.sort_order`
+- Preserves exact Excel sheet order for each result type
+- Element results can have different story ordering per element
+
+**Implementation**:
+- `ResultImportHelper._story_order` tracks Excel row indices during import
+- All result models have `story_sort_order: Integer` column
+- All cache models have `story_sort_order: Integer` column
+- Repository queries order by `cache.story_sort_order.asc()` to preserve sheet order
+- Service layer returns data as-is (no reversals) to maintain Excel ordering
 
 ### Indexing Strategy
 - Composite indexes on `(project_id, name)` for uniqueness
 - Composite indexes on `(story_id, load_case_id, direction)` for result queries
 - Cache indexes on `(project_id, result_set_id, result_type)`
+- Element cache indexes on `(element_id, story_id, result_type)`
+- Element indexes on `(element_id, story_id, load_case_id)` for fast queries
 
 ---
 
@@ -149,12 +217,39 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange'
     ),
+    'WallShears_V2': ResultTypeConfig(
+        name='WallShears_V2',
+        direction_suffix='',  # No column filtering (data already filtered)
+        unit='kN',
+        multiplier=1.0,
+        decimal_places=0,
+        y_label='V2 Shear (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange'
+    ),
+    'QuadRotations': ResultTypeConfig(
+        name='QuadRotations',
+        direction_suffix='',  # Directionless result (no X/Y split)
+        unit='%',
+        multiplier=1.0,  # Already converted in cache (radians → %)
+        decimal_places=2,
+        y_label='Rotation (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange'
+    ),
     # ... more configs
 }
 
 def get_config(result_type: str) -> ResultTypeConfig:
     return RESULT_CONFIGS.get(result_type, RESULT_CONFIGS['Drifts'])
 ```
+
+**Directionless Results** (NEW in v1.4):
+- QuadRotations has no X/Y or V2/V3 split
+- `direction_suffix = ''` indicates directionless data
+- Max/Min widget detects `directions = ("")` and shows single plot
+- Column names: `Max_{LoadCase}`, `Min_{LoadCase}` (no direction suffix)
+- UI hides Y direction completely (no empty space)
 
 ---
 
@@ -484,6 +579,8 @@ $ pipenv run python dev_watch.py
 | **Desktop-only (PyQt6)** | Full platform capabilities | No web/mobile |
 | **Wide-format JSON cache** | Fast display without JOINs | Cache invalidation complexity |
 | **Manual selection system** | Preserves gradient colors | More code than Qt defaults |
+| **Per-result story ordering** | Preserves Excel sheet order exactly | story_sort_order in every result table |
+| **Dual cache system** | Global + element results separation | More cache tables to maintain |
 
 ---
 
@@ -491,6 +588,7 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.4 | 2025-10-27 | Element results (WallShears, QuadRotations), sheet-specific story ordering (story_sort_order), directionless results support, ElementResultsCache |
 | 1.3 | 2025-10-25 | Catalog/per-project DB split, ResultImportHelper, shared visual config/legend components, project_tools CLI |
 | 1.2 | 2025-10-24 | Condensed to ~600 lines, removed redundancy |
 | 1.1 | 2025-10-24 | Added interactive features, plot configuration |

@@ -92,6 +92,23 @@ class ForceTransformer(GenericResultTransformer):
         super().__init__('Forces')
 
 
+class WallShearTransformer(GenericResultTransformer):
+    """Transformer for wall shear results."""
+    def __init__(self, direction: str):
+        result_type = f'WallShears_{direction}'
+        super().__init__(result_type)
+
+
+class QuadRotationTransformer(GenericResultTransformer):
+    """Transformer for quad rotation results (already converted to percentage in cache)."""
+    def __init__(self):
+        super().__init__('QuadRotations')
+
+    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep all columns (no direction filtering needed for rotations)."""
+        return df.copy()
+
+
 # Transformer registry
 TRANSFORMERS = {
     'Drifts': DriftTransformer(),
@@ -106,6 +123,9 @@ TRANSFORMERS = {
     'Displacements': GenericResultTransformer('Displacements'),
     'Displacements_X': GenericResultTransformer('Displacements_X'),
     'Displacements_Y': GenericResultTransformer('Displacements_Y'),
+    'WallShears_V2': WallShearTransformer('V2'),
+    'WallShears_V3': WallShearTransformer('V3'),
+    'QuadRotations': QuadRotationTransformer(),
 }
 
 

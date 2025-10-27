@@ -154,6 +154,36 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
+    'WallShears_V2': ResultTypeConfig(
+        name='WallShears_V2',
+        direction_suffix='_V2',
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Wall Shear V2 (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'WallShears_V3': ResultTypeConfig(
+        name='WallShears_V3',
+        direction_suffix='_V3',
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Wall Shear V3 (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'QuadRotations': ResultTypeConfig(
+        name='QuadRotations',
+        direction_suffix='',  # No direction suffix for rotations
+        unit='%',
+        decimal_places=2,
+        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
+        y_label='Rotation (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
 }
 
 

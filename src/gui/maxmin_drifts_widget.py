@@ -399,69 +399,108 @@ class MaxMinDriftsWidget(QWidget):
         story_names = df['Story'].tolist() if 'Story' in df.columns else []
         available_directions = tuple(dataset.directions or ("X", "Y"))
 
-        direction_visibility = {}
-        for direction in ("X", "Y"):
-            if direction in available_directions:
-                has_data = self._load_direction_data(df, direction, story_names, base_result_type)
-            else:
-                self._clear_direction(direction)
-                has_data = False
+        # Check if this is directionless data (e.g., QuadRotations)
+        is_directionless = len(available_directions) == 1 and available_directions[0] == ""
 
-            direction_visibility[direction] = has_data
-            self._set_direction_visibility(direction, has_data)
-            self._update_direction_label(direction)
+        if is_directionless:
+            # For directionless data, show single plot in X position, completely hide Y
+            has_data = self._load_direction_data(df, "", story_names, base_result_type, "X")
+            direction_visibility = {"X": has_data, "Y": False}
+
+            # Clear Y direction data to ensure it's empty
+            self._clear_direction("Y")
+
+            # Set visibility
+            self._set_direction_visibility("X", has_data)
+            self._set_direction_visibility("Y", False)
+
+            # Update label to remove direction indicator
+            if self.x_tables_label:
+                self.x_tables_label.setText(f"{self.current_display_name}")
+        else:
+            # Map V2/V3 to X/Y for display (element results use V2/V3, global uses X/Y)
+            direction_map = self._create_direction_map(available_directions)
+
+            direction_visibility = {}
+            for display_direction in ("X", "Y"):
+                # Get actual data direction (V2→X, V3→Y for element results)
+                data_direction = direction_map.get(display_direction, display_direction)
+
+                if data_direction in available_directions:
+                    has_data = self._load_direction_data(df, data_direction, story_names, base_result_type, display_direction)
+                else:
+                    self._clear_direction(display_direction)
+                    has_data = False
+
+                direction_visibility[display_direction] = has_data
+                self._set_direction_visibility(display_direction, has_data)
+                self._update_direction_label(display_direction, data_direction)
 
         if not any(direction_visibility.values()):
             self.clear_data()
 
-    def _load_direction_data(self, df: pd.DataFrame, direction: str, story_names: list, base_result_type: str) -> bool:
+    def _load_direction_data(self, df: pd.DataFrame, direction: str, story_names: list, base_result_type: str, display_direction: str = None) -> bool:
         """Load data for a specific direction.
 
         Args:
             df: Full DataFrame
-            direction: 'X' or 'Y'
+            direction: Actual data direction ('X', 'Y', 'V2', 'V3', or '' for directionless)
             story_names: List of story names
             base_result_type: Base result identifier (Drifts, Accelerations, etc.)
+            display_direction: Display direction for widget mapping ('X' or 'Y'), defaults to direction
         """
+        if display_direction is None:
+            display_direction = direction
+
         # Get columns for this direction
-        suffix = f'_{direction}'
-        direction_cols = [col for col in df.columns if col.endswith(suffix)]
+        if direction == "":
+            # Directionless data - no suffix (e.g., QuadRotations)
+            # Get all Max/Min columns that don't have a direction suffix
+            all_cols = [col for col in df.columns if col != 'Story']
+            direction_cols = [col for col in all_cols if not any(col.endswith(f'_{d}') for d in ['X', 'Y', 'V2', 'V3'])]
+        else:
+            # Directional data - columns end with _Direction
+            suffix = f'_{direction}'
+            direction_cols = [col for col in df.columns if col.endswith(suffix)]
 
         if not direction_cols:
-            self._clear_direction(direction)
+            self._clear_direction(display_direction)
             return False
 
         # Separate into Max (positive) and Min (negative) columns
-        # Assuming Max columns contain positive drift, Min contains negative
         max_cols = [col for col in direction_cols if 'Max' in col]
         min_cols = [col for col in direction_cols if 'Min' in col]
 
         if not max_cols and not min_cols:
-            self._clear_direction(direction)
+            self._clear_direction(display_direction)
             return False
 
         config_key = self._get_config_key(base_result_type, direction)
         config = get_config(config_key)
 
-        # Plot and populate tables
-        if direction == 'X':
-            self._plot_maxmin_data(self.x_plot, self.x_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config)
+        # Plot and populate tables using display_direction for widget selection
+        if display_direction == 'X':
+            self._plot_maxmin_data(self.x_plot, self.x_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config, display_direction)
             self._populate_min_max_tables(self.x_min_table, self.x_max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config)
         else:
-            self._plot_maxmin_data(self.y_plot, self.y_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config)
+            self._plot_maxmin_data(self.y_plot, self.y_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config, display_direction)
             self._populate_min_max_tables(self.y_min_table, self.y_max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config)
 
         return True
 
-    def _plot_maxmin_data(self, plot_widget, legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type: str, config):
+    def _plot_maxmin_data(self, plot_widget, legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type: str, config, display_direction: str = None):
         """Plot Max/Min drift data - horizontal orientation (drift on X, story on Y) - matches normal drift page."""
         plot_widget.clear()
 
         # Clear external legend
         self._clear_legend(legend_layout)
 
+        # Use display_direction if provided, otherwise use direction
+        if display_direction is None:
+            display_direction = direction
+
         # Clear plot items for this direction
-        if direction == 'X':
+        if display_direction == 'X':
             self.x_plot_items.clear()
             plot_items = self.x_plot_items
         else:
@@ -495,15 +534,23 @@ class MaxMinDriftsWidget(QWidget):
                 continue
 
             # Extract load case name (remove file prefix and direction suffix)
-            # Format: "Max_FileName_TH01_X" -> "TH01"
-            load_case_full = max_col.replace(f'_{direction}', '').replace('Max_', '')
+            # For directionless: "Max_TH01" -> "TH01"
+            # For directional: "Max_FileName_TH01_X" -> "TH01"
+            if direction:
+                load_case_full = max_col.replace(f'_{direction}', '').replace('Max_', '')
+            else:
+                load_case_full = max_col.replace('Max_', '')
 
             # Extract just the load case part (last part after underscore, or whole if no underscore)
             load_case_parts = load_case_full.split('_')
             load_case = load_case_parts[-1] if len(load_case_parts) > 1 else load_case_full
 
             # Find corresponding Min column
-            min_col = f'Min_{load_case_full}_{direction}'
+            if direction:
+                min_col = f'Min_{load_case_full}_{direction}'
+            else:
+                min_col = f'Min_{load_case_full}'
+
             if min_col not in min_cols:
                 continue
 
@@ -549,7 +596,7 @@ class MaxMinDriftsWidget(QWidget):
             }
 
             # Add to legend ONCE - just the load case name (no "Max" or "Min")
-            self._add_legend_item(legend_layout, color, load_case, direction)
+            self._add_legend_item(legend_layout, color, load_case, display_direction)
 
             load_cases_plotted.append(load_case)
 
@@ -611,7 +658,8 @@ class MaxMinDriftsWidget(QWidget):
             builder.set_value_range(min_val, max_val, left_padding=0.03, right_padding=0.05)
 
         # Set title (matching normal drift page format)
-        builder.set_title(f"Max/Min Drifts - {direction}")
+        # Use data direction for title (V2/V3 for pier shears, X/Y for global)
+        builder.set_title(f"Max/Min {self.current_base_type} - {direction}")
 
         # Set dynamic tick spacing (6 intervals based on data range)
         if all_values:
@@ -652,8 +700,13 @@ class MaxMinDriftsWidget(QWidget):
         load_case_names = []
         for col in cols:
             # Remove direction suffix and Max/Min prefix
-            # Format: "Max_FileName_TH01_X" -> "TH01"
-            col_clean = col.replace(f'_{direction}', '').replace('Max_', '').replace('Min_', '')
+            # For directionless: "Max_TH01" -> "TH01"
+            # For directional: "Max_FileName_TH01_X" -> "TH01"
+            if direction:
+                col_clean = col.replace(f'_{direction}', '').replace('Max_', '').replace('Min_', '')
+            else:
+                col_clean = col.replace('Max_', '').replace('Min_', '')
+
             parts = col_clean.split('_')
             load_case = parts[-1] if len(parts) > 1 else col_clean
             load_case_names.append(load_case)
@@ -838,7 +891,7 @@ class MaxMinDriftsWidget(QWidget):
                 widget.deleteLater()
 
     def _base_type_decimals(self, base_type: str) -> int:
-        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0}
+        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0, "WallShears": 0, "QuadRotations": 2}
         return mapping.get(base_type, 2)
 
     def _format_maxmin_number(self, value: float, base_type: str) -> str:
@@ -997,15 +1050,69 @@ class MaxMinDriftsWidget(QWidget):
             tables_container = self.y_tables_container
 
         if plot_container is not None:
-            plot_container.setVisible(visible)
-        if tables_container is not None:
-            tables_container.setVisible(visible)
+            if not visible:
+                # Completely hide and collapse the container
+                plot_container.setVisible(False)
+                plot_container.setMaximumWidth(0)
+                plot_container.setMaximumHeight(0)
+                # Remove from parent layout to prevent space allocation
+                parent_layout = plot_container.parent().layout() if plot_container.parent() else None
+                if parent_layout:
+                    parent_layout.removeWidget(plot_container)
+            else:
+                # Restore visibility and size constraints
+                plot_container.setVisible(True)
+                plot_container.setMaximumWidth(16777215)
+                plot_container.setMaximumHeight(16777215)
 
-    def _update_direction_label(self, direction: str):
-        """Update the direction title to reflect the current result type."""
-        label = self.x_tables_label if direction == 'X' else self.y_tables_label
+        if tables_container is not None:
+            if not visible:
+                # Completely hide and collapse the container
+                tables_container.setVisible(False)
+                tables_container.setMaximumWidth(0)
+                tables_container.setMaximumHeight(0)
+                # Remove from parent layout to prevent space allocation
+                parent_layout = tables_container.parent().layout() if tables_container.parent() else None
+                if parent_layout:
+                    parent_layout.removeWidget(tables_container)
+            else:
+                # Restore visibility and size constraints
+                tables_container.setVisible(True)
+                tables_container.setMaximumWidth(16777215)
+                tables_container.setMaximumHeight(16777215)
+
+    def _update_direction_label(self, display_direction: str, data_direction: str = None):
+        """Update the direction title to reflect the current result type.
+
+        Args:
+            display_direction: Display direction ('X' or 'Y')
+            data_direction: Actual data direction ('X', 'Y', 'V2', 'V3'), defaults to display_direction
+        """
+        if data_direction is None:
+            data_direction = display_direction
+
+        label = self.x_tables_label if display_direction == 'X' else self.y_tables_label
         if label:
-            label.setText(f"{direction} Direction - {self.current_base_type}")
+            label.setText(f"{data_direction} Direction - {self.current_base_type}")
+
+    @staticmethod
+    def _create_direction_map(available_directions: tuple) -> dict:
+        """Create a mapping from display directions (X/Y) to data directions (X/Y/V2/V3/empty).
+
+        Args:
+            available_directions: Tuple of available data directions
+
+        Returns:
+            Dict mapping display direction to data direction
+        """
+        # If data has V2/V3 (element shear results), map them to X/Y for display
+        if "V2" in available_directions and "V3" in available_directions:
+            return {"X": "V2", "Y": "V3"}
+        # If data has no direction (quad rotations), map both to empty string
+        elif "" in available_directions or len(available_directions) == 1 and not available_directions[0]:
+            return {"X": "", "Y": ""}
+        # Otherwise use identity mapping (X→X, Y→Y for global results)
+        return {"X": "X", "Y": "Y"}
 
     @staticmethod
     def _infer_base_result_type(result_type: Optional[str]) -> str:
@@ -1020,6 +1127,10 @@ class MaxMinDriftsWidget(QWidget):
     @staticmethod
     def _get_config_key(base_result_type: str, direction: str) -> str:
         """Return the configuration key for a result type/direction."""
+        # For directionless data (empty direction), return base type
+        if not direction or direction == "":
+            return base_result_type
+
         key = f"{base_result_type}_{direction}"
         if key in RESULT_CONFIGS:
             return key

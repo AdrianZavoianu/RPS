@@ -11,7 +11,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Import database base and models
-from database.base import Base, DB_PATH
+from database.base import Base, DATA_DIR
 from database.models import (
     Project,
     LoadCase,
@@ -21,14 +21,23 @@ from database.models import (
     StoryForce,
     Element,
     TimeHistoryData,
+    StoryDisplacement,
+    WallShear,
+    QuadRotation,
+    GlobalResultsCache,
+    ElementResultsCache,
+    ResultSet,
+    ResultCategory,
+    AbsoluteMaxMinDrift,
 )
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set the SQLAlchemy URL from our database configuration
-config.set_main_option("sqlalchemy.url", f"sqlite:///{DB_PATH}")
+# Use a migration-specific database path (per-project schema)
+MIGRATION_DB_PATH = DATA_DIR / "migration_schema.db"
+config.set_main_option("sqlalchemy.url", f"sqlite:///{MIGRATION_DB_PATH}")
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

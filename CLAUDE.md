@@ -40,16 +40,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Data Hierarchy (100% Complete):**
 - ✅ Result sets with user-defined names (DES, MCE, SLE, etc.)
 - ✅ Load cases shared across all result sets
-- ✅ Result categories: Envelopes → Global Results
-- ✅ Support for: Drifts, Max/Min Drifts, Accelerations, Forces, Displacements
+- ✅ Result categories: Envelopes → Global Results → Elements (Walls)
+- ✅ **Global Results**: Drifts, Accelerations, Forces, Displacements (all with Max/Min)
+- ✅ **Element Results**: Wall Shears (V2/V3), Quad Rotations (per-pier data)
 - ✅ Full UI integration: tree browser + detail views
 - ✅ Duplicate validation for result set names
+- ✅ **Sheet-Specific Story Ordering**: Each result type preserves its own Excel sheet order
 - ✅ Database migration with backward compatibility
 
 **Architecture:**
 - ✅ Configuration-driven transformers (~180 lines of duplication eliminated)
 - ✅ Repository pattern for clean data access
 - ✅ Pluggable result type system (add new types in ~10 lines)
+- ✅ **Per-Result Story Ordering**: story_sort_order in all result/cache tables
+- ✅ **Dual Cache System**: GlobalResultsCache + ElementResultsCache
+- ✅ **Directionless Results Support**: QuadRotations (no X/Y split)
 - ✅ Alembic migrations for schema evolution
 
 **Design System:**
@@ -79,10 +84,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Future Enhancements:**
 - [ ] Time-series results support (placeholder in UI exists)
-- [ ] Element results (columns, beams, piers)
+- [ ] Additional element results (columns, beams, spandrels)
 - [ ] Joint results (displacements, reactions)
 - [ ] 3D model visualization
 - [ ] Custom report generation
+
+**Recently Completed (October 2025):**
+- ✅ Wall Shears element results (V2/V3 directions, per-pier)
+- ✅ Quad Rotations element results (directionless, percentage display)
+- ✅ Max/Min support for all element results
+- ✅ Sheet-specific story ordering (each result type preserves its own Excel order)
+- ✅ Directionless result type support (single plot/table, no X/Y split)
 
 ---
 
@@ -400,6 +412,7 @@ builder.add_line(x_values, y_values, color='#3b82f6', width=2)
 - No time-series visualization yet
 - No 3D model integration yet
 - Single-user desktop app (no collaboration)
+- Element results currently limited to Walls (piers) - columns, beams, spandrels ready for future implementation
 
 > **Full constraints and assumptions**: See [PRD.md Section 7](PRD.md#7-constraints-and-assumptions)
 
@@ -413,8 +426,12 @@ pipenv run alembic upgrade head
 ```
 
 ### Import Fails
-- Check sheet names (case-sensitive): "Story Drifts", "Story Accelerations", "Story Forces"
-- Verify column format: `<prefix>_<load_case>_<direction>`
+- Check sheet names (case-sensitive):
+  - Global: "Story Drifts", "Story Accelerations", "Story Forces"
+  - Elements: "Pier Forces", "Quad Strain Gauge - Rotation"
+- Verify column format:
+  - Global: `<prefix>_<load_case>_<direction>`
+  - Elements: Pier-specific formats (see Excel parser)
 - Test with samples in `Typical Input/`
 
 ### Dark Title Bar Not Working
@@ -493,22 +510,29 @@ def filter_columns(self, df):
 **Data Access:**
 - `database/catalog_models.py` - Catalog ORM (project metadata)
 - `database/catalog_repository.py` - Catalog CRUD operations
-- `database/models.py` - Per-project ORM (stories, load cases, results)
-- `database/repository.py` - Per-project data access
+- `database/models.py` - Per-project ORM (stories, load cases, results, elements, caches)
+  - Global results: StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
+  - Element results: WallShear, QuadRotation
+  - Cache tables: GlobalResultsCache, ElementResultsCache (with story_sort_order)
+- `database/repository.py` - Per-project data access (CacheRepository, ElementCacheRepository)
 - `services/project_service.py` - Project context management
 
 **Processing:**
 - `processing/result_transformers.py` - Pluggable transformer system
-- `processing/import_context.py` - ResultImportHelper (shared import utilities)
+- `processing/import_context.py` - ResultImportHelper (shared import utilities, _story_order tracking)
 - `processing/folder_importer.py` - Batch folder import
-- `processing/data_importer.py` - Single file import
+- `processing/data_importer.py` - Single file import with cache generation
+- `processing/excel_parser.py` - Excel sheet parsing (global + element results)
+- `processing/result_processor.py` - Result processing logic
+- `processing/result_service.py` - Data retrieval with sheet-specific ordering
 
 **UI Components:**
 - `gui/main_window.py` - Project cards view
 - `gui/project_detail_window.py` - 3-panel layout orchestration
+- `gui/results_tree_browser.py` - Hierarchical result navigation (global + elements)
 - `gui/results_table_widget.py` - Table with manual selection
 - `gui/results_plot_widget.py` - PyQtGraph building profiles
-- `gui/maxmin_drifts_widget.py` - Max/Min drifts view
+- `gui/maxmin_drifts_widget.py` - Max/Min view (supports directionless results)
 - `gui/components/legend.py` - Reusable legend widgets
 
 **Utilities:**
