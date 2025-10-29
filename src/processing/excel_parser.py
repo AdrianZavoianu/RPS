@@ -99,16 +99,20 @@ class ExcelParser:
         return df, load_cases, stories
 
     def get_story_accelerations(self) -> Tuple[pd.DataFrame, List[str], List[str]]:
-        """Parse story acceleration data from Excel file.
+        """Parse story acceleration data from 'Diaphragm Accelerations' sheet.
 
         Returns:
             Tuple of (DataFrame, load_cases, stories)
 
         Note:
             Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            Format has separate Max/Min rows with Max UX/UY and Min UX/UY columns.
+            Columns: [Story, Output Case, Step Type, Max UX, Max UY, Min UX, Min UY]
         """
-        sheet = "Story Accelerations"
-        columns = [0, 1, 3, 4, 5]  # Output Case, Story, Direction, UX, UY
+        sheet = "Diaphragm Accelerations"
+        # Columns: Story, Diaphragm, Output Case, Case Type, Step Type, Max UX, Max UY, ..., Min UX, Min UY
+        # Indices:   0       1          2           3          4         5       6             11      12
+        columns = [0, 2, 4, 5, 6, 11, 12]  # Story, Output Case, Step Type, Max UX, Max UY, Min UX, Min UY
 
         df = self.read_sheet(sheet, columns)
 
@@ -223,6 +227,33 @@ class ExcelParser:
         available_sheets = self.get_available_sheets()
         return sheet_name in available_sheets
 
+    def get_column_forces(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+        """Parse column force data from Excel file.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories, columns)
+
+        Note:
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            Returns raw row-based data: each row contains Story, Column, Unique Name, Output Case, Location, V2, V3, etc.
+        """
+        sheet = "Element Forces - Columns"
+        # Columns: Story, Column, Unique Name, Output Case, Step Type, Location, P, V2, V3, T, M2, M3
+        # Indices:   0       1       2           3            5          6        7   8    9   11  12
+        columns = [0, 1, 2, 3, 5, 7, 8, 9]  # Story, Column, Unique Name, Output Case, Location, P, V2, V3
+
+        df = self.read_sheet(sheet, columns)
+
+        # Get unique values
+        unique_vals = self.get_unique_values(df, ["Output Case", "Story", "Column"])
+        load_cases = unique_vals["Output Case"]
+        stories = unique_vals["Story"]
+        columns_list = unique_vals["Column"]
+
+        # Keep stories in Excel order (no reversal - maintain source order)
+
+        return df, load_cases, stories, columns_list
+
     def get_quad_rotations(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
         """Parse quad strain gauge rotation data from Excel file.
 
@@ -249,3 +280,65 @@ class ExcelParser:
         # Keep stories in Excel order (no reversal - maintain source order)
 
         return df, load_cases, stories, piers
+
+    def get_fiber_hinge_states(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+        """Parse fiber hinge state data for columns from Excel file.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories, columns)
+
+        Note:
+            Only processes columns where Frame/Wall starts with 'C' (e.g., C2, C10).
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            Returns raw row-based data with R2 and R3 rotation values.
+        """
+        sheet = "Fiber Hinge States"
+        # Columns: Story, Frame/Wall, Unique Name, Output Case, Step Type, R2, R3
+        # Actual indices: 0=Story, 1=Frame/Wall, 2=Unique Name, 3=Output Case, 5=Step Type, 20=R2, 21=R3
+        columns = [0, 1, 2, 3, 5, 20, 21]  # Story, Frame/Wall, Unique Name, Output Case, Step Type, R2, R3
+
+        df = self.read_sheet(sheet, columns)
+
+        # Filter only columns (Frame/Wall starts with 'C')
+        if "Frame/Wall" in df.columns:
+            df = df[df["Frame/Wall"].astype(str).str.startswith("C", na=False)].copy()
+
+        # Get unique values
+        unique_vals = self.get_unique_values(df, ["Output Case", "Story", "Frame/Wall"])
+        load_cases = unique_vals["Output Case"]
+        stories = unique_vals["Story"]
+        columns_list = unique_vals["Frame/Wall"]  # Column identifiers like "C2", "C10"
+
+        # Keep stories in Excel order (no reversal - maintain source order)
+
+        return df, load_cases, stories, columns_list
+
+    def get_hinge_states(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+        """Parse hinge state data for beams from Excel file.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories, beams)
+
+        Note:
+            Only processes beams where Frame/Wall starts with 'B' (e.g., B19, B20).
+            Stories list preserves exact order from Excel (typically bottom to top from ETABS).
+            Returns raw row-based data with R3 Plastic rotation values.
+        """
+        sheet = "Hinge States"
+        # Columns: Story, Frame/Wall, Unique Name, Output Case, Step Type, Hinge, Generated Hinge, Rel Dist, R3 Plastic
+        # Actual indices: 0=Story, 1=Frame/Wall, 2=Unique Name, 3=Output Case, 5=Step Type, 6=Hinge, 7=Generated Hinge, 8=Rel Dist, 21=R3 Plastic
+        columns = [0, 1, 2, 3, 5, 6, 7, 8, 21]  # Story, Frame/Wall, Unique Name, Output Case, Step Type, Hinge, Generated Hinge, Rel Dist, R3 Plastic
+
+        df = self.read_sheet(sheet, columns)
+
+        # Filter only beams (Frame/Wall starts with 'B')
+        if "Frame/Wall" in df.columns:
+            df = df[df["Frame/Wall"].astype(str).str.startswith("B", na=False)].copy()
+
+        # Get unique values
+        unique_vals = self.get_unique_values(df, ["Output Case", "Story", "Frame/Wall"])
+        load_cases = unique_vals["Output Case"]
+        stories = unique_vals["Story"]
+        beams_list = unique_vals["Frame/Wall"]  # Beam identifiers like "B19", "B20"
+
+        return df, load_cases, stories, beams_list

@@ -390,13 +390,18 @@ class MaxMinDriftsWidget(QWidget):
 
     def load_data(self, dataset: "MaxMinDataset"):
         """Load and display Max/Min data for any result type."""
-        df = dataset.data
-        self.current_data = df
+        df_excel_order = dataset.data
         self.current_display_name = dataset.meta.display_name
         base_result_type = dataset.source_type or self._infer_base_result_type(dataset.meta.result_type)
         self.current_base_type = base_result_type
 
-        story_names = df['Story'].tolist() if 'Story' in df.columns else []
+        # REVERSE story order for plotting: bottom floors at bottom (y=0), top floors at top (y=max)
+        # Excel has top-to-bottom, but we want bottom-to-top for plots
+        df = df_excel_order.iloc[::-1].reset_index(drop=True)
+        self.current_data = df
+
+        story_names_excel = df_excel_order['Story'].tolist() if 'Story' in df_excel_order.columns else []
+        story_names = list(reversed(story_names_excel))  # Reverse for plotting
         available_directions = tuple(dataset.directions or ("X", "Y"))
 
         # Check if this is directionless data (e.g., QuadRotations)
@@ -891,7 +896,7 @@ class MaxMinDriftsWidget(QWidget):
                 widget.deleteLater()
 
     def _base_type_decimals(self, base_type: str) -> int:
-        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0, "WallShears": 0, "QuadRotations": 2}
+        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0, "WallShears": 0, "ColumnShears": 0, "ColumnRotations": 2, "QuadRotations": 2}
         return mapping.get(base_type, 2)
 
     def _format_maxmin_number(self, value: float, base_type: str) -> str:
@@ -900,7 +905,9 @@ class MaxMinDriftsWidget(QWidget):
             text = f"{round(value):.0f}"
         else:
             text = f"{value:.{decimals}f}"
-        return f"{text}%" if base_type == "Drifts" else text
+        # Add % symbol for percentage-based result types (Drifts, Rotations)
+        needs_percent = base_type in ("Drifts", "ColumnRotations", "QuadRotations")
+        return f"{text}%" if needs_percent else text
 
     def eventFilter(self, obj, event):
         """Handle hover effects and clicks for table rows."""
@@ -1097,7 +1104,7 @@ class MaxMinDriftsWidget(QWidget):
 
     @staticmethod
     def _create_direction_map(available_directions: tuple) -> dict:
-        """Create a mapping from display directions (X/Y) to data directions (X/Y/V2/V3/empty).
+        """Create a mapping from display directions (X/Y) to data directions (X/Y/V2/V3/R2/R3/empty).
 
         Args:
             available_directions: Tuple of available data directions
@@ -1108,6 +1115,9 @@ class MaxMinDriftsWidget(QWidget):
         # If data has V2/V3 (element shear results), map them to X/Y for display
         if "V2" in available_directions and "V3" in available_directions:
             return {"X": "V2", "Y": "V3"}
+        # If data has R2/R3 (column rotation results), map them to X/Y for display
+        elif "R2" in available_directions and "R3" in available_directions:
+            return {"X": "R2", "Y": "R3"}
         # If data has no direction (quad rotations), map both to empty string
         elif "" in available_directions or len(available_directions) == 1 and not available_directions[0]:
             return {"X": "", "Y": ""}

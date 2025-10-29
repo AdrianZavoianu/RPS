@@ -58,32 +58,50 @@ class ResultProcessor:
     def process_story_accelerations(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process story acceleration data for a specific direction.
+        """Process story acceleration data from 'Diaphragm Accelerations' sheet.
+
+        Handles the format with separate Max/Min rows and Max UX/UY and Min UX/UY columns.
 
         Args:
-            df: Raw acceleration data DataFrame
+            df: Raw diaphragm acceleration data DataFrame
             load_cases: List of load case names
             stories: List of story names (top-down order)
             direction: 'UX' or 'UY'
 
         Returns:
-            Processed DataFrame with acceleration in g-units
+            Processed DataFrame with acceleration in g-units (converted from mm/sec²)
         """
         results = []
 
+        # Column names for max and min values based on direction
+        max_col = f'Max {direction}'
+        min_col = f'Min {direction}'
+
         for story in stories:
             for case in load_cases:
-                # Filter data for this story and case
-                filtered = df.loc[
-                    (df["Output Case"] == case) & (df["Story"] == story)
+                # Filter Max row for this story and case
+                filtered_max = df.loc[
+                    (df["Output Case"] == case)
+                    & (df["Story"] == story)
+                    & (df["Step Type"] == "Max")
                 ]
 
-                if not filtered.empty:
-                    # Get acceleration values and convert to g-units (divide by 9810)
-                    accel_values = filtered[direction] / 9810
-                    abs_max_accel = accel_values.abs().max()
-                    max_accel = accel_values.max()
-                    min_accel = accel_values.min()
+                # Filter Min row for this story and case
+                filtered_min = df.loc[
+                    (df["Output Case"] == case)
+                    & (df["Story"] == story)
+                    & (df["Step Type"] == "Min")
+                ]
+
+                if not filtered_max.empty and not filtered_min.empty:
+                    # Get the max value from Max row and convert to g (divide by 9810)
+                    max_value = filtered_max[max_col].max() / 9810
+
+                    # Get the min value from Min row and convert to g (divide by 9810)
+                    min_value = filtered_min[min_col].min() / 9810
+
+                    # Take the absolute maximum (matching old script logic)
+                    abs_max_accel = max(abs(max_value), abs(min_value))
 
                     results.append(
                         {
@@ -91,8 +109,8 @@ class ResultProcessor:
                             "LoadCase": case,
                             "Direction": direction,
                             "Acceleration": round(abs_max_accel, 3),
-                            "MaxAcceleration": round(max_accel, 3),
-                            "MinAcceleration": round(min_accel, 3),
+                            "MaxAcceleration": round(max_value, 3),
+                            "MinAcceleration": round(min_value, 3),
                         }
                     )
 
@@ -237,6 +255,265 @@ class ResultProcessor:
                                     "MinForce": round(min_force, 1),
                                 }
                             )
+
+        return pd.DataFrame(results)
+
+    @staticmethod
+    def process_column_forces(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str], direction: str
+    ) -> pd.DataFrame:
+        """Process column force data for a specific direction.
+
+        Args:
+            df: Raw column force data DataFrame (row-based format)
+            load_cases: List of load case names
+            stories: List of story names (top-down order)
+            columns: List of unique column names
+            direction: 'V2' or 'V3'
+
+        Returns:
+            Processed DataFrame with columns: [Story, Column, UniqueNameList, LoadCase, Direction, Location, Force, MaxForce, MinForce]
+
+        Note:
+            Unlike walls/piers, columns have multiple unique names per column identifier.
+            We process each unique name separately for detailed results.
+        """
+        results = []
+
+        for story in stories:
+            for col in columns:
+                for case in load_cases:
+                    # Filter data for this story, column, and case
+                    filtered = df.loc[
+                        (df["Story"] == story)
+                        & (df["Column"] == col)
+                        & (df["Output Case"] == case)
+                    ].copy()
+
+                    if not filtered.empty and direction in filtered.columns:
+                        # Get unique column instances (Unique Name)
+                        unique_names = filtered["Unique Name"].unique().tolist()
+
+                        # Process each unique column instance
+                        for unique_name in unique_names:
+                            filtered_unique = filtered[filtered["Unique Name"] == unique_name]
+
+                            # Get force values for this direction
+                            force_values = pd.to_numeric(filtered_unique[direction], errors="coerce").dropna()
+
+                            if not force_values.empty:
+                                abs_max_force = force_values.abs().max()
+                                max_force = force_values.max()
+                                min_force = force_values.min()
+
+                                # Determine location (typically 'Top' or 'Bottom')
+                                location = filtered_unique["Location"].iloc[0] if "Location" in filtered_unique.columns else None
+
+                                results.append(
+                                    {
+                                        "Story": story,
+                                        "Column": col,
+                                        "UniqueName": unique_name,
+                                        "LoadCase": case,
+                                        "Direction": direction,
+                                        "Location": location,
+                                        "Force": round(abs_max_force, 1),
+                                        "MaxForce": round(max_force, 1),
+                                        "MinForce": round(min_force, 1),
+                                    }
+                                )
+
+        return pd.DataFrame(results)
+
+    @staticmethod
+    def process_column_axials(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str]
+    ) -> pd.DataFrame:
+        """Process column axial force data (minimum P values).
+
+        Args:
+            df: Raw column force data DataFrame (row-based format)
+            load_cases: List of load case names
+            stories: List of story names (top-down order)
+            columns: List of unique column names
+
+        Returns:
+            Processed DataFrame with columns: [Story, Column, UniqueNameList, LoadCase, Location, MinAxial]
+
+        Note:
+            Unlike shears which track both directions, axial forces only track the minimum (most compression) P value.
+        """
+        results = []
+
+        for story in stories:
+            for col in columns:
+                for case in load_cases:
+                    # Filter data for this story, column, and case
+                    filtered = df.loc[
+                        (df["Story"] == story)
+                        & (df["Column"] == col)
+                        & (df["Output Case"] == case)
+                    ].copy()
+
+                    if not filtered.empty and "P" in filtered.columns:
+                        # Get unique column instances (Unique Name)
+                        unique_names = filtered["Unique Name"].unique().tolist()
+
+                        # Process each unique column instance
+                        for unique_name in unique_names:
+                            filtered_unique = filtered[filtered["Unique Name"] == unique_name]
+
+                            # Get P values (axial forces - negative = compression)
+                            p_values = pd.to_numeric(filtered_unique["P"], errors="coerce").dropna()
+
+                            if not p_values.empty:
+                                # Minimum P (most compression - most negative value)
+                                min_axial = p_values.min()
+
+                                # Determine location (typically 'Top' or 'Bottom')
+                                location = filtered_unique["Location"].iloc[0] if "Location" in filtered_unique.columns else None
+
+                                results.append(
+                                    {
+                                        "Story": story,
+                                        "Column": col,
+                                        "UniqueName": unique_name,
+                                        "LoadCase": case,
+                                        "Location": location,
+                                        "MinAxial": round(min_axial, 1),
+                                    }
+                                )
+
+        return pd.DataFrame(results)
+
+    @staticmethod
+    def process_column_rotations(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str], direction: str
+    ) -> pd.DataFrame:
+        """Process column rotation data for a specific direction (R2 or R3).
+
+        Args:
+            df: Raw fiber hinge state data DataFrame (row-based format)
+            load_cases: List of load case names
+            stories: List of story names (top-down order)
+            columns: List of unique column identifiers (Frame/Wall)
+            direction: 'R2' or 'R3'
+
+        Returns:
+            Processed DataFrame with columns: [Story, Column, Element, LoadCase, Direction, Rotation, MaxRotation, MinRotation]
+
+        Note:
+            Rotations are stored in radians. They will be converted to percentage (× 100) in the cache.
+        """
+        results = []
+
+        for story in stories:
+            for col in columns:
+                for case in load_cases:
+                    # Filter data for this story, column, and case
+                    filtered = df.loc[
+                        (df["Story"] == story)
+                        & (df["Frame/Wall"] == col)
+                        & (df["Output Case"] == case)
+                    ].copy()
+
+                    if not filtered.empty and direction in filtered.columns:
+                        # Get element identifiers (Unique Name column)
+                        elements = filtered["Unique Name"].unique().tolist()
+
+                        # Process each element
+                        for element in elements:
+                            filtered_element = filtered[filtered["Unique Name"] == element]
+
+                            # Get rotation values for this direction
+                            rotation_values = pd.to_numeric(filtered_element[direction], errors="coerce").dropna()
+
+                            if not rotation_values.empty:
+                                # Use absolute max rotation (similar to column forces)
+                                abs_max_rotation = rotation_values.abs().max()
+                                max_rotation = rotation_values.max()
+                                min_rotation = rotation_values.min()
+
+                                results.append(
+                                    {
+                                        "Story": story,
+                                        "Column": col,
+                                        "Element": element,
+                                        "LoadCase": case,
+                                        "Direction": direction,
+                                        "Rotation": round(abs_max_rotation, 6),  # Keep precision for radians
+                                        "MaxRotation": round(max_rotation, 6),
+                                        "MinRotation": round(min_rotation, 6),
+                                    }
+                                )
+
+        return pd.DataFrame(results)
+
+    @staticmethod
+    def process_beam_rotations(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], beams: List[str]
+    ) -> pd.DataFrame:
+        """Process beam R3 plastic rotation data.
+
+        Args:
+            df: Raw hinge state data DataFrame (row-based format)
+            load_cases: List of load case names
+            stories: List of story names (top-down order)
+            beams: List of unique beam identifiers (Frame/Wall)
+
+        Returns:
+            Processed DataFrame with columns: [Story, Beam, Element, Hinge, GeneratedHinge, RelDist, LoadCase, R3Plastic, MaxR3Plastic, MinR3Plastic]
+
+        Note:
+            R3 Plastic rotations are stored in radians. They will be converted to percentage (× 100) in the cache.
+        """
+        results = []
+
+        for story in stories:
+            for beam in beams:
+                for case in load_cases:
+                    # Filter data for this story, beam, and case
+                    filtered = df.loc[
+                        (df["Story"] == story)
+                        & (df["Frame/Wall"] == beam)
+                        & (df["Output Case"] == case)
+                    ].copy()
+
+                    if not filtered.empty and "R3 Plastic" in filtered.columns:
+                        # Get unique element names (Unique Name column)
+                        elements = filtered["Unique Name"].unique().tolist()
+
+                        # Process each element
+                        for element in elements:
+                            filtered_element = filtered[filtered["Unique Name"] == element]
+
+                            # Get R3 Plastic values
+                            r3_values = pd.to_numeric(filtered_element["R3 Plastic"], errors="coerce").dropna()
+
+                            if not r3_values.empty:
+                                # Use absolute max rotation (similar to column rotations)
+                                abs_max_r3 = r3_values.abs().max()
+                                max_r3 = r3_values.max()
+                                min_r3 = r3_values.min()
+
+                                # Get hinge info from first row
+                                first_row = filtered_element.iloc[0]
+                                hinge = first_row.get("Hinge", "")
+                                generated_hinge = first_row.get("Generated Hinge", "")
+                                rel_dist = first_row.get("Rel Dist", 0.0)
+
+                                results.append({
+                                    "Story": story,
+                                    "Beam": beam,
+                                    "Element": element,
+                                    "Hinge": hinge,
+                                    "GeneratedHinge": generated_hinge,
+                                    "RelDist": rel_dist,
+                                    "LoadCase": case,
+                                    "R3Plastic": round(abs_max_r3, 8),  # Keep precision for radians
+                                    "MaxR3Plastic": round(max_r3, 8),
+                                    "MinR3Plastic": round(min_r3, 8),
+                                })
 
         return pd.DataFrame(results)
 

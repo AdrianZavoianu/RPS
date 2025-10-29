@@ -99,6 +99,13 @@ class WallShearTransformer(GenericResultTransformer):
         super().__init__(result_type)
 
 
+class ColumnShearTransformer(GenericResultTransformer):
+    """Transformer for column shear results."""
+    def __init__(self, direction: str):
+        result_type = f'ColumnShears_{direction}'
+        super().__init__(result_type)
+
+
 class QuadRotationTransformer(GenericResultTransformer):
     """Transformer for quad rotation results (already converted to percentage in cache)."""
     def __init__(self):
@@ -106,6 +113,34 @@ class QuadRotationTransformer(GenericResultTransformer):
 
     def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Keep all columns (no direction filtering needed for rotations)."""
+        return df.copy()
+
+
+class MinAxialTransformer(GenericResultTransformer):
+    """Transformer for minimum axial force results."""
+    def __init__(self):
+        super().__init__('MinAxial')
+
+    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep all columns (no direction filtering needed for axial forces)."""
+        return df.copy()
+
+
+class ColumnRotationTransformer(GenericResultTransformer):
+    """Transformer for column rotation results (R2 or R3)."""
+    def __init__(self, direction: str):
+        result_type = f'ColumnRotations_{direction}'
+        super().__init__(result_type)
+
+
+class BeamRotationTransformer(GenericResultTransformer):
+    """Transformer for beam R3 plastic rotation results."""
+    def __init__(self):
+        result_type = 'BeamRotations_R3Plastic'
+        super().__init__(result_type)
+
+    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep all columns (no direction filtering needed for beam rotations)."""
         return df.copy()
 
 
@@ -125,6 +160,12 @@ TRANSFORMERS = {
     'Displacements_Y': GenericResultTransformer('Displacements_Y'),
     'WallShears_V2': WallShearTransformer('V2'),
     'WallShears_V3': WallShearTransformer('V3'),
+    'ColumnShears_V2': ColumnShearTransformer('V2'),
+    'ColumnShears_V3': ColumnShearTransformer('V3'),
+    'MinAxial': MinAxialTransformer(),
+    'ColumnRotations_R2': ColumnRotationTransformer('R2'),
+    'ColumnRotations_R3': ColumnRotationTransformer('R3'),
+    'BeamRotations_R3Plastic': BeamRotationTransformer(),
     'QuadRotations': QuadRotationTransformer(),
 }
 

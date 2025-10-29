@@ -41,6 +41,16 @@ class ProjectSummary:
     result_sets: int = 0
 
 
+def _migrate_old_database_if_needed(db_path: Path) -> None:
+    """Migrate old project.db to {slug}.db if it exists.
+
+    This provides automatic migration when accessing projects with old naming.
+    """
+    old_db_path = db_path.parent / "project.db"
+    if old_db_path.exists() and not db_path.exists():
+        old_db_path.rename(db_path)
+
+
 def ensure_project_context(name: str, description: Optional[str] = None) -> ProjectContext:
     """Ensure catalog entry and project database exist for the given project name."""
     init_catalog_db()
@@ -50,7 +60,11 @@ def ensure_project_context(name: str, description: Optional[str] = None) -> Proj
     record = repo.get_by_name(name)
     if record:
         slug = record.slug
-        db_path = Path(record.db_path)
+        # Always use canonical path based on slug
+        db_path = get_project_db_path(slug)
+
+        # Auto-migrate old database naming if needed
+        _migrate_old_database_if_needed(db_path)
     else:
         base_slug = slugify(name)
         slug = base_slug
@@ -76,7 +90,7 @@ def ensure_project_context(name: str, description: Optional[str] = None) -> Proj
     return ProjectContext(
         name=record.name,
         slug=record.slug,
-        db_path=Path(record.db_path),
+        db_path=db_path,  # Use the canonical path we computed
         description=record.description,
         created_at=record.created_at,
     )
@@ -89,10 +103,18 @@ def get_project_context(name: str) -> Optional[ProjectContext]:
         record = CatalogProjectRepository(session).get_by_name(name)
         if not record:
             return None
+
+        # Use canonical path based on slug, not what's stored in catalog
+        # This handles migration from old project.db to {slug}.db naming
+        canonical_db_path = get_project_db_path(record.slug)
+
+        # Auto-migrate old database naming if needed
+        _migrate_old_database_if_needed(canonical_db_path)
+
         return ProjectContext(
             name=record.name,
             slug=record.slug,
-            db_path=Path(record.db_path),
+            db_path=canonical_db_path,
             description=record.description,
             created_at=record.created_at,
         )
@@ -105,22 +127,35 @@ def list_project_contexts() -> List[ProjectContext]:
     session = get_catalog_session()
     try:
         records = CatalogProjectRepository(session).get_all()
-        return [
-            ProjectContext(
+        contexts = []
+        for record in records:
+            canonical_db_path = get_project_db_path(record.slug)
+            # Auto-migrate old database naming if needed
+            _migrate_old_database_if_needed(canonical_db_path)
+
+            contexts.append(ProjectContext(
                 name=record.name,
                 slug=record.slug,
-                db_path=Path(record.db_path),
+                db_path=canonical_db_path,
                 description=record.description,
                 created_at=record.created_at,
-            )
-            for record in records
-        ]
+            ))
+        return contexts
     finally:
         session.close()
 
 
 def get_project_summary(context: ProjectContext) -> ProjectSummary:
     """Return counts for load cases/stories/result sets for a project context."""
+    from sqlalchemy.exc import OperationalError
+
+    # Ensure the database is initialized with proper schema
+    try:
+        init_project_db(context.db_path)
+    except Exception:
+        # If initialization fails, return empty summary
+        return ProjectSummary(context=context)
+
     session = context.session()
     try:
         project_repo = ProjectRepository(session)
@@ -138,6 +173,10 @@ def get_project_summary(context: ProjectContext) -> ProjectSummary:
             stories=story_count,
             result_sets=result_set_count,
         )
+    except OperationalError:
+        # If the database has issues (missing tables, corrupted, etc.)
+        # Return empty summary rather than crashing
+        return ProjectSummary(context=context)
     finally:
         session.close()
 
@@ -164,6 +203,24 @@ def result_set_exists(context: ProjectContext, result_set_name: str) -> bool:
 
 
 def delete_project_context(name: str) -> bool:
+    """Delete a project from catalog and remove its database and folder.
+
+    This will:
+    1. Remove the project entry from the catalog database
+    2. Delete the project's database file ({slug}.db)
+    3. Remove the entire project folder (data/projects/{slug}/)
+
+    Args:
+        name: Project name to delete
+
+    Returns:
+        True if project was deleted, False if project not found
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import NullPool
+    import gc
+    import time
+
     init_catalog_db()
     session = get_catalog_session()
     repo = CatalogProjectRepository(session)
@@ -171,10 +228,39 @@ def delete_project_context(name: str) -> bool:
     if not record:
         session.close()
         return False
+
+    # Store db_path before deleting the record
+    db_path = Path(record.db_path)
+    project_folder = db_path.parent
+
+    # Delete from catalog
     repo.delete(record)
     session.close()
 
-    db_path = Path(record.db_path)
+    # Close any lingering connections to the project database
+    # This is important on Windows where locked files cannot be deleted
     if db_path.exists():
-        shutil.rmtree(db_path.parent, ignore_errors=True)
+        # Force garbage collection to close any lingering connections
+        gc.collect()
+
+        # Give a brief moment for file handles to be released
+        time.sleep(0.1)
+
+    # Delete the entire project folder (includes database and any other files)
+    if project_folder.exists():
+        try:
+            shutil.rmtree(project_folder)
+        except Exception as e:
+            # On Windows, files might still be locked. Try again after a brief pause.
+            time.sleep(0.2)
+            gc.collect()
+            try:
+                shutil.rmtree(project_folder)
+            except Exception as e2:
+                # If still failing, raise with details
+                raise RuntimeError(
+                    f"Failed to delete project folder '{project_folder}': {e2}. "
+                    f"The project may still have open database connections."
+                )
+
     return True

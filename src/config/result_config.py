@@ -184,6 +184,66 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
+    'ColumnShears_V2': ResultTypeConfig(
+        name='ColumnShears_V2',
+        direction_suffix='_V2',
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Column Shear V2 (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'ColumnShears_V3': ResultTypeConfig(
+        name='ColumnShears_V3',
+        direction_suffix='_V3',
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Column Shear V3 (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'MinAxial': ResultTypeConfig(
+        name='MinAxial',
+        direction_suffix='',  # No direction suffix for axial forces
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Min Axial Force (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'ColumnRotations_R2': ResultTypeConfig(
+        name='ColumnRotations_R2',
+        direction_suffix='_R2',
+        unit='%',
+        decimal_places=2,
+        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
+        y_label='Column Rotation R2 (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'ColumnRotations_R3': ResultTypeConfig(
+        name='ColumnRotations_R3',
+        direction_suffix='_R3',
+        unit='%',
+        decimal_places=2,
+        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
+        y_label='Column Rotation R3 (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'BeamRotations_R3Plastic': ResultTypeConfig(
+        name='BeamRotations_R3Plastic',
+        direction_suffix='_R3Plastic',
+        unit='%',
+        decimal_places=2,
+        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
+        y_label='Beam R3 Plastic Rotation (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
 }
 
 

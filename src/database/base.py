@@ -16,7 +16,12 @@ Base = declarative_base()
 
 
 def get_project_db_path(slug: str) -> Path:
-    return PROJECTS_DIR / slug / "project.db"
+    """Get the database path for a project.
+
+    Database is named after the project slug: {slug}.db
+    Example: data/projects/160wil/160wil.db
+    """
+    return PROJECTS_DIR / slug / f"{slug}.db"
 
 
 def _create_engine(db_path: Path):

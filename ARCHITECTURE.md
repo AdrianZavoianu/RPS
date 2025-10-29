@@ -82,9 +82,9 @@ src/
 
 ### Catalog + Project Databases
 - **Catalog DB (`data/catalog.db`)** tracks project metadata (name, slug, description, per-project DB path, timestamps).
-- **Per-project DBs** live under `data/projects/<slug>/project.db` and contain only that project's stories, load cases, caches, and result sets.
+- **Per-project DBs** live under `data/projects/<slug>/<slug>.db` (e.g., `data/projects/160wil/160wil.db`) and contain only that project's stories, load cases, caches, and result sets.
 - **ProjectContext** (see `services/project_service.py`) is the hand-off object used by UI/dialogs and importers to ensure they always open sessions against the correct project file while transparently creating it on first use.
-- **Lifecycle**: `ensure_project_context()` guarantees catalog entry + DB file, `list_project_contexts()` feeds project listings, and `delete_project_context()` removes catalog entry plus on-disk database folder.
+- **Lifecycle**: `ensure_project_context()` guarantees catalog entry + DB file, `list_project_contexts()` feeds project listings, and `delete_project_context()` removes catalog entry plus on-disk database folder (including the database file).
 
 ### Session Strategy
 - UI layers never call the old global `get_session()`; instead they request `context.session()` or `context.session_factory()` to obtain SQLAlchemy sessions bound to a specific project DB.
@@ -161,20 +161,33 @@ story_sort_order: Integer  # Per-element sheet order (NEW in v1.4)
 
 **Problem Solved**: Different Excel sheets may have stories in different orders. For example:
 - Story Drifts sheet: S4, S3, S2, S1, Base (top to bottom)
-- Quad Strain sheet: S4, S2, Base (some piers don't span all stories)
+- Pier Forces sheet: S4, S2, Base (some piers don't span all stories)
+- Quad Strain sheet: Sorted by pier/element name (P1, P10, P2, P3...), NOT by story
 
 **Solution**: Each result record stores its `story_sort_order` from the source Excel sheet:
 - `story_sort_order = 0` for first row in Excel, `1` for second row, etc.
-- Display queries use `story_sort_order` from result/cache tables, NOT `Story.sort_order`
+- Display queries use `story_sort_order` from result/cache tables
 - Preserves exact Excel sheet order for each result type
 - Element results can have different story ordering per element
+
+**Quad Rotations Exception**:
+Quad rotation Excel sheets are sorted lexicographically by pier/element name, NOT by story height. Therefore:
+- **Individual quad rotations**: Use global `Story.sort_order` (from Story Drifts sheet)
+- **Max/Min quad rotations**: Use global `Story.sort_order`
+- **All Rotations scatter plot**: Use global `Story.sort_order`
+- Detection: Check if result type contains "QuadRotation" in service layer
+- Re-sorting: `_order_element_cache_entries()` re-sorts by global `Story.sort_order` when quad rotation detected
 
 **Implementation**:
 - `ResultImportHelper._story_order` tracks Excel row indices during import
 - All result models have `story_sort_order: Integer` column
 - All cache models have `story_sort_order: Integer` column
 - Repository queries order by `cache.story_sort_order.asc()` to preserve sheet order
-- Service layer returns data as-is (no reversals) to maintain Excel ordering
+- Service layer detects quad rotations and uses global ordering instead
+- Key methods:
+  - `get_element_maxmin_dataset()` - Lines 320-325: Quad rotation detection
+  - `_order_element_cache_entries()` - Lines 469-500: Re-sorting logic
+  - `get_all_quad_rotations_dataset()` - Line 851: Global sort order usage
 
 ### Indexing Strategy
 - Composite indexes on `(project_id, name)` for uniqueness
@@ -250,6 +263,16 @@ def get_config(result_type: str) -> ResultTypeConfig:
 - Max/Min widget detects `directions = ("")` and shows single plot
 - Column names: `Max_{LoadCase}`, `Min_{LoadCase}` (no direction suffix)
 - UI hides Y direction completely (no empty space)
+
+**All Rotations Visualization** (NEW in v1.4):
+- Special scatter plot showing all quad rotation data points across all elements
+- Treats stories as bins rather than exact values
+- Applies vertical jitter (±0.3 range) to show distribution within each story
+- Centered at x=0 to visualize positive/negative skewness
+- Single orange color (#f97316) for all markers
+- No legend (all data shown uniformly)
+- Widget: `gui/all_rotations_widget.py`
+- Data method: `result_service.get_all_quad_rotations_dataset()`
 
 ---
 
@@ -365,8 +388,24 @@ QApplication
     │   ├─> Results Tree Browser (200px)
     │   ├─> Results Table (auto-fit)
     │   └─> Results Plot (remaining)
+    │       ├─> Standard Plot (building profiles)
+    │       ├─> Max/Min Plot (separate X/Y or single)
+    │       └─> All Rotations Plot (scatter with jitter)
     └─> Status Bar
 ```
+
+### Specialized Widgets
+
+**All Rotations Widget** (`gui/all_rotations_widget.py`):
+- Scatter plot for visualizing distribution of quad rotations
+- Features:
+  - Story bins with vertical jitter (±0.3) for visibility
+  - Centered at x=0 with symmetric axis range
+  - Small markers (size=4) in single orange color
+  - No legend (uniform visualization)
+  - Combines Max and Min data in single view
+- Data source: `result_service.get_all_quad_rotations_dataset()`
+- Ordering: Uses global `Story.sort_order` (not sheet-specific)
 
 ### Interactive Features
 
@@ -454,6 +493,8 @@ self.table_widget.hover_cleared.connect(self.plot_widget.clear_preview)
 ```
 
 ### Display Pipeline
+
+**Standard Results (Drifts, Accelerations, etc.)**:
 ```
 1. User selects "Drifts" in tree browser
    ↓
@@ -468,6 +509,26 @@ self.table_widget.hover_cleared.connect(self.plot_widget.clear_preview)
    → Table: Apply gradient colors
    → Plot: Build using PlotBuilder
    → Plot: Render building profile
+```
+
+**All Rotations Scatter Plot**:
+```
+1. User selects "All Rotations" in tree browser
+   ↓
+2. Query QuadRotation table (all elements)
+   → Join with LoadCase, Story, Element
+   → Filter by project_id only (no element filter)
+   ↓
+3. Build dataset with global story ordering:
+   → Convert radians to percentage (* 100)
+   → Use Story.sort_order (not sheet-specific)
+   → Sort by story order (bottom to top)
+   ↓
+4. Display scatter plot:
+   → Apply vertical jitter (±0.3) per story bin
+   → Center at x=0 with symmetric range
+   → Single orange color, size=4 markers
+   → No legend
 ```
 
 ---
@@ -581,6 +642,7 @@ $ pipenv run python dev_watch.py
 | **Manual selection system** | Preserves gradient colors | More code than Qt defaults |
 | **Per-result story ordering** | Preserves Excel sheet order exactly | story_sort_order in every result table |
 | **Dual cache system** | Global + element results separation | More cache tables to maintain |
+| **Quad rotation global ordering** | Correct story order despite lexicographic sheet sorting | Special case handling in service layer |
 
 ---
 
@@ -588,6 +650,7 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.4.1 | 2025-10-27 | All Rotations scatter plot, quad rotation global ordering exception, cache entry tuple fix |
 | 1.4 | 2025-10-27 | Element results (WallShears, QuadRotations), sheet-specific story ordering (story_sort_order), directionless results support, ElementResultsCache |
 | 1.3 | 2025-10-25 | Catalog/per-project DB split, ResultImportHelper, shared visual config/legend components, project_tools CLI |
 | 1.2 | 2025-10-24 | Condensed to ~600 lines, removed redundancy |

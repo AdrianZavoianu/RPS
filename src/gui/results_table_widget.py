@@ -287,7 +287,12 @@ class ResultsTableWidget(QFrame):
 
     def load_dataset(self, dataset: "ResultDataset"):
         """Load data from a ResultDataset into the table."""
-        df = dataset.data
+        df_excel_order = dataset.data
+
+        # REVERSE story order for tables: bottom floors first, top floors last
+        # Excel has top-to-bottom, but we want bottom-to-top for tables
+        df = df_excel_order.iloc[::-1].reset_index(drop=True)
+
         self._dataset = dataset
         self._current_result_type = dataset.meta.result_type or ""
         self._apply_type_styles(self._base_result_type())
@@ -384,7 +389,7 @@ class ResultsTableWidget(QFrame):
         except (TypeError, ValueError):
             return str(value)
         base_type = self._base_result_type()
-        if base_type in {"Accelerations", "Forces", "Displacements", "WallShears", "QuadRotations"}:
+        if base_type in {"Accelerations", "Forces", "Displacements", "WallShears", "ColumnShears", "MinAxial", "QuadRotations"}:
             unit_suffix = ""
         else:
             unit_suffix = config.unit or ""

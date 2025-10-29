@@ -15,7 +15,7 @@ from database.repository import (
     ElementRepository,
     ElementCacheRepository,
 )
-from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement, WallShear, QuadRotation
+from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement, WallShear, ColumnShear, ColumnAxial, ColumnRotation, QuadRotation, BeamRotation
 
 from .excel_parser import ExcelParser
 from .result_processor import ResultProcessor
@@ -69,6 +69,12 @@ class DataImporter:
             "displacements": 0,
             "pier_forces": 0,
             "piers": 0,
+            "column_forces": 0,
+            "column_axials": 0,
+            "column_rotations": 0,
+            "columns": 0,
+            "beam_rotations": 0,
+            "beams": 0,
             "errors": [],
         }
 
@@ -110,8 +116,8 @@ class DataImporter:
                 stats["stories"] += drift_stats.get("stories", 0)
                 stats["drifts"] += drift_stats.get("drifts", 0)
 
-            # Import story accelerations if available
-            if self._should_import("Story Accelerations") and self.parser.validate_sheet_exists("Story Accelerations"):
+            # Import story accelerations if available (from Diaphragm Accelerations sheet)
+            if self._should_import("Story Accelerations") and self.parser.validate_sheet_exists("Diaphragm Accelerations"):
                 accel_stats = self._import_story_accelerations(session, project.id)
                 stats["accelerations"] += accel_stats.get("accelerations", 0)
 
@@ -129,6 +135,30 @@ class DataImporter:
                 pier_stats = self._import_pier_forces(session, project.id)
                 stats["pier_forces"] += pier_stats.get("pier_forces", 0)
                 stats["piers"] += pier_stats.get("piers", 0)
+
+            # Import column forces if available
+            if self._should_import("Column Forces") and self.parser.validate_sheet_exists("Element Forces - Columns"):
+                column_stats = self._import_column_forces(session, project.id)
+                stats["column_forces"] += column_stats.get("column_forces", 0)
+                stats["columns"] += column_stats.get("columns", 0)
+
+            # Import column axials if available (same sheet as column forces)
+            if self._should_import("Column Axials") and self.parser.validate_sheet_exists("Element Forces - Columns"):
+                axial_stats = self._import_column_axials(session, project.id)
+                stats["column_axials"] += axial_stats.get("column_axials", 0)
+                # Columns already counted from column forces
+
+            # Import column rotations if available (from Fiber Hinge States sheet)
+            if self._should_import("Column Rotations") and self.parser.validate_sheet_exists("Fiber Hinge States"):
+                rotation_stats = self._import_column_rotations(session, project.id)
+                stats["column_rotations"] += rotation_stats.get("column_rotations", 0)
+                # Columns already counted
+
+            # Import beam rotations if available (from Hinge States sheet)
+            if self._should_import("Beam Rotations") and self.parser.validate_sheet_exists("Hinge States"):
+                beam_stats = self._import_beam_rotations(session, project.id)
+                stats["beam_rotations"] += beam_stats.get("beam_rotations", 0)
+                stats["beams"] += beam_stats.get("beams", 0)
 
             # Import quad rotations if available
             if self._should_import("Quad Rotations") and self.parser.validate_sheet_exists("Quad Strain Gauge - Rotation"):
@@ -205,7 +235,7 @@ class DataImporter:
         return stats
 
     def _import_story_accelerations(self, session, project_id: int) -> dict:
-        """Import story acceleration data."""
+        """Import story acceleration data from Diaphragm Accelerations sheet."""
         stats = {"accelerations": 0}
 
         try:
@@ -451,6 +481,235 @@ class DataImporter:
 
         return stats
 
+    def _import_column_forces(self, session, project_id: int) -> dict:
+        """Import column force data (element-level shear forces)."""
+        stats = {"column_forces": 0, "columns": 0}
+
+        try:
+            df, load_cases, stories, columns = self.parser.get_column_forces()
+            helper = ResultImportHelper(session, project_id, stories)
+            element_repo = ElementRepository(session)
+
+            # Get or create Element records for each column
+            column_elements = {}
+            for column_name in columns:
+                element = element_repo.get_or_create(
+                    project_id=project_id,
+                    element_type="Column",
+                    unique_name=column_name,
+                    name=column_name,
+                )
+                column_elements[column_name] = element
+
+            stats["columns"] = len(column_elements)
+
+            # Process each direction (V2, V3)
+            for direction in ["V2", "V3"]:
+                processed = ResultProcessor.process_column_forces(
+                    df, load_cases, stories, columns, direction
+                )
+
+                column_shear_objects = []
+
+                for _, row in processed.iterrows():
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(row["LoadCase"])
+                    element = column_elements[row["Column"]]
+
+                    column_shear = ColumnShear(
+                        element_id=element.id,
+                        story_id=story.id,
+                        load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
+                        direction=direction,
+                        location=row.get("Location"),
+                        force=row["Force"],
+                        max_force=row.get("MaxForce"),
+                        min_force=row.get("MinForce"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
+                    )
+                    column_shear_objects.append(column_shear)
+
+                # Bulk insert
+                session.bulk_save_objects(column_shear_objects)
+                session.commit()
+                stats["column_forces"] += len(column_shear_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing column forces: {e}")
+
+        return stats
+
+    def _import_column_axials(self, session, project_id: int) -> dict:
+        """Import column axial force data (minimum P values)."""
+        stats = {"column_axials": 0}
+
+        try:
+            df, load_cases, stories, columns = self.parser.get_column_forces()
+            helper = ResultImportHelper(session, project_id, stories)
+            element_repo = ElementRepository(session)
+
+            # Get or create Element records for each column (reuse from column forces)
+            column_elements = {}
+            for column_name in columns:
+                element = element_repo.get_or_create(
+                    project_id=project_id,
+                    element_type="Column",
+                    unique_name=column_name,
+                    name=column_name,
+                )
+                column_elements[column_name] = element
+
+            # Process column axials (minimum P values)
+            processed = ResultProcessor.process_column_axials(
+                df, load_cases, stories, columns
+            )
+
+            column_axial_objects = []
+
+            for _, row in processed.iterrows():
+                story = helper.get_story(row["Story"])
+                load_case = helper.get_load_case(row["LoadCase"])
+                element = column_elements[row["Column"]]
+
+                column_axial = ColumnAxial(
+                    element_id=element.id,
+                    story_id=story.id,
+                    load_case_id=load_case.id,
+                    result_category_id=self.result_category_id,
+                    location=row.get("Location"),
+                    min_axial=row["MinAxial"],
+                    story_sort_order=helper._story_order.get(row["Story"]),
+                )
+                column_axial_objects.append(column_axial)
+
+            # Bulk insert
+            session.bulk_save_objects(column_axial_objects)
+            session.commit()
+            stats["column_axials"] += len(column_axial_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing column axials: {e}")
+
+        return stats
+
+    def _import_column_rotations(self, session, project_id: int) -> dict:
+        """Import column rotation data from Fiber Hinge States (R2 and R3 rotations)."""
+        stats = {"column_rotations": 0, "columns": 0}
+
+        try:
+            df, load_cases, stories, columns = self.parser.get_fiber_hinge_states()
+            helper = ResultImportHelper(session, project_id, stories)
+            element_repo = ElementRepository(session)
+
+            # Get or create Element records for each column
+            column_elements = {}
+            for column_name in columns:
+                element = element_repo.get_or_create(
+                    project_id=project_id,
+                    element_type="Column",
+                    unique_name=column_name,
+                    name=column_name,
+                )
+                column_elements[column_name] = element
+
+            stats["columns"] = len(column_elements)
+
+            # Process each direction (R2, R3)
+            for direction in ["R2", "R3"]:
+                processed = ResultProcessor.process_column_rotations(
+                    df, load_cases, stories, columns, direction
+                )
+
+                column_rotation_objects = []
+
+                for _, row in processed.iterrows():
+                    story = helper.get_story(row["Story"])
+                    load_case = helper.get_load_case(row["LoadCase"])
+                    element = column_elements[row["Column"]]
+
+                    column_rotation = ColumnRotation(
+                        element_id=element.id,
+                        story_id=story.id,
+                        load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
+                        direction=direction,
+                        rotation=row["Rotation"],
+                        max_rotation=row.get("MaxRotation"),
+                        min_rotation=row.get("MinRotation"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
+                    )
+                    column_rotation_objects.append(column_rotation)
+
+                # Bulk insert
+                session.bulk_save_objects(column_rotation_objects)
+                session.commit()
+                stats["column_rotations"] += len(column_rotation_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing column rotations: {e}")
+
+        return stats
+
+    def _import_beam_rotations(self, session, project_id: int) -> dict:
+        """Import beam rotation data from Hinge States (R3 Plastic rotations)."""
+        stats = {"beam_rotations": 0, "beams": 0}
+
+        try:
+            df, load_cases, stories, beams = self.parser.get_hinge_states()
+            helper = ResultImportHelper(session, project_id, stories)
+            element_repo = ElementRepository(session)
+
+            # Get or create Element records for each beam
+            beam_elements = {}
+            for beam_name in beams:
+                element = element_repo.get_or_create(
+                    project_id=project_id,
+                    element_type="Beam",
+                    unique_name=beam_name,
+                    name=beam_name,
+                )
+                beam_elements[beam_name] = element
+
+            stats["beams"] = len(beam_elements)
+
+            # Process beam rotations (single direction: R3 Plastic)
+            processed = ResultProcessor.process_beam_rotations(
+                df, load_cases, stories, beams
+            )
+
+            beam_rotation_objects = []
+
+            for _, row in processed.iterrows():
+                story = helper.get_story(row["Story"])
+                load_case = helper.get_load_case(row["LoadCase"])
+                element = beam_elements[row["Beam"]]
+
+                beam_rotation = BeamRotation(
+                    element_id=element.id,
+                    story_id=story.id,
+                    load_case_id=load_case.id,
+                    result_category_id=self.result_category_id,
+                    hinge=row.get("Hinge"),
+                    generated_hinge=row.get("GeneratedHinge"),
+                    rel_dist=row.get("RelDist"),
+                    r3_plastic=row["R3Plastic"],
+                    max_r3_plastic=row.get("MaxR3Plastic"),
+                    min_r3_plastic=row.get("MinR3Plastic"),
+                    story_sort_order=helper._story_order.get(row["Story"]),
+                )
+                beam_rotation_objects.append(beam_rotation)
+
+            # Bulk insert
+            session.bulk_save_objects(beam_rotation_objects)
+            session.commit()
+            stats["beam_rotations"] += len(beam_rotation_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing beam rotations: {e}")
+
+        return stats
+
     def _generate_cache(self, session, project_id: int, result_set_id: int):
         """Generate wide-format cache tables for fast tabular display."""
         story_repo = StoryRepository(session)
@@ -467,6 +726,10 @@ class DataImporter:
         self._cache_forces(session, project_id, result_set_id, stories, cache_repo, result_repo)
         self._cache_displacements(session, project_id, result_set_id, stories, cache_repo, result_repo)
         self._cache_pier_forces(session, project_id, result_set_id, stories)
+        self._cache_column_shears(session, project_id, result_set_id, stories)
+        self._cache_min_axials(session, project_id, result_set_id, stories)
+        self._cache_column_rotations(session, project_id, result_set_id, stories)
+        self._cache_beam_rotations(session, project_id, result_set_id, stories)
         self._cache_quad_rotations(session, project_id, result_set_id, stories)
         self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
 
@@ -627,6 +890,102 @@ class DataImporter:
                         story_sort_order=story_sort_orders.get(story_id),
                     )
 
+    def _cache_column_shears(self, session, project_id: int, result_set_id: int, stories):
+        """Generate cache for column shears (element-level shear forces)."""
+        from sqlalchemy import and_
+        from database.models import ColumnShear, LoadCase, Story, Element
+
+        element_repo = ElementRepository(session)
+        element_cache_repo = ElementCacheRepository(session)
+
+        # Get all column elements for this project
+        columns = element_repo.get_by_project(project_id, element_type="Column")
+
+        # For each column and each direction, generate cache
+        for column in columns:
+            for direction in ["V2", "V3"]:
+                result_type = f"ColumnShears_{direction}"
+
+                # Query column shears for this column and direction
+                shears = (
+                    session.query(ColumnShear, LoadCase.name, Story)
+                    .join(LoadCase, ColumnShear.load_case_id == LoadCase.id)
+                    .join(Story, ColumnShear.story_id == Story.id)
+                    .filter(ColumnShear.element_id == column.id)
+                    .filter(ColumnShear.direction == direction)
+                    .filter(ColumnShear.result_category_id == self.result_category_id)
+                    .all()
+                )
+
+                # Build wide-format cache per story, track story_sort_order per element
+                story_data = {}
+                story_sort_orders = {}
+                for shear, case_name, story in shears:
+                    if story.id not in story_data:
+                        story_data[story.id] = {}
+                        # Capture story_sort_order from first shear for this element+story
+                        story_sort_orders[story.id] = shear.story_sort_order
+                    story_data[story.id][case_name] = shear.force
+
+                # Upsert cache entries
+                for story_id, results_matrix in story_data.items():
+                    element_cache_repo.upsert_cache_entry(
+                        project_id=project_id,
+                        element_id=column.id,
+                        story_id=story_id,
+                        result_type=result_type,
+                        results_matrix=results_matrix,
+                        result_set_id=result_set_id,
+                        story_sort_order=story_sort_orders.get(story_id),
+                    )
+
+    def _cache_min_axials(self, session, project_id: int, result_set_id: int, stories):
+        """Generate cache for minimum axial forces (element-level compression)."""
+        from sqlalchemy import and_
+        from database.models import ColumnAxial, LoadCase, Story, Element
+
+        element_repo = ElementRepository(session)
+        element_cache_repo = ElementCacheRepository(session)
+
+        # Get all column elements for this project
+        columns = element_repo.get_by_project(project_id, element_type="Column")
+
+        # For each column, generate cache
+        for column in columns:
+            result_type = "MinAxial"
+
+            # Query column axials for this column
+            axials = (
+                session.query(ColumnAxial, LoadCase.name, Story)
+                .join(LoadCase, ColumnAxial.load_case_id == LoadCase.id)
+                .join(Story, ColumnAxial.story_id == Story.id)
+                .filter(ColumnAxial.element_id == column.id)
+                .filter(ColumnAxial.result_category_id == self.result_category_id)
+                .all()
+            )
+
+            # Build wide-format cache per story, track story_sort_order per element
+            story_data = {}
+            story_sort_orders = {}
+            for axial, case_name, story in axials:
+                if story.id not in story_data:
+                    story_data[story.id] = {}
+                    # Capture story_sort_order from first axial for this element+story
+                    story_sort_orders[story.id] = axial.story_sort_order
+                story_data[story.id][case_name] = axial.min_axial
+
+            # Upsert cache entries
+            for story_id, results_matrix in story_data.items():
+                element_cache_repo.upsert_cache_entry(
+                    project_id=project_id,
+                    element_id=column.id,
+                    story_id=story_id,
+                    result_type=result_type,
+                    results_matrix=results_matrix,
+                    result_set_id=result_set_id,
+                    story_sort_order=story_sort_orders.get(story_id),
+                )
+
     def _cache_quad_rotations(self, session, project_id: int, result_set_id: int, stories):
         """Generate cache for quad rotations (element-level rotations displayed as %)."""
         from sqlalchemy import and_
@@ -668,6 +1027,104 @@ class DataImporter:
                 element_cache_repo.upsert_cache_entry(
                     project_id=project_id,
                     element_id=pier.id,
+                    story_id=story_id,
+                    result_type=result_type,
+                    results_matrix=results_matrix,
+                    result_set_id=result_set_id,
+                    story_sort_order=story_sort_orders.get(story_id),
+                )
+
+    def _cache_column_rotations(self, session, project_id: int, result_set_id: int, stories):
+        """Generate cache for column rotations (element-level rotations displayed as %)."""
+        from sqlalchemy import and_
+        from database.models import ColumnRotation, LoadCase, Story, Element
+
+        element_repo = ElementRepository(session)
+        element_cache_repo = ElementCacheRepository(session)
+
+        # Get all column elements for this project
+        columns = element_repo.get_by_project(project_id, element_type="Column")
+
+        # For each column and each direction, generate cache
+        for column in columns:
+            for direction in ["R2", "R3"]:
+                result_type = f"ColumnRotations_{direction}"
+
+                # Query column rotations for this column and direction
+                rotations = (
+                    session.query(ColumnRotation, LoadCase.name, Story)
+                    .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
+                    .join(Story, ColumnRotation.story_id == Story.id)
+                    .filter(ColumnRotation.element_id == column.id)
+                    .filter(ColumnRotation.direction == direction)
+                    .filter(ColumnRotation.result_category_id == self.result_category_id)
+                    .all()
+                )
+
+                # Build wide-format cache per story, track story_sort_order per element
+                story_data = {}
+                story_sort_orders = {}
+                for rotation, case_name, story in rotations:
+                    if story.id not in story_data:
+                        story_data[story.id] = {}
+                        # Capture story_sort_order from first rotation for this element+story
+                        story_sort_orders[story.id] = rotation.story_sort_order
+                    # Convert radians to percentage (* 100) for display
+                    story_data[story.id][case_name] = rotation.rotation * 100.0
+
+                # Upsert cache entries
+                for story_id, results_matrix in story_data.items():
+                    element_cache_repo.upsert_cache_entry(
+                        project_id=project_id,
+                        element_id=column.id,
+                        story_id=story_id,
+                        result_type=result_type,
+                        results_matrix=results_matrix,
+                        result_set_id=result_set_id,
+                        story_sort_order=story_sort_orders.get(story_id),
+                    )
+
+    def _cache_beam_rotations(self, session, project_id: int, result_set_id: int, stories):
+        """Generate cache for beam rotations (element-level R3 Plastic rotations displayed as %)."""
+        from sqlalchemy import and_
+        from database.models import BeamRotation, LoadCase, Story, Element
+
+        element_repo = ElementRepository(session)
+        element_cache_repo = ElementCacheRepository(session)
+
+        # Get all beam elements for this project
+        beams = element_repo.get_by_project(project_id, element_type="Beam")
+
+        # For each beam, generate cache for R3 Plastic rotations
+        for beam in beams:
+            result_type = "BeamRotations_R3Plastic"
+
+            # Query beam rotations for this beam
+            rotations = (
+                session.query(BeamRotation, LoadCase.name, Story)
+                .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
+                .join(Story, BeamRotation.story_id == Story.id)
+                .filter(BeamRotation.element_id == beam.id)
+                .filter(BeamRotation.result_category_id == self.result_category_id)
+                .all()
+            )
+
+            # Build wide-format cache per story, track story_sort_order per element
+            story_data = {}
+            story_sort_orders = {}
+            for rotation, case_name, story in rotations:
+                if story.id not in story_data:
+                    story_data[story.id] = {}
+                    # Capture story_sort_order from first rotation for this element+story
+                    story_sort_orders[story.id] = rotation.story_sort_order
+                # Convert radians to percentage (* 100) for display
+                story_data[story.id][case_name] = rotation.r3_plastic * 100.0
+
+            # Upsert cache entries
+            for story_id, results_matrix in story_data.items():
+                element_cache_repo.upsert_cache_entry(
+                    project_id=project_id,
+                    element_id=beam.id,
                     story_id=story_id,
                     result_type=result_type,
                     results_matrix=results_matrix,

@@ -40,9 +40,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Data Hierarchy (100% Complete):**
 - ✅ Result sets with user-defined names (DES, MCE, SLE, etc.)
 - ✅ Load cases shared across all result sets
-- ✅ Result categories: Envelopes → Global Results → Elements (Walls)
+- ✅ Result categories: Envelopes → Global Results → Elements (Walls, Columns, Beams)
 - ✅ **Global Results**: Drifts, Accelerations, Forces, Displacements (all with Max/Min)
-- ✅ **Element Results**: Wall Shears (V2/V3), Quad Rotations (per-pier data)
+- ✅ **Element Results**:
+  - Wall Shears (V2/V3), Quad Rotations (per-pier data)
+  - Column Shears (V2/V3), Column Axials (Min), Column Rotations (R2/R3)
+  - Beam Rotations (R3 Plastic)
 - ✅ Full UI integration: tree browser + detail views
 - ✅ Duplicate validation for result set names
 - ✅ **Sheet-Specific Story Ordering**: Each result type preserves its own Excel sheet order
@@ -84,7 +87,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Future Enhancements:**
 - [ ] Time-series results support (placeholder in UI exists)
-- [ ] Additional element results (columns, beams, spandrels)
+- [ ] Additional element results (spandrels)
 - [ ] Joint results (displacements, reactions)
 - [ ] 3D model visualization
 - [ ] Custom report generation
@@ -92,9 +95,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Recently Completed (October 2025):**
 - ✅ Wall Shears element results (V2/V3 directions, per-pier)
 - ✅ Quad Rotations element results (directionless, percentage display)
+- ✅ Column Shears element results (V2/V3 directions, per-column)
+- ✅ Column Minimum Axial forces (per-column)
+- ✅ Column Rotations (R2/R3 plastic hinges, from Fiber Hinge States)
+- ✅ Beam Rotations (R3 plastic hinges, from Hinge States)
 - ✅ Max/Min support for all element results
-- ✅ Sheet-specific story ordering (each result type preserves its own Excel order)
+- ✅ **All Rotations scatter plots** (combines all elements, story bins with jitter)
+- ✅ **Wide-format tables** for beam rotations (load cases as columns, with Avg/Max/Min)
+- ✅ **Story Ordering System**: Sheet-specific ordering for most results, global Story.sort_order for quad rotations
 - ✅ Directionless result type support (single plot/table, no X/Y split)
+- ✅ **Gradient color formatting** for all tables (value-based colors with center alignment)
 
 ---
 
@@ -456,6 +466,17 @@ def filter_columns(self, df):
     return filtered.copy()  # Add .copy()
 ```
 
+### Database Naming Migration
+**New projects** automatically use the new naming scheme: `data/projects/{slug}/{slug}.db`
+
+**Existing projects** with old `project.db` naming can be migrated:
+```bash
+# Close the RPS application first!
+pipenv run python scripts/migrate_database_names.py
+```
+
+This will rename all `project.db` files to `{slug}.db` and update the catalog.
+
 ---
 
 ## Next Steps
@@ -533,6 +554,7 @@ def filter_columns(self, df):
 - `gui/results_table_widget.py` - Table with manual selection
 - `gui/results_plot_widget.py` - PyQtGraph building profiles
 - `gui/maxmin_drifts_widget.py` - Max/Min view (supports directionless results)
+- `gui/all_rotations_widget.py` - All quad rotations scatter plot with story bins
 - `gui/components/legend.py` - Reusable legend widgets
 
 **Utilities:**
@@ -542,6 +564,46 @@ def filter_columns(self, df):
 
 ---
 
-**Last Updated**: 2025-10-26
-**Status**: Production-ready, refactored architecture complete
+---
+
+## Story Ordering System
+
+### Overview
+RPS implements a sophisticated story ordering system that preserves Excel sheet order for each result type:
+
+- **Sheet-specific ordering**: Most result types preserve their exact Excel sheet row order
+- **Global ordering exception**: Quad rotations use global `Story.sort_order` from Story Drifts sheet
+- **Display conventions**:
+  - Plots: Bottom floors at bottom (y=0), top floors at top (ascending)
+  - Tables: Bottom floors first, top floors last (ascending order)
+
+### Implementation Details
+
+**Why sheet-specific ordering?**
+Different Excel sheets may have stories in different orders:
+- Story Drifts: All stories present (S4 → S3 → S2 → S1 → Base)
+- Pier Forces: Per-element sheets may skip stories where pier doesn't exist
+- Quad Rotations: Sorted by element/pier name lexicographically, NOT by story
+
+**Quad Rotations Special Case:**
+Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "P2", "P3"), not by story height. Therefore:
+- Individual quad rotation views use **global `Story.sort_order`** from Story Drifts sheet
+- Max/Min quad rotation views use **global `Story.sort_order`**
+- "All Rotations" scatter plot uses **global `Story.sort_order`**
+- This ensures correct vertical building ordering despite lexicographic element sorting in Excel
+
+**Key Code Locations:**
+- `processing/result_service.py:320-325` - Quad rotation detection in `get_element_maxmin_dataset()`
+- `processing/result_service.py:469-500` - Quad rotation re-sorting in `_order_element_cache_entries()`
+- `processing/result_service.py:851` - Global sort order in `get_all_quad_rotations_dataset()`
+
+**Database columns:**
+- `Story.sort_order` - Global story order from Story Drifts sheet (0=bottom floor)
+- `<result>.story_sort_order` - Per-sheet row index (0=first row in Excel)
+- Cache uses appropriate ordering based on result type
+
+---
+
+**Last Updated**: 2025-10-28
+**Status**: Production-ready, database naming updated, acceleration data source migrated to Diaphragm Accelerations
 **Note**: Structural details moved to [ARCHITECTURE.md](ARCHITECTURE.md) - this file focuses on quick development tasks

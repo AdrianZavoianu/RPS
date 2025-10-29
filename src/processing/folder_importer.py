@@ -12,13 +12,19 @@ from database.repository import ProjectRepository, LoadCaseRepository, StoryRepo
 from .excel_parser import ExcelParser
 from .data_importer import DataImporter
 
-TARGET_SHEETS = {
-    "Story Drifts": "Story Drifts",
-    "Story Accelerations": "Story Accelerations",
-    "Story Forces": "Story Forces",
-    "Joint DisplacementsG": "Floors Displacements",
-    "Pier Forces": "Pier Forces",
-    "Quad Strain Gauge - Rotation": "Quad Rotations",
+TARGET_SHEETS: Dict[str, List[str]] = {
+    "Story Drifts": ["Story Drifts"],
+    "Diaphragm Accelerations": ["Story Accelerations"],  # Using Diaphragm Accelerations sheet (newer ETABS format)
+    "Story Forces": ["Story Forces"],
+    "Joint DisplacementsG": ["Floors Displacements"],
+    "Pier Forces": ["Pier Forces"],
+    # Columns sheet supplies both shears and axial compression envelopes.
+    "Element Forces - Columns": ["Column Forces", "Column Axials"],
+    # Fiber Hinge States sheet supplies column rotations (R2, R3).
+    "Fiber Hinge States": ["Column Rotations"],
+    # Hinge States sheet supplies beam rotations (R3 Plastic).
+    "Hinge States": ["Beam Rotations"],
+    "Quad Strain Gauge - Rotation": ["Quad Rotations"],
 }
 
 
@@ -93,11 +99,13 @@ class FolderImporter:
                 parser = ExcelParser(str(excel_file))
                 available = set(parser.get_available_sheets())
 
-                matched_labels = [
-                    label
-                    for sheet, label in TARGET_SHEETS.items()
-                    if sheet in available and self._should_import(label)
-                ]
+                matched_labels = []
+                for sheet, labels in TARGET_SHEETS.items():
+                    if sheet not in available:
+                        continue
+                    for label in labels:
+                        if self._should_import(label) and label not in matched_labels:
+                            matched_labels.append(label)
 
                 if not matched_labels:
                     continue

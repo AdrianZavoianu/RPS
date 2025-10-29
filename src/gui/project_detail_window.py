@@ -7,8 +7,12 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QSplitter,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
+import pandas as pd
 
 from database.repository import (
     ProjectRepository,
@@ -23,11 +27,14 @@ from database.repository import (
 from processing.result_service import ResultDataService
 from .results_tree_browser import ResultsTreeBrowser
 from .maxmin_drifts_widget import MaxMinDriftsWidget
+from .all_rotations_widget import AllRotationsWidget
 from .result_views import StandardResultView
 from .ui_helpers import create_styled_button, create_styled_label
 from .window_utils import enable_dark_title_bar
 from .styles import COLORS
 from services.project_service import ProjectContext
+from utils.color_utils import get_gradient_color
+from config.result_config import RESULT_CONFIGS
 
 
 class ProjectDetailWindow(QMainWindow):
@@ -201,6 +208,45 @@ class ProjectDetailWindow(QMainWindow):
         self.maxmin_widget.hide()
         layout.addWidget(self.maxmin_widget)
 
+        # All Rotations widget (initially hidden)
+        self.all_rotations_widget = AllRotationsWidget()
+        self.all_rotations_widget.hide()
+        layout.addWidget(self.all_rotations_widget)
+
+        # Beam Rotations table widget (initially hidden)
+        self.beam_rotations_table = QTableWidget()
+        self.beam_rotations_table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {COLORS['background']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                gridline-color: {COLORS['border']};
+                color: {COLORS['text']};
+            }}
+            QTableWidget::item {{
+                padding: 4px 8px;
+                border: none;
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS['card']};
+                color: {COLORS['accent']};
+                padding: 8px;
+                border: none;
+                border-bottom: 2px solid {COLORS['border']};
+                font-weight: 600;
+                text-align: center;
+            }}
+            QHeaderView::section:hover {{
+                background-color: #1f2937;
+                color: #67e8f9;
+            }}
+        """)
+        # Hide vertical header and configure horizontal header
+        self.beam_rotations_table.verticalHeader().setVisible(False)
+        self.beam_rotations_table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.beam_rotations_table.hide()
+        layout.addWidget(self.beam_rotations_table)
+
         return widget
 
     def load_project_data(self):
@@ -235,7 +281,7 @@ class ProjectDetailWindow(QMainWindow):
             category: Category name (e.g., "Envelopes")
             result_type: Result type (e.g., "Drifts", "Accelerations", "WallShears")
             direction: Direction ('X', 'Y', 'V22', 'V33', empty for MaxMin)
-            element_id: Element ID for element-specific results (0 for global results)
+            element_id: Element ID for element-specific results (0 for global results, -1 for all elements)
         """
         self.current_result_set_id = result_set_id
         self.current_result_type = result_type
@@ -243,31 +289,69 @@ class ProjectDetailWindow(QMainWindow):
         self.current_element_id = element_id
 
         if result_type and result_set_id:
-            if result_type.startswith("MaxMin") and element_id > 0:
+            if result_type == "AllQuadRotations":
+                # All rotations scatter plot view (both Max and Min)
+                self.standard_view.hide()
+                self.maxmin_widget.hide()
+                self.all_rotations_widget.show()
+                self.beam_rotations_table.hide()
+                self.load_all_rotations(result_set_id)
+            elif result_type == "AllColumnRotations":
+                # All column rotations scatter plot view (both Max and Min)
+                self.standard_view.hide()
+                self.maxmin_widget.hide()
+                self.all_rotations_widget.show()
+                self.beam_rotations_table.hide()
+                self.load_all_column_rotations(result_set_id)
+            elif result_type == "AllBeamRotations":
+                # All beam rotations scatter plot view (both Max and Min)
+                self.standard_view.hide()
+                self.maxmin_widget.hide()
+                self.all_rotations_widget.show()
+                self.beam_rotations_table.hide()
+                self.load_all_beam_rotations(result_set_id)
+            elif result_type == "BeamRotationsTable":
+                # Beam rotations wide-format table view (all beams, all load cases)
+                self.standard_view.hide()
+                self.maxmin_widget.hide()
+                self.all_rotations_widget.hide()
+                self.beam_rotations_table.show()
+                self.load_beam_rotations_table(result_set_id)
+            elif result_type.startswith("MaxMin") and element_id > 0:
                 # Element-specific max/min results (pier shears max/min)
                 self.standard_view.hide()
+                self.all_rotations_widget.hide()
+                self.beam_rotations_table.hide()
                 self.maxmin_widget.show()
                 base_type = self._extract_base_result_type(result_type)
                 self.load_element_maxmin_results(element_id, result_set_id, base_type)
             elif result_type.startswith("MaxMin"):
                 # Global max/min results (story drifts, forces, etc.)
                 self.standard_view.hide()
+                self.all_rotations_widget.hide()
+                self.beam_rotations_table.hide()
                 self.maxmin_widget.show()
                 base_type = self._extract_base_result_type(result_type)
                 self.load_maxmin_results(result_set_id, base_type)
             elif element_id > 0:
                 # Element-specific directional results (pier shears V2/V3, etc.)
                 self.maxmin_widget.hide()
+                self.all_rotations_widget.hide()
+                self.beam_rotations_table.hide()
                 self.standard_view.show()
                 self.load_element_results(element_id, result_type, direction, result_set_id)
             else:
                 # Global directional results (story drifts X/Y, forces, etc.)
                 self.maxmin_widget.hide()
+                self.all_rotations_widget.hide()
+                self.beam_rotations_table.hide()
                 self.standard_view.show()
                 self.load_standard_results(result_type, direction, result_set_id)
         else:
             self.content_title.setText("Select a result type")
             self.maxmin_widget.hide()
+            self.all_rotations_widget.hide()
+            self.beam_rotations_table.hide()
             self.standard_view.show()
             self.standard_view.clear()
 
@@ -360,7 +444,7 @@ class ProjectDetailWindow(QMainWindow):
         Args:
             element_id: ID of the element (pier/wall)
             result_set_id: ID of the result set to filter by
-            base_result_type: Base result type (e.g., 'WallShears')
+            base_result_type: Base result type (e.g., 'WallShears', 'ColumnRotations')
         """
         try:
             dataset = self.result_service.get_element_maxmin_dataset(element_id, result_set_id, base_result_type)
@@ -382,6 +466,254 @@ class ProjectDetailWindow(QMainWindow):
         except Exception as exc:
             self.maxmin_widget.clear_data()
             self.statusBar().showMessage(f"Error loading element Max/Min results: {str(exc)}")
+            import traceback
+
+            traceback.print_exc()
+
+    def load_all_rotations(self, result_set_id: int):
+        """Load and display all quad rotations across all elements as scatter plot (both Max and Min).
+
+        Args:
+            result_set_id: ID of the result set to filter by
+        """
+        try:
+            # Fetch both Max and Min data
+            df_max = self.result_service.get_all_quad_rotations_dataset(result_set_id, "Max")
+            df_min = self.result_service.get_all_quad_rotations_dataset(result_set_id, "Min")
+
+            if (df_max is None or df_max.empty) and (df_min is None or df_min.empty):
+                self.all_rotations_widget.clear_data()
+                self.content_title.setText("> All Quad Rotations")
+                self.statusBar().showMessage("No quad rotation data available")
+                return
+
+            self.all_rotations_widget.set_title("All Quad Rotations Distribution")
+            self.all_rotations_widget.set_x_label("Quad Rotation (%)")
+            self.all_rotations_widget.load_dataset(df_max, df_min)
+            self.content_title.setText("> All Quad Rotations")
+
+            # Count total points
+            num_points_max = len(df_max) if df_max is not None and not df_max.empty else 0
+            num_points_min = len(df_min) if df_min is not None and not df_min.empty else 0
+            total_points = num_points_max + num_points_min
+
+            # Get unique elements and stories from whichever dataset is available
+            df_ref = df_max if df_max is not None and not df_max.empty else df_min
+            num_elements = df_ref['Element'].nunique() if df_ref is not None else 0
+            num_stories = df_ref['Story'].nunique() if df_ref is not None else 0
+
+            self.statusBar().showMessage(
+                f"Loaded {total_points} rotation data points ({num_points_max} max, {num_points_min} min) "
+                f"across {num_elements} elements and {num_stories} stories"
+            )
+
+        except Exception as exc:
+            self.all_rotations_widget.clear_data()
+            self.statusBar().showMessage(f"Error loading all rotations: {str(exc)}")
+            import traceback
+
+            traceback.print_exc()
+
+    def load_all_column_rotations(self, result_set_id: int):
+        """Load and display all column rotations across all columns as scatter plot (both Max and Min).
+
+        Args:
+            result_set_id: ID of the result set to filter by
+        """
+        try:
+            # Fetch both Max and Min data
+            df_max = self.result_service.get_all_column_rotations_dataset(result_set_id, "Max")
+            df_min = self.result_service.get_all_column_rotations_dataset(result_set_id, "Min")
+
+            if (df_max is None or df_max.empty) and (df_min is None or df_min.empty):
+                self.all_rotations_widget.clear_data()
+                self.content_title.setText("> All Column Rotations")
+                self.statusBar().showMessage("No column rotation data available")
+                return
+
+            self.all_rotations_widget.set_title("All Column Rotations Distribution")
+            self.all_rotations_widget.set_x_label("Column Rotation (%)")
+            self.all_rotations_widget.load_dataset(df_max, df_min)
+            self.content_title.setText("> All Column Rotations")
+
+            # Count total points
+            num_points_max = len(df_max) if df_max is not None and not df_max.empty else 0
+            num_points_min = len(df_min) if df_min is not None and not df_min.empty else 0
+            total_points = num_points_max + num_points_min
+
+            # Get unique elements and stories from whichever dataset is available
+            df_ref = df_max if df_max is not None and not df_max.empty else df_min
+            num_elements = df_ref['Element'].nunique() if df_ref is not None else 0
+            num_stories = df_ref['Story'].nunique() if df_ref is not None else 0
+
+            self.statusBar().showMessage(
+                f"Loaded {total_points} rotation data points ({num_points_max} max, {num_points_min} min) "
+                f"across {num_elements} columns and {num_stories} stories"
+            )
+
+        except Exception as exc:
+            self.all_rotations_widget.clear_data()
+            self.statusBar().showMessage(f"Error loading all column rotations: {str(exc)}")
+            import traceback
+
+            traceback.print_exc()
+
+    def load_all_beam_rotations(self, result_set_id: int):
+        """Load and display all beam rotations across all beams as scatter plot (both Max and Min).
+
+        Args:
+            result_set_id: ID of the result set to filter by
+        """
+        try:
+            # Fetch both Max and Min data
+            df_max = self.result_service.get_all_beam_rotations_dataset(result_set_id, "Max")
+            df_min = self.result_service.get_all_beam_rotations_dataset(result_set_id, "Min")
+
+            if (df_max is None or df_max.empty) and (df_min is None or df_min.empty):
+                self.all_rotations_widget.clear_data()
+                self.content_title.setText("> All Beam Rotations")
+                self.statusBar().showMessage("No beam rotation data available")
+                return
+
+            self.all_rotations_widget.set_title("All Beam R3 Plastic Rotations Distribution")
+            self.all_rotations_widget.set_x_label("R3 Plastic Rotation (%)")
+            self.all_rotations_widget.load_dataset(df_max, df_min)
+            self.content_title.setText("> All Beam Rotations")
+
+            # Count total points
+            num_points_max = len(df_max) if df_max is not None and not df_max.empty else 0
+            num_points_min = len(df_min) if df_min is not None and not df_min.empty else 0
+            total_points = num_points_max + num_points_min
+
+            # Get unique elements and stories from whichever dataset is available
+            df_ref = df_max if df_max is not None and not df_max.empty else df_min
+            num_elements = df_ref['Element'].nunique() if df_ref is not None else 0
+            num_stories = df_ref['Story'].nunique() if df_ref is not None else 0
+
+            self.statusBar().showMessage(
+                f"Loaded {total_points} rotation data points ({num_points_max} max, {num_points_min} min) "
+                f"across {num_elements} beams and {num_stories} stories"
+            )
+
+        except Exception as exc:
+            self.all_rotations_widget.clear_data()
+            self.statusBar().showMessage(f"Error loading all beam rotations: {str(exc)}")
+            import traceback
+
+            traceback.print_exc()
+
+    def load_beam_rotations_table(self, result_set_id: int):
+        """Load and display beam rotations table in wide format (all beams, all load cases).
+
+        Args:
+            result_set_id: ID of the result set
+        """
+        try:
+            # Get beam rotation data in wide format
+            df = self.result_service.get_beam_rotations_table_dataset(result_set_id)
+
+            if df is None or df.empty:
+                self.beam_rotations_table.clear()
+                self.content_title.setText("> Beam Rotations - R3 Plastic")
+                self.beam_rotations_table.setRowCount(1)
+                self.beam_rotations_table.setColumnCount(1)
+                self.beam_rotations_table.setHorizontalHeaderLabels(['Message'])
+                message_item = QTableWidgetItem("No beam rotation data available")
+                self.beam_rotations_table.setItem(0, 0, message_item)
+                self.statusBar().showMessage("No beam rotation data available")
+                return
+
+            # Clear and setup table
+            self.beam_rotations_table.clear()
+            self.content_title.setText("> Beam Rotations - R3 Plastic (%)")
+
+            # Set table dimensions
+            num_rows = len(df)
+            num_cols = len(df.columns)
+            self.beam_rotations_table.setRowCount(num_rows)
+            self.beam_rotations_table.setColumnCount(num_cols)
+
+            # Set column headers
+            self.beam_rotations_table.setHorizontalHeaderLabels(df.columns.tolist())
+
+            # Identify load case columns and summary columns
+            fixed_cols = ['Story', 'Frame/Wall', 'Unique Name', 'Hinge', 'Generated Hinge', 'Rel Dist']
+            summary_cols = ['Avg', 'Max', 'Min']
+            load_case_cols = [col for col in df.columns if col not in fixed_cols and col not in summary_cols]
+
+            # Get color scheme from config
+            config = RESULT_CONFIGS.get('BeamRotations_R3Plastic')
+            color_scheme = config.color_scheme if config else 'blue_orange'
+
+            # Calculate min/max values for gradient colors from all numeric columns
+            numeric_cols = load_case_cols + summary_cols
+            all_numeric_values = []
+            for col in numeric_cols:
+                if col in df.columns:
+                    all_numeric_values.extend(df[col].dropna().tolist())
+
+            min_val = min(all_numeric_values) if all_numeric_values else 0
+            max_val = max(all_numeric_values) if all_numeric_values else 0
+
+            # Populate table
+            for row_idx, (_, row) in enumerate(df.iterrows()):
+                for col_idx, col_name in enumerate(df.columns):
+                    value = row[col_name]
+
+                    # Format value based on column type
+                    if col_name in fixed_cols:
+                        # Fixed columns - display as is
+                        if col_name == 'Rel Dist':
+                            item_text = f"{value:.2f}" if value is not None else ""
+                        else:
+                            item_text = str(value) if value is not None else ""
+                    elif col_name in load_case_cols or col_name in summary_cols:
+                        # Numeric columns - format as percentage with 2 decimal places
+                        if value is not None and not pd.isna(value):
+                            item_text = f"{value:.2f}%"
+                        else:
+                            item_text = ""
+                    else:
+                        item_text = str(value) if value is not None else ""
+
+                    item = QTableWidgetItem(item_text)
+
+                    # Center align all items
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    # Apply gradient colors to numeric columns
+                    if col_name in load_case_cols or col_name in summary_cols:
+                        if value is not None and not pd.isna(value):
+                            color = get_gradient_color(value, min_val, max_val, color_scheme)
+                            item.setForeground(color)
+                            item._original_color = QColor(color)
+                        else:
+                            # Empty cells get default color
+                            default_color = QColor("#9ca3af")
+                            item.setForeground(default_color)
+                            item._original_color = QColor(default_color)
+                    else:
+                        # Fixed columns get default color
+                        default_color = QColor("#d1d5db")
+                        item.setForeground(default_color)
+                        item._original_color = QColor(default_color)
+
+                    self.beam_rotations_table.setItem(row_idx, col_idx, item)
+
+            # Resize columns to content
+            self.beam_rotations_table.resizeColumnsToContents()
+
+            # Count unique beams
+            num_beams = df['Frame/Wall'].nunique() if 'Frame/Wall' in df.columns else 0
+            num_stories = df['Story'].nunique() if 'Story' in df.columns else 0
+
+            self.statusBar().showMessage(
+                f"Loaded beam rotations table: {num_rows} hinge locations across {num_beams} beams and {num_stories} stories"
+            )
+
+        except Exception as exc:
+            self.beam_rotations_table.clear()
+            self.statusBar().showMessage(f"Error loading beam rotations table: {str(exc)}")
             import traceback
 
             traceback.print_exc()

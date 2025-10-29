@@ -26,11 +26,15 @@ DISPLAY_NAME_OVERRIDES = {
     "Forces": "Story Shears",
     "Displacements": "Floors Displacements",
     "WallShears": "Wall Shears",
+    "ColumnShears": "Column Shears",
+    "MinAxial": "Min Axial Force",
     "QuadRotations": "Quad Rotations",
     "MaxMinDrifts": "Max/Min Drifts",
     "MaxMinAccelerations": "Max/Min Accelerations",
     "MaxMinForces": "Max/Min Story Shears",
     "MaxMinDisplacements": "Max/Min Floors Displacements",
+    "MaxMinColumnShears": "Max/Min Column Shears",
+    "MaxMinColumnRotations": "Max/Min Column Rotations",
     "MaxMinQuadRotations": "Max/Min Quad Rotations",
 }
 
@@ -271,7 +275,7 @@ class ResultDataService:
         if not element:
             return None
 
-        from database.models import WallShear, QuadRotation, LoadCase, Story
+        from database.models import WallShear, ColumnShear, ColumnRotation, QuadRotation, BeamRotation, LoadCase, Story
 
         # Determine which model and attributes to use
         if base_result_type == "WallShears":
@@ -279,6 +283,21 @@ class ResultDataService:
             max_attr = "max_force"
             min_attr = "min_force"
             direction_attr = "direction"  # V2, V3
+        elif base_result_type == "ColumnShears":
+            model = ColumnShear
+            max_attr = "max_force"
+            min_attr = "min_force"
+            direction_attr = "direction"  # V2, V3
+        elif base_result_type == "ColumnRotations":
+            model = ColumnRotation
+            max_attr = "max_rotation"
+            min_attr = "min_rotation"
+            direction_attr = "direction"  # R2, R3
+        elif base_result_type == "BeamRotations":
+            model = BeamRotation
+            max_attr = "max_r3_plastic"
+            min_attr = "min_r3_plastic"
+            direction_attr = None  # No direction for beam rotations (only R3 Plastic)
         elif base_result_type == "QuadRotations":
             model = QuadRotation
             max_attr = "max_rotation"
@@ -313,9 +332,16 @@ class ResultDataService:
             if not story_obj:
                 continue
 
-            # Capture story_sort_order from first record for this story
+            # Capture story order from first record for this story
+            # For QuadRotations: use global Story.sort_order (since sheet is sorted by element name, not story)
+            # For WallShears: use sheet-specific story_sort_order (since sheet is sorted by story)
             if story.id not in story_sort_orders:
-                story_sort_orders[story.id] = getattr(record, 'story_sort_order', None) or 0
+                if base_result_type == "QuadRotations":
+                    # Use global story order from Story model (set from Story Drifts sheet)
+                    story_sort_orders[story.id] = story_obj.sort_order or 0
+                else:
+                    # Use sheet-specific order from record
+                    story_sort_orders[story.id] = getattr(record, 'story_sort_order', None) or 0
 
             # Get direction if applicable (WallShears has V2/V3, QuadRotations doesn't)
             if direction_attr:
@@ -338,8 +364,8 @@ class ResultDataService:
             row = data_by_story.setdefault(story.id, {"Story": story_obj.name})
             load_case_name = load_case.name
 
-            # For QuadRotations, convert radians to percentage (* 100)
-            multiplier = 100.0 if base_result_type == "QuadRotations" else 1.0
+            # For rotation results, convert radians to percentage (* 100)
+            multiplier = 100.0 if base_result_type in ("QuadRotations", "ColumnRotations", "BeamRotations") else 1.0
 
             if max_val is not None:
                 val = abs(max_val) * multiplier
@@ -372,6 +398,15 @@ class ResultDataService:
         if base_result_type == "WallShears":
             display_name = f"{element.name} - Max/Min Wall Shears"
             default_directions = ("V2", "V3")
+        elif base_result_type == "ColumnShears":
+            display_name = f"{element.name} - Max/Min Column Shears"
+            default_directions = ("V2", "V3")
+        elif base_result_type == "ColumnRotations":
+            display_name = f"{element.name} - Max/Min Column Rotations"
+            default_directions = ("R2", "R3")
+        elif base_result_type == "BeamRotations":
+            display_name = f"{element.name} - Max/Min Beam Rotations"
+            default_directions = ("",)  # No direction for beam rotations (only R3 Plastic)
         elif base_result_type == "QuadRotations":
             display_name = f"{element.name} - Max/Min Quad Rotations"
             default_directions = ("",)  # No direction for rotations
@@ -460,14 +495,37 @@ class ResultDataService:
         return numeric_df
 
     def _order_element_cache_entries(self, cache_entries):
-        """Return element cache entries preserving sheet-specific ordering.
+        """Return element cache entries preserving proper story ordering.
 
-        The repository already orders by ElementResultsCache.story_sort_order ascending.
-        Since story_sort_order preserves the Excel sheet order exactly (0=first row, N=last row),
-        we return entries as-is to maintain the sheet's original order.
+        For QuadRotations: Sort by global Story.sort_order (since sheet is sorted by element name)
+        For other element results: Use sheet-specific story_sort_order (sheet is sorted by story)
         """
-        # Repository already ordered by story_sort_order - return as-is to preserve sheet order
-        return cache_entries
+        if not cache_entries:
+            return cache_entries
+
+        # Check if this is quad rotation data by looking at the first entry's result type
+        # cache_entries is a list of tuples: (cache_entry, story)
+        first_cache_entry, _ = cache_entries[0]
+        is_quad_rotation = "QuadRotation" in first_cache_entry.result_type
+
+        if is_quad_rotation:
+            # For quad rotations: re-sort by global Story.sort_order
+            # Need to join with Story to get sort_order
+            self._ensure_stories_loaded()
+            story_lookup = {story.id: story for story in self._stories}
+
+            # Sort by Story.sort_order instead of cache entry's story_sort_order
+            sorted_entries = sorted(
+                cache_entries,
+                key=lambda entry_tuple: (
+                    story_lookup[entry_tuple[0].story_id].sort_order if entry_tuple[0].story_id in story_lookup else 0,
+                    entry_tuple[0].story_id
+                )
+            )
+            return sorted_entries
+        else:
+            # For other element results: repository already ordered by story_sort_order
+            return cache_entries
 
     def _build_element_dataframe(self, ordered_entries, result_type: str, direction: str) -> pd.DataFrame:
         """Construct a numeric DataFrame for element-specific results (piers, walls, etc.)."""
@@ -762,3 +820,298 @@ class ResultDataService:
         if raw in {"X", "Y"}:
             return raw
         return None
+
+    def get_all_quad_rotations_dataset(
+        self, result_set_id: int, max_min: str = "Max"
+    ) -> Optional[pd.DataFrame]:
+        """Return all quad rotation data points across all elements for scatter plot visualization.
+
+        Args:
+            result_set_id: Result set ID (currently unused - returns all quad rotations for project)
+            max_min: "Max" or "Min" to determine which values to use
+
+        Returns:
+            DataFrame with columns: Element, Story, LoadCase, Rotation, StoryOrder, StoryIndex
+        """
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import QuadRotation, LoadCase, Story, Element
+
+        # Query all quad rotation records for this project (same pattern as individual element loading)
+        # Note: We don't filter by result_category_id because quad rotations don't always have it set
+        records = (
+            self.session.query(QuadRotation, LoadCase, Story, Element)
+            .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
+            .join(Story, QuadRotation.story_id == Story.id)
+            .join(Element, QuadRotation.element_id == Element.id)
+            .filter(
+                Story.project_id == self.project_id,
+                # No element_id filter - we want ALL elements
+            )
+            .all()
+        )
+
+        if not records:
+            return None
+
+        # Build DataFrame with all data points
+        data_rows = []
+        for rotation, load_case, story, element in records:
+            # Get the appropriate value (max or min)
+            if max_min == "Max":
+                value = rotation.max_rotation
+            else:
+                value = rotation.min_rotation
+
+            if value is None:
+                continue
+
+            # Convert radians to percentage (* 100)
+            rotation_pct = value * 100.0
+
+            data_rows.append({
+                "Element": element.name,
+                "Story": story.name,
+                "LoadCase": load_case.name,
+                "Rotation": rotation_pct,
+                # For quad rotations: use global Story.sort_order instead of sheet-specific story_sort_order
+                # Quad sheets are sorted by element/pier name, not by story, so sheet order is not meaningful
+                "StoryOrder": story.sort_order or 0,
+                "StoryIndex": story.sort_order or 0,
+            })
+
+        if not data_rows:
+            return None
+
+        df = pd.DataFrame(data_rows)
+
+        # Sort by global story order (bottom-to-top from Story Drifts sheet)
+        df = df.sort_values(by="StoryOrder", ascending=True)
+
+        return df
+
+    def get_all_column_rotations_dataset(
+        self, result_set_id: int, max_min: str = "Max"
+    ) -> Optional[pd.DataFrame]:
+        """Return all column rotation data points across all columns for scatter plot visualization.
+
+        Args:
+            result_set_id: Result set ID (currently unused - returns all column rotations for project)
+            max_min: "Max" or "Min" to determine which values to use
+
+        Returns:
+            DataFrame with columns: Element, Story, LoadCase, Direction, Rotation, StoryOrder, StoryIndex
+        """
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import ColumnRotation, LoadCase, Story, Element
+
+        # Query all column rotation records for this project
+        records = (
+            self.session.query(ColumnRotation, LoadCase, Story, Element)
+            .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
+            .join(Story, ColumnRotation.story_id == Story.id)
+            .join(Element, ColumnRotation.element_id == Element.id)
+            .filter(
+                Story.project_id == self.project_id,
+                # No element_id filter - we want ALL columns
+            )
+            .all()
+        )
+
+        if not records:
+            return None
+
+        # Build DataFrame with all data points (R2 and R3 combined)
+        data_rows = []
+        for rotation, load_case, story, element in records:
+            # Get the appropriate value (max or min)
+            if max_min == "Max":
+                value = rotation.max_rotation
+            else:
+                value = rotation.min_rotation
+
+            if value is None:
+                continue
+
+            # Convert radians to percentage (* 100)
+            rotation_pct = value * 100.0
+
+            data_rows.append({
+                "Element": element.name,
+                "Story": story.name,
+                "LoadCase": load_case.name,
+                "Direction": rotation.direction,  # R2 or R3
+                "Rotation": rotation_pct,
+                # Use global Story.sort_order for consistent ordering
+                "StoryOrder": story.sort_order or 0,
+                "StoryIndex": story.sort_order or 0,
+            })
+
+        if not data_rows:
+            return None
+
+        df = pd.DataFrame(data_rows)
+
+        # Sort by global story order (bottom-to-top)
+        df = df.sort_values(by="StoryOrder", ascending=True)
+
+        return df
+
+    def get_all_beam_rotations_dataset(
+        self, result_set_id: int, max_min: str = "Max"
+    ) -> Optional[pd.DataFrame]:
+        """Return all beam rotation data points across all beams for scatter plot visualization.
+
+        Args:
+            result_set_id: Result set ID (currently unused - returns all beam rotations for project)
+            max_min: "Max" or "Min" to determine which values to use
+
+        Returns:
+            DataFrame with columns: Element, Story, LoadCase, Rotation, StoryOrder, StoryIndex
+        """
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import BeamRotation, LoadCase, Story, Element
+
+        # Query all beam rotation records for this project
+        records = (
+            self.session.query(BeamRotation, LoadCase, Story, Element)
+            .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
+            .join(Story, BeamRotation.story_id == Story.id)
+            .join(Element, BeamRotation.element_id == Element.id)
+            .filter(
+                Story.project_id == self.project_id,
+                # No element_id filter - we want ALL beams
+            )
+            .all()
+        )
+
+        if not records:
+            return None
+
+        # Build DataFrame with all data points (R3 Plastic only)
+        data_rows = []
+        for rotation, load_case, story, element in records:
+            # Get the appropriate value (max or min)
+            if max_min == "Max":
+                value = rotation.max_r3_plastic
+            else:
+                value = rotation.min_r3_plastic
+
+            if value is None:
+                continue
+
+            # Convert radians to percentage (* 100)
+            rotation_pct = value * 100.0
+
+            data_rows.append({
+                "Element": element.name,
+                "Story": story.name,
+                "LoadCase": load_case.name,
+                "Rotation": rotation_pct,
+                # Use global Story.sort_order for consistent ordering
+                "StoryOrder": story.sort_order or 0,
+                "StoryIndex": story.sort_order or 0,
+            })
+
+        if not data_rows:
+            return None
+
+        df = pd.DataFrame(data_rows)
+
+        # Sort by global story order (bottom-to-top)
+        df = df.sort_values(by="StoryOrder", ascending=True)
+
+        return df
+
+    def get_beam_rotations_table_dataset(self, result_set_id: int) -> Optional[pd.DataFrame]:
+        """Return beam rotation data in wide format for table display.
+
+        Args:
+            result_set_id: Result set ID
+
+        Returns:
+            DataFrame with columns: Story, Frame/Wall, Unique Name, Hinge, Generated Hinge, Rel Dist,
+            [load case columns...], Avg, Max, Min
+        """
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import BeamRotation, LoadCase, Story, Element
+
+        # Query all beam rotation records for this project
+        records = (
+            self.session.query(BeamRotation, LoadCase, Story, Element)
+            .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
+            .join(Story, BeamRotation.story_id == Story.id)
+            .join(Element, BeamRotation.element_id == Element.id)
+            .filter(Story.project_id == self.project_id)
+            .order_by(Story.sort_order, Element.name, LoadCase.name)
+            .all()
+        )
+
+        if not records:
+            return None
+
+        # Get unique load cases in order
+        load_cases = sorted(list(set([lc.name for _, lc, _, _ in records])))
+
+        # Build data rows grouped by (story, element, hinge)
+        data_dict = {}
+        for rotation, load_case, story, element in records:
+            # Create unique key for each beam hinge location
+            key = (story.name, element.name, rotation.generated_hinge or "", rotation.rel_dist or 0)
+
+            if key not in data_dict:
+                data_dict[key] = {
+                    'Story': story.name,
+                    'Frame/Wall': element.name,
+                    'Unique Name': element.name,  # Using element name as unique name
+                    'Hinge': rotation.hinge or '',
+                    'Generated Hinge': rotation.generated_hinge or '',
+                    'Rel Dist': rotation.rel_dist or 0,
+                }
+                # Initialize all load case columns
+                for lc in load_cases:
+                    data_dict[key][lc] = None
+
+            # Store rotation value (convert from radians to percentage)
+            data_dict[key][load_case.name] = rotation.r3_plastic * 100.0
+
+        # Convert to DataFrame
+        df = pd.DataFrame(list(data_dict.values()))
+
+        if df.empty:
+            return None
+
+        # Calculate Avg, Max, Min across load cases
+        load_case_cols = [col for col in df.columns if col in load_cases]
+
+        if load_case_cols:
+            df['Avg'] = df[load_case_cols].mean(axis=1)
+            df['Max'] = df[load_case_cols].max(axis=1)
+            df['Min'] = df[load_case_cols].min(axis=1)
+
+        return df
+
+    def _get_element_category_id(self, result_set_id: int) -> Optional[int]:
+        """Get the 'Envelopes/Elements' category id for element results."""
+        if not self.session:
+            return None
+
+        from database.models import ResultCategory
+
+        category = (
+            self.session.query(ResultCategory)
+            .filter(
+                ResultCategory.result_set_id == result_set_id,
+                ResultCategory.category_name == "Envelopes",
+                ResultCategory.category_type == "Elements",
+            )
+            .first()
+        )
+        return category.id if category else None
