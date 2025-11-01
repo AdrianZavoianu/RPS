@@ -14,6 +14,20 @@ PROJECTS_DIR.mkdir(exist_ok=True)
 
 Base = declarative_base()
 
+# -----------------------------------------------------------------------------
+# Legacy compatibility helpers (used by older tests and utilities)
+# -----------------------------------------------------------------------------
+
+# Global in-memory engine for lightweight testing scenarios.
+engine = create_engine("sqlite:///:memory:", echo=False)
+_SessionLocal = sessionmaker(bind=engine)
+
+
+def get_session() -> Session:
+    """Return a session bound to the global in-memory engine (legacy API)."""
+    Base.metadata.create_all(bind=engine)
+    return _SessionLocal()
+
 
 def get_project_db_path(slug: str) -> Path:
     """Get the database path for a project.

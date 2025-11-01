@@ -287,11 +287,7 @@ class ResultsTableWidget(QFrame):
 
     def load_dataset(self, dataset: "ResultDataset"):
         """Load data from a ResultDataset into the table."""
-        df_excel_order = dataset.data
-
-        # REVERSE story order for tables: bottom floors first, top floors last
-        # Excel has top-to-bottom, but we want bottom-to-top for tables
-        df = df_excel_order.iloc[::-1].reset_index(drop=True)
+        df = dataset.data
 
         self._dataset = dataset
         self._current_result_type = dataset.meta.result_type or ""

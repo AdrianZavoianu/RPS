@@ -456,6 +456,9 @@ class DataImporter:
                 story = helper.get_story(row["Story"])
                 load_case = helper.get_load_case(row["LoadCase"])
                 element = pier_elements[row["Pier"]]
+                story_order = getattr(story, "sort_order", None)
+                if story_order is None:
+                    story_order = helper._story_order.get(row["Story"])
 
                 quad_rotation = QuadRotation(
                     element_id=element.id,
@@ -467,7 +470,7 @@ class DataImporter:
                     rotation=row["Rotation"],
                     max_rotation=row.get("MaxRotation"),
                     min_rotation=row.get("MinRotation"),
-                    story_sort_order=helper._story_order.get(row["Story"]),
+                    story_sort_order=story_order,
                 )
                 quad_rotation_objects.append(quad_rotation)
 
@@ -1017,8 +1020,11 @@ class DataImporter:
             for rotation, case_name, story in rotations:
                 if story.id not in story_data:
                     story_data[story.id] = {}
+                    canonical_order = story.sort_order
+                    if canonical_order is None:
+                        canonical_order = rotation.story_sort_order
                     # Capture story_sort_order from first rotation for this element+story
-                    story_sort_orders[story.id] = rotation.story_sort_order
+                    story_sort_orders[story.id] = canonical_order
                 # Convert radians to percentage (* 100) for display
                 story_data[story.id][case_name] = rotation.rotation * 100.0
 

@@ -324,7 +324,7 @@ class ProjectDetailWindow(QMainWindow):
                 self.beam_rotations_table.hide()
                 self.maxmin_widget.show()
                 base_type = self._extract_base_result_type(result_type)
-                self.load_element_maxmin_results(element_id, result_set_id, base_type)
+                self.load_element_maxmin_dataset(element_id, result_set_id, base_type)
             elif result_type.startswith("MaxMin"):
                 # Global max/min results (story drifts, forces, etc.)
                 self.standard_view.hide()
@@ -332,21 +332,21 @@ class ProjectDetailWindow(QMainWindow):
                 self.beam_rotations_table.hide()
                 self.maxmin_widget.show()
                 base_type = self._extract_base_result_type(result_type)
-                self.load_maxmin_results(result_set_id, base_type)
+                self.load_maxmin_dataset(result_set_id, base_type)
             elif element_id > 0:
                 # Element-specific directional results (pier shears V2/V3, etc.)
                 self.maxmin_widget.hide()
                 self.all_rotations_widget.hide()
                 self.beam_rotations_table.hide()
                 self.standard_view.show()
-                self.load_element_results(element_id, result_type, direction, result_set_id)
+                self.load_element_dataset(element_id, result_type, direction, result_set_id)
             else:
                 # Global directional results (story drifts X/Y, forces, etc.)
                 self.maxmin_widget.hide()
                 self.all_rotations_widget.hide()
                 self.beam_rotations_table.hide()
                 self.standard_view.show()
-                self.load_standard_results(result_type, direction, result_set_id)
+                self.load_standard_dataset(result_type, direction, result_set_id)
         else:
             self.content_title.setText("Select a result type")
             self.maxmin_widget.hide()
@@ -355,7 +355,7 @@ class ProjectDetailWindow(QMainWindow):
             self.standard_view.show()
             self.standard_view.clear()
 
-    def load_standard_results(self, result_type: str, direction: str, result_set_id: int) -> None:
+    def load_standard_dataset(self, result_type: str, direction: str, result_set_id: int) -> None:
         """Load and display directional results for the selected type."""
         try:
             dataset = self.result_service.get_standard_dataset(result_type, direction, result_set_id)
@@ -382,7 +382,7 @@ class ProjectDetailWindow(QMainWindow):
 
             traceback.print_exc()
 
-    def load_element_results(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
+    def load_element_dataset(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
         """Load and display element-specific results (pier shears, etc.)."""
         try:
             dataset = self.result_service.get_element_dataset(element_id, result_type, direction, result_set_id)
@@ -408,7 +408,7 @@ class ProjectDetailWindow(QMainWindow):
             import traceback
             traceback.print_exc()
 
-    def load_maxmin_results(self, result_set_id: int, base_result_type: str = "Drifts"):
+    def load_maxmin_dataset(self, result_set_id: int, base_result_type: str = "Drifts"):
         """Load and display absolute Max/Min drift results from database.
 
         Args:
@@ -438,7 +438,7 @@ class ProjectDetailWindow(QMainWindow):
 
             traceback.print_exc()
 
-    def load_element_maxmin_results(self, element_id: int, result_set_id: int, base_result_type: str = "WallShears"):
+    def load_element_maxmin_dataset(self, element_id: int, result_set_id: int, base_result_type: str = "WallShears"):
         """Load and display element-specific Max/Min results (pier shears).
 
         Args:
@@ -736,7 +736,7 @@ class ProjectDetailWindow(QMainWindow):
                 if self.current_result_type.startswith("MaxMin"):
                     base_type = self._extract_base_result_type(self.current_result_type)
                     self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
-                    self.load_maxmin_results(self.current_result_set_id, base_type)
+                    self.load_maxmin_dataset(self.current_result_set_id, base_type)
                 elif self.current_element_id > 0:
                     self.result_service.invalidate_element_dataset(
                         self.current_element_id,
@@ -744,7 +744,7 @@ class ProjectDetailWindow(QMainWindow):
                         self.current_direction,
                         self.current_result_set_id,
                     )
-                    self.load_element_results(
+                    self.load_element_dataset(
                         self.current_element_id,
                         self.current_result_type,
                         self.current_direction,
@@ -756,7 +756,7 @@ class ProjectDetailWindow(QMainWindow):
                         self.current_direction,
                         self.current_result_set_id,
                     )
-                    self.load_standard_results(
+                    self.load_standard_dataset(
                         self.current_result_type,
                         self.current_direction,
                         self.current_result_set_id,
@@ -781,13 +781,13 @@ class ProjectDetailWindow(QMainWindow):
             # Check if it's element max/min
             if self.current_result_type.startswith("MaxMin") and self.current_element_id > 0:
                 base_type = self._extract_base_result_type(self.current_result_type)
-                self.load_element_maxmin_results(self.current_element_id, self.current_result_set_id, base_type)
+                self.load_element_maxmin_dataset(self.current_element_id, self.current_result_set_id, base_type)
                 self.statusBar().showMessage(f"Element Max/Min {base_type} data reloaded", 3000)
             elif self.current_result_type.startswith("MaxMin"):
                 # Global max/min
                 base_type = self._extract_base_result_type(self.current_result_type)
                 self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
-                self.load_maxmin_results(self.current_result_set_id, base_type)
+                self.load_maxmin_dataset(self.current_result_set_id, base_type)
                 self.statusBar().showMessage(f"Max/Min {base_type.lower()} data reloaded", 3000)
             elif self.current_element_id > 0:
                 # Element-specific result type
@@ -797,7 +797,7 @@ class ProjectDetailWindow(QMainWindow):
                     self.current_direction,
                     self.current_result_set_id,
                 )
-                self.load_element_results(
+                self.load_element_dataset(
                     self.current_element_id,
                     self.current_result_type,
                     self.current_direction,
@@ -814,7 +814,7 @@ class ProjectDetailWindow(QMainWindow):
                     self.current_direction,
                     self.current_result_set_id,
                 )
-                self.load_standard_results(
+                self.load_standard_dataset(
                     self.current_result_type,
                     self.current_direction,
                     self.current_result_set_id,

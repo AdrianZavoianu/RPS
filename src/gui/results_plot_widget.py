@@ -229,6 +229,7 @@ class ResultsPlotWidget(QWidget):
         df = dataset.data
         stories = df['Story'].tolist()
         story_indices = list(range(len(stories)))
+        result_type = dataset.meta.result_type or ""
 
         # Get numeric columns (exclude 'Story' column)
         numeric_cols = self._data_columns(dataset)
@@ -371,22 +372,15 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(container)
 
         df = dataset.data
-        stories_excel_order = df['Story'].tolist()
-
-        # REVERSE story order for plotting: bottom floors at bottom (y=0), top floors at top (y=max)
-        # Excel has top-to-bottom, but we want bottom-to-top for plots
-        stories = list(reversed(stories_excel_order))
-
-        # Also need to reverse the data values to match the reversed story order
-        df_reversed = df.iloc[::-1].reset_index(drop=True)
+        stories = df['Story'].tolist()
 
         include_base_anchor = dataset.meta.result_type == "Displacements"
         if include_base_anchor:
-            story_labels = ["Base"] + list(stories)
+            story_labels = ["Base"] + stories
             base_index = 0
             story_positions = [idx + 1 for idx in range(len(stories))]
         else:
-            story_labels = list(stories)
+            story_labels = stories
             base_index = None
             story_positions = list(range(len(stories)))
 
@@ -400,8 +394,8 @@ class ResultsPlotWidget(QWidget):
         self._plot_items.clear()
         self._average_plot_item = None
 
-        # Use reversed dataframe for plotting (bottom floors at y=0)
-        numeric_df = df_reversed[load_case_columns].apply(pd.to_numeric, errors='coerce')
+        # Use dataset order for plotting (already aligned bottom-to-top)
+        numeric_df = df[load_case_columns].apply(pd.to_numeric, errors='coerce')
 
         # Plot each load case as a line
         for idx, load_case in enumerate(load_case_columns):

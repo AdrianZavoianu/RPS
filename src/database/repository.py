@@ -330,6 +330,7 @@ class ResultSetRepository:
         project_id: int,
         name: str,
         description: Optional[str] = None,
+        result_category: Optional[str] = None,
     ) -> ResultSet:
         """Create a new result set."""
         result_set = ResultSet(
@@ -340,6 +341,8 @@ class ResultSetRepository:
         self.session.add(result_set)
         self.session.commit()
         self.session.refresh(result_set)
+        if result_category is not None:
+            setattr(result_set, "result_category", result_category)
         return result_set
 
     def get_or_create(
@@ -428,10 +431,10 @@ class CacheRepository:
         project_id: int,
         result_type: str,
         result_set_id: Optional[int] = None,
-    ) -> List[tuple]:
+    ) -> List[GlobalResultsCache]:
         """Get all cache entries for a result type, ordered by story_sort_order from cache (bottom to top).
 
-        Returns list of tuples: (GlobalResultsCache, Story) in ascending story_sort_order from the cache entry.
+        Returns list of cache entries ordered by story_sort_order from the cache entry.
         Each result type preserves its own sheet-specific story ordering.
         """
         query = (
@@ -448,7 +451,10 @@ class CacheRepository:
         if result_set_id is not None:
             query = query.filter(GlobalResultsCache.result_set_id == result_set_id)
 
-        return query.order_by(GlobalResultsCache.story_sort_order.asc(), Story.name.asc()).all()
+        records = query.order_by(
+            GlobalResultsCache.story_sort_order.desc(), Story.name.desc()
+        ).all()
+        return [cache for cache, _ in records]
 
     def clear_cache_for_project(self, project_id: int, result_type: Optional[str] = None):
         """Clear cache entries for a project, optionally filtered by result type."""
@@ -725,11 +731,8 @@ class ElementCacheRepository:
         element_id: int,
         result_type: str,
         result_set_id: Optional[int] = None,
-    ) -> List[tuple]:
-        """Get all cache entries for a specific element and result type, ordered by story_sort_order from cache.
-
-        Returns list of tuples: (ElementResultsCache, Story) ordered by story_sort_order from cache entry (ascending).
-        Each element preserves its own per-element story ordering from the source sheet.
+    ) -> List[ElementResultsCache]:
+        """Get all cache entries for a specific element and result type.
 
         Args:
             project_id: Project ID
@@ -752,7 +755,10 @@ class ElementCacheRepository:
         if result_set_id is not None:
             query = query.filter(ElementResultsCache.result_set_id == result_set_id)
 
-        return query.order_by(ElementResultsCache.story_sort_order.asc(), Story.name.asc()).all()
+        records = query.order_by(
+            ElementResultsCache.story_sort_order.desc(), Story.name.desc()
+        ).all()
+        return [cache for cache, _ in records]
 
     def clear_cache_for_project(self, project_id: int, result_type: Optional[str] = None):
         """Clear cache entries for a project, optionally filtered by result type."""

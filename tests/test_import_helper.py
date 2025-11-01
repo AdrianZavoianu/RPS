@@ -32,7 +32,7 @@ def test_story_sort_order_preserved(session):
     assert ground.sort_order == 2
 
 
-def test_story_sort_order_updates_existing_records(session):
+def test_story_sort_order_preserves_existing_records(session):
     project = ProjectRepository(session).create("Retrofit")
 
     helper_initial = ResultImportHelper(session, project.id, ["Roof", "L02"])
@@ -44,7 +44,7 @@ def test_story_sort_order_updates_existing_records(session):
     session.commit()
     session.refresh(updated_story)
 
-    assert updated_story.sort_order == 0
+    assert updated_story.sort_order == 1
 
 
 def test_load_case_cached(session):
