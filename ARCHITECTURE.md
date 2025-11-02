@@ -1,9 +1,9 @@
 # Architecture Documentation
 ## Results Processing System (RPS)
 
-**Version**: 1.4
-**Last Updated**: 2025-10-27
-**Status**: Production-ready with element results and sheet-specific ordering
+**Version**: 1.7
+**Last Updated**: 2025-11-02
+**Status**: Production-ready with smart data detection, optimized browser UX, and modular service architecture
 
 ---
 
@@ -43,7 +43,8 @@
 ```
 src/
 ├── config/
-│   └── result_config.py          # Result type configurations (dataclasses)
+│   ├── result_config.py          # Result type configurations (dataclasses)
+│   └── visual_config.py          # Visual styling constants, legend config
 ├── database/
 │   ├── base.py                   # Per-project DB helpers / engine factory
 │   ├── catalog_base.py           # Catalog engine + Base metadata
@@ -52,23 +53,45 @@ src/
 │   ├── models.py                 # Project-scoped ORM models (hybrid schema)
 │   └── repository.py             # Project-scoped repositories
 ├── gui/
-│   ├── styles.py                 # GMP design system
-│   ├── main_window.py            # Project cards view + actions
-│   ├── project_detail_window.py  # 3-panel layout (browser|table|plot)
-│   ├── results_table_widget.py   # Compact table display
-│   └── results_plot_widget.py    # PyQtGraph building profiles
+│   ├── styles.py                 # GMP design system colors and constants
+│   ├── ui_helpers.py             # Styled component factory functions
+│   ├── window_utils.py           # Platform-specific window utilities
+│   ├── main_window.py            # Project cards view + navigation
+│   ├── project_detail_window.py  # View orchestrator (shows/hides specialized widgets)
+│   ├── results_tree_browser.py   # Hierarchical result navigation
+│   ├── result_views/
+│   │   └── standard_view.py      # Reusable table+plot view component
+│   ├── results_table_widget.py   # Table with manual selection
+│   ├── results_plot_widget.py    # PyQtGraph building profiles
+│   ├── maxmin_drifts_widget.py   # Max/Min envelope visualization
+│   ├── all_rotations_widget.py   # Scatter plot for all rotations
+│   ├── beam_rotations_widget.py  # Beam rotation visualization
+│   └── components/
+│       └── legend.py             # Reusable legend components
 ├── processing/
 │   ├── excel_parser.py           # Excel file reading
 │   ├── result_transformers.py    # Pluggable transformers
+│   ├── import_context.py         # ResultImportHelper (shared import utilities)
+│   ├── maxmin_calculator.py      # Absolute Max/Min calculations
 │   ├── data_importer.py          # Single file → DB pipeline (per project)
-│   └── folder_importer.py        # Batch folder → DB pipeline (context-aware)
+│   ├── folder_importer.py        # Batch folder → DB pipeline (context-aware)
+│   ├── result_processor.py       # Result processing logic
+│   └── result_service/           # Data retrieval service (modular package)
+│       ├── __init__.py           # Public API exports
+│       ├── service.py            # ResultDataService facade
+│       ├── models.py             # Data models (ResultDataset, MaxMinDataset)
+│       ├── cache_builder.py     # Standard/element dataset builders
+│       ├── maxmin_builder.py    # Max/min dataset builders
+│       ├── metadata.py          # Display label utilities
+│       └── story_loader.py      # StoryProvider caching helper
 ├── services/
 │   └── project_service.py        # Catalog + project context management
 └── utils/
     ├── slug.py                   # Slug utilities for project folders
     ├── color_utils.py            # Gradient color interpolation
     ├── data_utils.py             # Parsing/formatting helpers
-    └── plot_builder.py           # Declarative plot construction
+    ├── plot_builder.py           # Declarative plot construction
+    └── env.py                    # Environment detection utilities
 ```
 
 ---
@@ -96,65 +119,452 @@ src/
 - **visual_config (`config/visual_config.py`)** holds the canonical palette, zero-line/average styling, and table/padding constants so tables and plots use one source of truth.
 - **Legend widgets (`gui/components/legend.py`)** provide reusable static and interactive entries consumed by both standard and Max/Min views for consistent hover/toggle behavior.
 
-### Core Schema
+### Complete Data Model
 
-**Projects** → **ResultSets** → **GlobalResultsCache** / **ElementResultsCache** (wide-format JSON)
-**Projects** → **Stories** + **LoadCases** → **Results** (normalized)
-**Projects** → **Elements** → **ElementResults** (normalized, per-pier data)
+The application uses two separate databases:
+- **Catalog DB** (`data/catalog.db`) - Project metadata
+- **Per-Project DBs** (`data/projects/<slug>/<slug>.db`) - Project-specific data
 
-**Global Results** (Story-level):
+**Quick Navigation**:
+- [Catalog Database](#catalog-database-datacatalogdb) - 1 table (CatalogProject)
+- [Foundation Tables](#1-foundation-tables) - 6 tables (Project, Story, LoadCase, ResultSet, ResultCategory, Element)
+- [Global Result Tables](#2-global-result-tables-story-level) - 4 tables (StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement)
+- [Element Result Tables](#3-element-result-tables-element-level) - 6 tables (WallShear, QuadRotation, ColumnShear, ColumnAxial, ColumnRotation, BeamRotation)
+- [Cache Tables](#4-cache-tables-performance-optimization) - 3 tables (GlobalResultsCache, ElementResultsCache, AbsoluteMaxMinDrift)
+- [Future Tables](#5-futureholder-tables) - 1 table (TimeHistoryData - placeholder)
+
+**Total Tables**: 21 (1 catalog + 20 per-project)
+
+---
+
+#### Catalog Database (`data/catalog.db`)
+
+**CatalogProject** - Project registry
 ```python
-StoryDrift/Acceleration/Force/Displacement:
-  story_id: FK → stories.id
-  load_case_id: FK → load_cases.id
-  result_category_id: FK → result_categories.id
-  direction: String('X', 'Y')
-  <value>: Float (drift, acceleration, force, displacement)
-  max_<value>: Float (max value for envelope)
-  min_<value>: Float (min value for envelope)
-  story_sort_order: Integer  # Sheet-specific ordering (NEW in v1.4)
+id: Integer (PK, auto-increment)
+name: String(255) unique, not null           # Display name
+slug: String(255) unique, not null           # URL-safe identifier
+description: Text, nullable                  # Project description
+db_path: String(512), not null               # Path to project database
+created_at: DateTime, default=now()
+updated_at: DateTime, auto-update
+last_opened: DateTime, nullable
+
+Purpose: Central registry of all projects, maps names to database files
 ```
 
-**Element Results** (Per-element, per-story):
-```python
-WallShear (Pier Forces):
-  element_id: FK → elements.id
-  story_id: FK → stories.id
-  load_case_id: FK → load_cases.id
-  direction: String('V2', 'V3')
-  force: Float
-  max_force, min_force: Float
-  story_sort_order: Integer  # Per-element sheet ordering (NEW in v1.4)
+---
 
-QuadRotation (Quad Strain Gauges):
-  element_id: FK → elements.id
-  story_id: FK → stories.id
-  load_case_id: FK → load_cases.id
-  rotation: Float (radians)
-  max_rotation, min_rotation: Float
-  quad_name: String (optional)
-  story_sort_order: Integer  # Per-element sheet ordering (NEW in v1.4)
+#### Per-Project Database Schema
+
+##### 1. Foundation Tables
+
+**Project** - Project metadata (one per database)
+```python
+id: Integer (PK)
+name: String(255) unique, not null
+description: Text, nullable
+created_at: DateTime
+updated_at: DateTime
+
+Relationships:
+  → load_cases (cascade delete)
+  → stories (cascade delete)
+  → result_sets (cascade delete)
+
+Purpose: Root entity for project-scoped data
 ```
 
-**GlobalResultsCache** (Performance-optimized):
+**Story** - Building floors/levels
 ```python
-project_id: FK → projects.id
-result_set_id: FK → result_sets.id
-result_type: String('Drifts', 'Accelerations', 'Forces', 'Displacements')
-story_id: FK → stories.id
-results_matrix: JSON  # {"TH01_X": 0.0123, "TH02_X": 0.0145, ...}
-story_sort_order: Integer  # Preserves Excel sheet order (NEW in v1.4)
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+name: String(100), not null                  # "Base", "S1", "S2", etc.
+elevation: Float, nullable                   # Elevation in project units
+sort_order: Integer, nullable                # Global ordering (bottom=0)
+
+Indexes:
+  - UNIQUE(project_id, name)
+
+Relationships:
+  → drifts, accelerations, forces, displacements (cascade delete)
+
+Purpose: Represents building stories, maintains global vertical ordering
 ```
 
-**ElementResultsCache** (Element performance-optimized):
+**LoadCase** - Analysis load cases
 ```python
-project_id: FK → projects.id
-result_set_id: FK → result_sets.id
-result_type: String('WallShears_V2', 'WallShears_V3', 'QuadRotations')
-element_id: FK → elements.id
-story_id: FK → stories.id
-results_matrix: JSON  # {"TH01": 123.4, "TH02": 145.6, ...}
-story_sort_order: Integer  # Per-element sheet order (NEW in v1.4)
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+name: String(100), not null                  # "TH01", "MCR1", etc.
+case_type: String(50), nullable              # "Time History", "Modal", etc.
+description: Text, nullable
+
+Indexes:
+  - UNIQUE(project_id, name)
+
+Relationships:
+  → story_drifts, story_accelerations, story_forces, story_displacements
+  → wall_shears, column_shears, column_rotations
+
+Purpose: Shared load case registry across all result types
+```
+
+**ResultSet** - Result collections (DES, MCE, SLE, etc.)
+```python
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+name: String(100), not null                  # "DES", "MCE", "SLE"
+description: Text, nullable
+created_at: DateTime
+
+Indexes:
+  - UNIQUE(project_id, name)
+
+Relationships:
+  → categories (cascade delete)
+  → cache_entries (cascade delete)
+
+Purpose: Organizes results into named sets for comparison
+```
+
+**ResultCategory** - Result hierarchy (Envelopes/Time-Series → Global/Elements)
+```python
+id: Integer (PK)
+result_set_id: Integer FK → result_sets.id, not null
+category_name: String(50), not null          # "Envelopes", "Time-Series"
+category_type: String(50), not null          # "Global", "Elements", "Joints"
+
+Indexes:
+  - UNIQUE(result_set_id, category_name, category_type)
+
+Relationships:
+  → drifts, accelerations, forces, displacements, wall_shears, etc.
+
+Purpose: Two-level categorization within result sets
+```
+
+**Element** - Structural elements (walls, columns, beams)
+```python
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+element_type: String(50), not null           # "Wall", "Column", "Beam", "Pier"
+name: String(100), not null                  # Display name
+unique_name: String(100), nullable           # ETABS/SAP2000 identifier
+story_id: Integer FK → stories.id, nullable
+
+Indexes:
+  - UNIQUE(project_id, element_type, unique_name)
+
+Relationships:
+  → wall_shears, column_shears, column_axials, column_rotations, quad_rotations
+
+Purpose: Registry of structural elements for element-level results
+```
+
+---
+
+##### 2. Global Result Tables (Story-Level)
+
+**StoryDrift** - Story drift ratios
+```python
+id: Integer (PK)
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "X" or "Y"
+drift: Float, not null                       # Drift ratio
+max_drift: Float, nullable                   # Envelope max
+min_drift: Float, nullable                   # Envelope min
+story_sort_order: Integer, nullable          # Sheet-specific ordering
+
+Indexes:
+  - (story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Story Drifts"
+```
+
+**StoryAcceleration** - Story accelerations
+```python
+id: Integer (PK)
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "UX" or "UY"
+acceleration: Float, not null                # Acceleration in g
+max_acceleration: Float, nullable
+min_acceleration: Float, nullable
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Diaphragm Accelerations"
+```
+
+**StoryForce** - Story shear forces
+```python
+id: Integer (PK)
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "VX" or "VY"
+location: String(20), nullable               # "Top" or "Bottom"
+force: Float, not null                       # Shear force
+max_force: Float, nullable
+min_force: Float, nullable
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Story Forces"
+```
+
+**StoryDisplacement** - Story displacements
+```python
+id: Integer (PK)
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "UX", "UY", "UZ"
+displacement: Float, not null
+max_displacement: Float, nullable
+min_displacement: Float, nullable
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Joint Displacements"
+```
+
+---
+
+##### 3. Element Result Tables (Element-Level)
+
+**WallShear** - Wall/pier shear forces
+```python
+id: Integer (PK)
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "V2" or "V3"
+location: String(20), nullable               # "Bottom" (only used for shears)
+force: Float, not null
+max_force: Float, nullable
+min_force: Float, nullable
+story_sort_order: Integer, nullable          # Per-element sheet ordering
+
+Indexes:
+  - (element_id, story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Pier Forces"
+```
+
+**QuadRotation** - Quad strain gauge rotations
+```python
+id: Integer (PK)
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+quad_name: String(50), nullable              # Quad element identifier
+direction: String(20), nullable              # "Pier" (typically)
+rotation: Float, not null                    # Rotation in radians
+max_rotation: Float, nullable                # Radians
+min_rotation: Float, nullable                # Radians
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (element_id, story_id, load_case_id)
+  - (result_category_id)
+
+Source Sheet: "Quad Strain Gauge - Rotation"
+Display: Multiplied by 100 to show as percentage
+Note: Uses global Story.sort_order (not sheet-specific ordering)
+```
+
+**ColumnShear** - Column shear forces
+```python
+id: Integer (PK)
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "V2" or "V3"
+location: String(20), nullable               # "Top" or "Bottom"
+force: Float, not null
+max_force: Float, nullable
+min_force: Float, nullable
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (element_id, story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Element Forces - Columns"
+```
+
+**ColumnAxial** - Column minimum axial forces
+```python
+id: Integer (PK)
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+location: String(20), nullable               # "Top" or "Bottom"
+min_axial: Float, not null                   # Most compression P value
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (element_id, story_id, load_case_id)
+  - (result_category_id)
+
+Source Sheet: "Element Forces - Columns"
+Purpose: Captures minimum (most compression) axial forces
+```
+
+**ColumnRotation** - Column plastic hinge rotations
+```python
+id: Integer (PK)
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+direction: String(10), not null              # "R2" or "R3"
+rotation: Float, not null                    # Rotation in radians
+max_rotation: Float, nullable
+min_rotation: Float, nullable
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (element_id, story_id, load_case_id, direction)
+  - (result_category_id)
+
+Source Sheet: "Fiber Hinge States"
+Filter: Frame/Wall starts with 'C'
+Display: Multiplied by 100 to show as percentage
+```
+
+**BeamRotation** - Beam plastic hinge rotations
+```python
+id: Integer (PK)
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+result_category_id: Integer FK → result_categories.id, nullable
+hinge: String(20), nullable                  # Hinge identifier (e.g., "SB2")
+generated_hinge: String(20), nullable        # Generated ID (e.g., "B19H1")
+rel_dist: Float, nullable                    # Relative distance along beam
+r3_plastic: Float, not null                  # R3 plastic rotation in radians
+max_r3_plastic: Float, nullable
+min_r3_plastic: Float, nullable
+story_sort_order: Integer, nullable
+
+Indexes:
+  - (element_id, story_id, load_case_id)
+  - (result_category_id)
+
+Source Sheet: "Hinge States"
+Filter: Frame/Wall starts with 'B'
+Display: Multiplied by 100 to show as percentage
+```
+
+---
+
+##### 4. Cache Tables (Performance Optimization)
+
+**GlobalResultsCache** - Wide-format global results
+```python
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+result_set_id: Integer FK → result_sets.id, nullable
+result_type: String(50), not null            # "Drifts", "Accelerations", etc.
+story_id: Integer FK → stories.id, not null
+results_matrix: JSON, not null               # {"TH01_X": 0.0123, "TH02_X": 0.0145, ...}
+story_sort_order: Integer, nullable          # Preserves Excel sheet order
+last_updated: DateTime, auto-update
+
+Indexes:
+  - (project_id, result_set_id, result_type)
+  - (story_id)
+
+Purpose: One row per story, all load cases in JSON for fast table display
+Format: Load case + direction as key, value as float
+Performance: ~20ms vs ~100ms for JOIN queries
+```
+
+**ElementResultsCache** - Wide-format element results
+```python
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+result_set_id: Integer FK → result_sets.id, nullable
+result_type: String(50), not null            # "WallShears_V2", "QuadRotations", etc.
+element_id: Integer FK → elements.id, not null
+story_id: Integer FK → stories.id, not null
+results_matrix: JSON, not null               # {"TH01": 123.4, "TH02": 145.6, ...}
+story_sort_order: Integer, nullable          # Per-element sheet ordering
+last_updated: DateTime, auto-update
+
+Indexes:
+  - (project_id, result_set_id, result_type, element_id)
+  - (element_id)
+  - (story_id)
+
+Purpose: One row per (element, story), all load cases in JSON
+Format: Load case as key (direction in result_type), value as float
+```
+
+**AbsoluteMaxMinDrift** - Computed envelope results
+```python
+id: Integer (PK)
+project_id: Integer FK → projects.id, not null
+result_set_id: Integer FK → result_sets.id, not null
+story_id: Integer FK → stories.id, not null
+load_case_id: Integer FK → load_cases.id, not null
+direction: String(10), not null              # "X" or "Y"
+absolute_max_drift: Float, not null          # max(|Max|, |Min|)
+sign: String(10), not null                   # "positive" or "negative"
+original_max: Float, not null                # Original Max value
+original_min: Float, not null                # Original Min value
+created_at: DateTime
+
+Indexes:
+  - UNIQUE(project_id, result_set_id, story_id, load_case_id, direction)
+  - (result_set_id)
+
+Purpose: Pre-computed absolute maximum drifts for envelope visualization
+Calculation: Compares |Max| vs |Min|, stores larger absolute value + sign
+```
+
+---
+
+##### 5. Future/Placeholder Tables
+
+**TimeHistoryData** - Time-series results (placeholder)
+```python
+id: Integer (PK)
+load_case_id: Integer FK → load_cases.id, not null
+element_id: Integer FK → elements.id, nullable
+story_id: Integer FK → stories.id, nullable
+result_type: String(50), not null            # "Drift", "Acceleration", etc.
+time_step: Float, not null                   # Time in seconds
+value: Float, not null
+direction: String(10), nullable
+
+Indexes:
+  - (load_case_id, result_type)
+  - (element_id)
+
+Purpose: Future support for time-history plotting
+Status: Table exists, not yet populated by importers
 ```
 
 ### Sheet-Specific Story Ordering (NEW in v1.4)
@@ -189,12 +599,25 @@ Quad rotation Excel sheets are sorted lexicographically by pier/element name, NO
   - `_order_element_cache_entries()` - Lines 469-500: Re-sorting logic
   - `get_all_quad_rotations_dataset()` - Line 851: Global sort order usage
 
-### Indexing Strategy
-- Composite indexes on `(project_id, name)` for uniqueness
-- Composite indexes on `(story_id, load_case_id, direction)` for result queries
-- Cache indexes on `(project_id, result_set_id, result_type)`
-- Element cache indexes on `(element_id, story_id, result_type)`
-- Element indexes on `(element_id, story_id, load_case_id)` for fast queries
+### Indexing Strategy Summary
+
+All indexes are documented above in the Complete Data Model section. Key patterns:
+
+**Uniqueness Constraints**:
+- `(project_id, name)` - Projects, Stories, LoadCases, ResultSets
+- `(project_id, element_type, unique_name)` - Elements
+- `(result_set_id, category_name, category_type)` - ResultCategories
+
+**Query Performance Indexes**:
+- Global Results: `(story_id, load_case_id, direction)` + `(result_category_id)`
+- Element Results: `(element_id, story_id, load_case_id, [direction])` + `(result_category_id)`
+- Cache Lookups: `(project_id, result_set_id, result_type)` for global, add `element_id` for element cache
+- Envelope Results: `(project_id, result_set_id, story_id, load_case_id, direction)` for AbsoluteMaxMinDrift
+
+**Design Notes**:
+- Composite indexes enable fast filtering by multiple criteria (story + load case + direction)
+- Category indexes support hierarchical tree navigation
+- Cache indexes optimize the most common query pattern (load all results for visualization)
 
 ---
 
@@ -378,34 +801,140 @@ class PlotBuilder:
 ```
 QApplication
 ├─> MainWindow
-│   ├─> Header (64px fixed)
-│   ├─> Project Cards Grid
-│   └─> Action Buttons
+│   ├─> Header (64px fixed) with navigation
+│   ├─> Stacked Pages (Home | Projects | Docs)
+│   │   └─> Projects Page: Project Cards Grid
+│   └─> Status Bar
 │
-└─> ProjectDetailWindow
-    ├─> Header (64px fixed)
-    ├─> 3-Panel Splitter
+└─> ProjectDetailWindow (per project)
+    ├─> Header (64px fixed) with actions
+    ├─> 2-Panel Splitter
     │   ├─> Results Tree Browser (200px)
-    │   ├─> Results Table (auto-fit)
-    │   └─> Results Plot (remaining)
-    │       ├─> Standard Plot (building profiles)
-    │       ├─> Max/Min Plot (separate X/Y or single)
-    │       └─> All Rotations Plot (scatter with jitter)
+    │   └─> Content Area (dynamic view switching)
+    │       ├─> StandardResultView (table + plot splitter)
+    │       ├─> MaxMinDriftsWidget (separate X/Y or single plot)
+    │       ├─> AllRotationsWidget (scatter with jitter)
+    │       └─> BeamRotationsTable (wide-format table)
     └─> Status Bar
 ```
+
+### View Pattern: StandardResultView
+
+**Reusable Component** (`gui/result_views/standard_view.py`):
+- Encapsulates the common table+plot pattern
+- Internal horizontal splitter with table (left) and plot (right)
+- Handles signal connections between table and plot automatically
+- Clean public API: `set_dataset(dataset)` and `clear()`
+
+```python
+class StandardResultView(QWidget):
+    def __init__(self):
+        self.table = ResultsTableWidget()
+        self.plot = ResultsPlotWidget()
+        # Configure splitter, connect signals
+
+    def set_dataset(self, dataset: ResultDataset):
+        self.table.load_dataset(dataset)
+        self.plot.load_dataset(dataset)
+
+    def clear(self):
+        self.table.clear_data()
+        self.plot.clear_plots()
+```
+
+**Benefits**:
+- Single source of truth for table+plot layout
+- Consistent signal wiring (selection, hover)
+- Reduces duplication in `ProjectDetailWindow`
+- Easy to maintain and extend
+
+### View Orchestration: ProjectDetailWindow
+
+**Dynamic View Switching**:
+- Maintains multiple specialized widgets, shows/hides based on selection
+- View selection logic in `on_browser_selection_changed()`
+
+```python
+# Show appropriate widget based on result type
+if result_type == "AllQuadRotations":
+    self.standard_view.hide()
+    self.maxmin_widget.hide()
+    self.all_rotations_widget.show()  # Show scatter plot
+    self.beam_rotations_table.hide()
+elif result_type.startswith("MaxMin"):
+    self.standard_view.hide()
+    self.maxmin_widget.show()  # Show envelope view
+    self.all_rotations_widget.hide()
+    self.beam_rotations_table.hide()
+elif result_type == "BeamRotationsTable":
+    self.standard_view.hide()
+    self.beam_rotations_table.show()  # Show wide table
+    # ... hide others
+else:
+    self.standard_view.show()  # Standard table+plot
+    # ... hide others
+```
+
+**Specialized Widgets**:
+1. **StandardResultView** - Directional results (Drifts X/Y, Forces, etc.)
+2. **MaxMinDriftsWidget** - Envelope max/min with separate X/Y plots
+3. **AllRotationsWidget** - Scatter plot for rotation distributions
+4. **BeamRotationsTable** - Wide-format table for beam rotations
+
+### Results Tree Browser & Data Detection
+
+**Smart Data Detection System** (`gui/project_detail_window.py:252-289`):
+- Queries cache tables on project load to determine which result types have data
+- `_get_available_result_types()` method:
+  - Queries `GlobalResultsCache.result_type` for global results (Drifts, Accelerations, Forces)
+  - Queries `ElementResultsCache.result_type` for element results (WallShears, ColumnShears, etc.)
+  - Extracts base type names from cache (e.g., "WallShears_V2" → "WallShears")
+  - Returns dict mapping `result_set_id` to set of available result types
+- Backward compatible: If no data detection info provided, shows all sections
+
+**Conditional Section Rendering** (`gui/results_tree_browser.py`):
+- `_has_data_for(result_set_id, result_type)` checks availability before rendering
+- Sections automatically hidden if no data exists:
+  - **Global results**: Drifts, Accelerations, Forces, Displacements (lines 186-219)
+  - **Walls section**: Only shown if WallShears or QuadRotations data exists (lines 329-356)
+  - **Columns section**: Only shown if ColumnShears, ColumnAxials, or ColumnRotations exist (lines 528-560)
+  - **Beams section**: Only shown if BeamRotations data exists (lines 762-784)
+- Reduces browser clutter when partial datasets are imported
+
+**Default Expansion States** (v1.7):
+- **Expanded sections** (show result type names at a glance):
+  - Global section (`global_item.setExpanded(True)`) - shows Drifts, Forces, etc.
+  - Elements section (`elements_item.setExpanded(True)`) - shows Walls, Columns, Beams
+- **Collapsed sections** (hide details until clicked):
+  - Result types (`drifts_parent.setExpanded(False)`) - hides X/Y directions, Max/Min
+  - Element categories (`walls_parent.setExpanded(False)`) - hides Shears/Rotations subcategories
+- **Rationale**: Balance between overview and detail - user sees what's available without visual clutter
+
+**Layout Optimization** (v1.7):
+- StandardResultView splitter: 60/40 table/plot split (better plot visibility)
+- Table font: 10px (compact without horizontal scrolling)
+- Legend: Below plots in 4-column grid (saves horizontal space)
+- Max/Min tables: Ultra-compact (7px font, 0px 1px padding) for small screens
+- Plot titles removed to maximize visualization area
 
 ### Specialized Widgets
 
 **All Rotations Widget** (`gui/all_rotations_widget.py`):
-- Scatter plot for visualizing distribution of quad rotations
+- Scatter plot for visualizing distribution of quad/column/beam rotations
 - Features:
   - Story bins with vertical jitter (±0.3) for visibility
   - Centered at x=0 with symmetric axis range
   - Small markers (size=4) in single orange color
   - No legend (uniform visualization)
   - Combines Max and Min data in single view
-- Data source: `result_service.get_all_quad_rotations_dataset()`
+- Data source: `result_service.get_all_quad_rotations_dataset()` (and similar for columns/beams)
 - Ordering: Uses global `Story.sort_order` (not sheet-specific)
+
+**Window Utilities** (`gui/window_utils.py`):
+- Platform-specific window enhancements
+- `enable_dark_title_bar(window)` - Windows 10/11 dark title bar via DWM API
+- `set_windows_app_id(app_id)` - Taskbar integration on Windows
+- Gracefully handles non-Windows platforms (no-op)
 
 ### Interactive Features
 
@@ -460,14 +989,30 @@ def _apply_row_style(self, table, row):
 **Signal/Slot Architecture**:
 ```python
 # Results Tree Browser → Project Detail Window
-self.results_browser.selection_changed.connect(self.load_results)
+self.browser.selection_changed.connect(self.on_browser_selection_changed)
+# Signal signature: (result_set_id, category, result_type, direction, element_id)
 
-# Table Widget → Plot Widget (column selection)
-self.table_widget.selection_changed.connect(self.plot_widget.highlight_lines)
+# StandardResultView internal connections (automatic)
+self.table.selection_changed.connect(self.plot.highlight_load_cases)
+self.table.load_case_hovered.connect(self.plot.hover_load_case)
+self.table.hover_cleared.connect(self.plot.clear_hover)
+```
 
-# Table Widget → Plot Widget (hover effects)
-self.table_widget.load_case_hovered.connect(self.plot_widget.preview_line)
-self.table_widget.hover_cleared.connect(self.plot_widget.clear_preview)
+**View Switching Flow**:
+```
+1. User clicks tree item in ResultsTreeBrowser
+   ↓
+2. Browser emits selection_changed signal with parameters
+   ↓
+3. ProjectDetailWindow.on_browser_selection_changed() receives signal
+   ↓
+4. Determines which widget to show based on result_type
+   ↓
+5. Hides all widgets, shows selected widget
+   ↓
+6. Loads data into selected widget via ResultDataService
+   ↓
+7. Widget displays data (table+plot, envelope, scatter, etc.)
 ```
 
 ---
@@ -533,7 +1078,169 @@ self.table_widget.hover_cleared.connect(self.plot_widget.clear_preview)
 
 ---
 
+## 9.5. Result Service Architecture
+
+### Modular Package Design (v1.6 Refactor)
+
+The `result_service` has been refactored from a monolithic 1100+ line file into a modular package with focused responsibilities:
+
+**Package Structure**:
+```
+processing/result_service/
+├── __init__.py           # Public API (re-exports main classes)
+├── service.py            # ResultDataService facade (457 lines)
+├── models.py             # Data models (39 lines)
+├── cache_builder.py      # Standard/element dataset builders (164 lines)
+├── maxmin_builder.py     # Max/min dataset builders (203 lines)
+├── metadata.py           # Display label utilities (29 lines)
+└── story_loader.py       # StoryProvider caching helper (34 lines)
+```
+
+**Core Components**:
+
+1. **ResultDataService (`service.py`)**
+   - **Purpose**: Facade coordinating data retrieval and caching
+   - **Responsibilities**:
+     - Standard datasets (drifts, accelerations, forces, etc.)
+     - Element datasets (wall shears, column shears, etc.)
+     - Max/min envelope datasets
+     - All rotation/beam datasets for scatter plots
+     - In-memory caching with invalidation
+   - **Dependencies**: Cache repos, story repo, load case repo, element repo
+   - **Caching Strategy**: Three separate caches (standard, maxmin, element) with tuple keys
+
+2. **Data Models (`models.py`)**
+   - **ResultDatasetMeta**: Immutable metadata (result_type, direction, result_set_id, display_name)
+   - **ResultDataset**: Complete dataset with data, config, load case columns, summary columns
+   - **MaxMinDataset**: Envelope data with directions and source type
+
+3. **Cache Builders (`cache_builder.py`)**
+   - **build_standard_dataset()**: Global results (drifts, accelerations, etc.)
+     - Queries `GlobalResultsCache`
+     - Applies transformers
+     - Handles sheet-specific story ordering
+     - Adds statistics (Avg, Max, Min)
+   - **build_element_dataset()**: Element-specific results (wall/column shears, etc.)
+     - Queries `ElementResultsCache`
+     - Similar pipeline to standard datasets
+     - Element-scoped data
+
+4. **Max/Min Builders (`maxmin_builder.py`)**
+   - **build_drift_maxmin_dataset()**: Drift envelopes
+     - Uses `AbsoluteMaxMinDrift` table
+     - Absolute max/min across both directions
+   - **build_generic_maxmin_dataset()**: Other result envelopes
+     - Generic builder for accelerations, forces, displacements
+     - Queries raw result tables directly
+     - Computes absolute max/min on the fly
+
+5. **Story Provider (`story_loader.py`)**
+   - **Purpose**: Centralized story metadata caching
+   - **Benefits**: Avoid repeated queries, consistent story ordering
+   - **Usage**: Shared across all dataset builders
+
+6. **Metadata Utilities (`metadata.py`)**
+   - **build_display_label()**: User-facing result names
+   - **DISPLAY_NAME_OVERRIDES**: Mapping of internal to display names
+
+**Import Strategy (Backward Compatible)**:
+```python
+# Old import (still works)
+from processing.result_service import ResultDataService, ResultDataset
+
+# New imports (also work)
+from processing.result_service.service import ResultDataService
+from processing.result_service.models import ResultDataset, MaxMinDataset
+from processing.result_service.cache_builder import build_standard_dataset
+```
+
+**Benefits of Refactor**:
+- **Single Responsibility**: Each module has one clear purpose
+- **Testability**: Easy to test individual builders with mocks/stubs
+- **Maintainability**: Smaller files (~200 lines max vs 1100+ lines)
+- **Separation of Concerns**: Models, builders, and service logic separated
+- **No Breaking Changes**: `__init__.py` re-exports maintain backward compatibility
+
+**Usage Example**:
+```python
+# UI layer creates service once
+service = ResultDataService(
+    project_id=1,
+    cache_repo=cache_repo,
+    story_repo=story_repo,
+    load_case_repo=load_case_repo,
+    abs_maxmin_repo=abs_maxmin_repo,
+    element_cache_repo=element_cache_repo,
+    element_repo=element_repo,
+    session=session,
+)
+
+# Fetch standard dataset (with caching)
+dataset = service.get_standard_dataset("Drifts", "X", result_set_id=42)
+
+# Fetch max/min envelope
+maxmin = service.get_maxmin_dataset(result_set_id=42, base_result_type="Drifts")
+
+# Fetch element dataset
+element_ds = service.get_element_dataset(element_id=5, result_type="WallShears",
+                                         direction="V2", result_set_id=42)
+
+# Invalidate cache when data changes
+service.invalidate_all()
+```
+
+---
+
 ## 10. Extension Points
+
+### Adding New View Type (Widget)
+
+**Example: Custom Comparison View**
+
+```python
+# 1. Create new widget (gui/comparison_view.py)
+class ComparisonView(QWidget):
+    """Compare multiple result sets side by side."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Setup UI with your custom layout
+        ...
+
+    def load_datasets(self, datasets: list[ResultDataset]):
+        """Load multiple datasets for comparison."""
+        ...
+
+    def clear(self):
+        """Reset the view."""
+        ...
+
+# 2. Add to ProjectDetailWindow
+class ProjectDetailWindow(QMainWindow):
+    def __init__(self, context):
+        ...
+        # Create widget
+        self.comparison_view = ComparisonView()
+        self.comparison_view.hide()
+        layout.addWidget(self.comparison_view)
+
+    def on_browser_selection_changed(self, ...):
+        # Add case for new view type
+        if result_type == "Comparison":
+            self.standard_view.hide()
+            self.maxmin_widget.hide()
+            self.all_rotations_widget.hide()
+            self.comparison_view.show()  # Show new widget
+            self.load_comparison_data(...)
+
+# Done! New view type integrated.
+```
+
+**Key Points**:
+- Create widget with `load_*()` and `clear()` methods
+- Add widget to content area layout in `ProjectDetailWindow`
+- Add show/hide logic in `on_browser_selection_changed()`
+- Add data loading method if needed
 
 ### Adding New Result Type (10-15 lines)
 
@@ -643,6 +1350,10 @@ $ pipenv run python dev_watch.py
 | **Per-result story ordering** | Preserves Excel sheet order exactly | story_sort_order in every result table |
 | **Dual cache system** | Global + element results separation | More cache tables to maintain |
 | **Quad rotation global ordering** | Correct story order despite lexicographic sheet sorting | Special case handling in service layer |
+| **StandardResultView pattern** | Reusable component, consistent wiring | Slightly less flexible than inline |
+| **View orchestration** | Easy to add new view types | More widgets in memory (but hidden) |
+| **Window utilities extraction** | Platform-specific code isolated | Extra file to maintain |
+| **Result service modularization** | Focused modules (~200 lines each), testable components, single responsibility | More files to navigate (6 modules vs 1 file) |
 
 ---
 
@@ -650,6 +1361,8 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.6 | 2025-11-01 | Result service modularization: Refactored monolithic `result_service.py` (1117 lines) into focused package with 6 modules (service, models, cache_builder, maxmin_builder, metadata, story_loader). Added comprehensive testing. Backward compatible imports. |
+| 1.5 | 2025-11-01 | Major UI refactor: StandardResultView pattern, view orchestration, window utilities, project structure reorganization |
 | 1.4.1 | 2025-10-27 | All Rotations scatter plot, quad rotation global ordering exception, cache entry tuple fix |
 | 1.4 | 2025-10-27 | Element results (WallShears, QuadRotations), sheet-specific story ordering (story_sort_order), directionless results support, ElementResultsCache |
 | 1.3 | 2025-10-25 | Catalog/per-project DB split, ResultImportHelper, shared visual config/legend components, project_tools CLI |

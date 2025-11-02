@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Current State - October 2025
+## Current State - November 2025
 
 ### ✅ Fully Implemented
 
@@ -55,10 +55,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Configuration-driven transformers (~180 lines of duplication eliminated)
 - ✅ Repository pattern for clean data access
 - ✅ Pluggable result type system (add new types in ~10 lines)
+- ✅ **Modular Service Layer**: result_service refactored into 6 focused modules
 - ✅ **Per-Result Story Ordering**: story_sort_order in all result/cache tables
 - ✅ **Dual Cache System**: GlobalResultsCache + ElementResultsCache
 - ✅ **Directionless Results Support**: QuadRotations (no X/Y split)
 - ✅ Alembic migrations for schema evolution
+- ✅ **Comprehensive Testing**: Unit tests with stub/mock patterns
 
 **Design System:**
 - ✅ Modern minimalist aesthetic (documented in DESIGN.md)
@@ -68,13 +70,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Cyan accent (#67e8f9) for selections
 - ✅ 14px base font size
 
-**Interactive Features (NEW - October 2025):**
+**Interactive Features:**
 - ✅ Row hover highlighting with gentle cyan overlay (8% opacity)
 - ✅ Multi-row selection with toggle on click
 - ✅ Column header hover feedback (cyan text + background)
 - ✅ Legend-based plot interaction (hover/click on legend items)
 - ✅ Gradient color preservation in all interaction states
 - ✅ Manual selection system (no Qt default styling conflicts)
+
+**Browser & Navigation (NEW - November 2025):**
+- ✅ **Smart Data Detection**: Browser automatically hides result types without data
+  - Queries GlobalResultsCache and ElementResultsCache on project load
+  - Only shows sections (Drifts, Walls, Columns, etc.) that have imported data
+  - Reduces clutter when partial data sets are loaded
+- ✅ **Optimized Default View**: Hierarchical expansion states for quick overview
+  - Global and Elements sections: Expanded (shows result type names)
+  - Result types (Drifts, Forces, etc.): Collapsed (hides directions)
+  - Element categories (Walls, Columns, Beams): Collapsed (hides piers/subcategories)
+- ✅ **Compact Layout Optimization**: Space-efficient UI for smaller screens
+  - Standard views: 60/40 table/plot split with 10px table font
+  - Legend positioned below plots in multi-row grid layout
+  - Max/Min tables: Ultra-compact (7px font, minimal padding)
+  - Plot titles removed to maximize visualization space
 
 ### 🎯 Next Steps
 
@@ -92,7 +109,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] 3D model visualization
 - [ ] Custom report generation
 
-**Recently Completed (October 2025):**
+**Recently Completed (October-November 2025):**
+- ✅ **Result Service Modularization** (Nov 2025): Refactored into 6 focused modules with comprehensive tests
+- ✅ **Smart Data Detection** (Nov 2025): Browser automatically hides empty result type sections
+- ✅ **Browser UX Optimization** (Nov 2025): Configurable expansion states for streamlined navigation
+- ✅ **Layout Optimization** (Nov 2025): Responsive layouts optimized for smaller screens
 - ✅ Wall Shears element results (V2/V3 directions, per-pier)
 - ✅ Quad Rotations element results (directionless, percentage display)
 - ✅ Column Shears element results (V2/V3 directions, per-column)
@@ -105,6 +126,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ **Story Ordering System**: Sheet-specific ordering for most results, global Story.sort_order for quad rotations
 - ✅ Directionless result type support (single plot/table, no X/Y split)
 - ✅ **Gradient color formatting** for all tables (value-based colors with center alignment)
+- ✅ **UI View Pattern**: StandardResultView component with view orchestration
 
 ---
 
@@ -125,6 +147,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Configuration system: [ARCHITECTURE.md Section 5](ARCHITECTURE.md#5-configuration-system)
 - Transformer pattern: [ARCHITECTURE.md Section 6](ARCHITECTURE.md#6-transformer-system)
 - UI architecture: [ARCHITECTURE.md Section 8](ARCHITECTURE.md#8-ui-architecture)
+- Result service architecture: [ARCHITECTURE.md Section 9.5](ARCHITECTURE.md#95-result-service-architecture)
 - Extension points: [ARCHITECTURE.md Section 10](ARCHITECTURE.md#10-extension-points)
 
 ---
@@ -304,6 +327,68 @@ def _apply_row_style(self, table, row):
 - Use `cellClicked` signal instead of MouseButtonPress events
 - Apply background overlays only, never modify foreground colors
 - Event filter handles hover, signal handles click
+
+---
+
+### Creating Reusable View Components
+
+**View Pattern** (extracted from `project_detail_window.py`):
+
+The `StandardResultView` pattern combines table + plot in a reusable component:
+
+```python
+# gui/result_views/standard_view.py
+class StandardResultView(QWidget):
+    """Reusable table+plot component with automatic signal wiring."""
+
+    def __init__(self):
+        self.table = ResultsTableWidget()
+        self.plot = ResultsPlotWidget()
+
+        # Configure horizontal splitter
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(self.table)
+        splitter.addWidget(self.plot)
+
+        # Connect signals automatically
+        self.table.selection_changed.connect(self.plot.highlight_load_cases)
+        self.table.load_case_hovered.connect(self.plot.hover_load_case)
+        self.table.hover_cleared.connect(self.plot.clear_hover)
+
+    def set_dataset(self, dataset: ResultDataset):
+        """Load data into both table and plot."""
+        self.table.load_dataset(dataset)
+        self.plot.load_dataset(dataset)
+
+    def clear(self):
+        """Reset both components."""
+        self.table.clear_data()
+        self.plot.clear_plots()
+```
+
+**Usage in ProjectDetailWindow**:
+```python
+# Create once in __init__
+self.standard_view = StandardResultView()
+
+# Show/hide based on result type
+if result_type.startswith("MaxMin"):
+    self.standard_view.hide()
+    self.maxmin_widget.show()
+else:
+    self.standard_view.show()
+    self.maxmin_widget.hide()
+
+# Load data
+dataset = self.result_service.get_standard_dataset(result_type, direction, result_set_id)
+self.standard_view.set_dataset(dataset)
+```
+
+**Benefits**:
+- Single source of truth for table+plot layout
+- Consistent signal wiring across views
+- Easy to add new view types (just create new widget, add to window)
+- Reduces code duplication
 
 ---
 
@@ -529,14 +614,18 @@ This will rename all `project.db` files to `{slug}.db` and update the catalog.
 - `config/visual_config.py` - Colors, styling constants, legend config
 
 **Data Access:**
-- `database/catalog_models.py` - Catalog ORM (project metadata)
+- `database/catalog_models.py` - Catalog ORM (project metadata - 1 table)
 - `database/catalog_repository.py` - Catalog CRUD operations
-- `database/models.py` - Per-project ORM (stories, load cases, results, elements, caches)
-  - Global results: StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
-  - Element results: WallShear, QuadRotation
-  - Cache tables: GlobalResultsCache, ElementResultsCache (with story_sort_order)
+- `database/models.py` - Per-project ORM (20 tables total)
+  - **Foundation**: Project, Story, LoadCase, ResultSet, ResultCategory, Element
+  - **Global Results**: StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
+  - **Element Results**: WallShear, QuadRotation, ColumnShear, ColumnAxial, ColumnRotation, BeamRotation
+  - **Cache**: GlobalResultsCache, ElementResultsCache, AbsoluteMaxMinDrift
+  - **Future**: TimeHistoryData (placeholder)
 - `database/repository.py` - Per-project data access (CacheRepository, ElementCacheRepository)
 - `services/project_service.py` - Project context management
+
+> **📐 Complete Database Schema**: See [ARCHITECTURE.md Section 4 - Complete Data Model](ARCHITECTURE.md#complete-data-model) for full field definitions, relationships, and indexes for all 21 tables
 
 **Processing:**
 - `processing/result_transformers.py` - Pluggable transformer system
@@ -545,22 +634,37 @@ This will rename all `project.db` files to `{slug}.db` and update the catalog.
 - `processing/data_importer.py` - Single file import with cache generation
 - `processing/excel_parser.py` - Excel sheet parsing (global + element results)
 - `processing/result_processor.py` - Result processing logic
-- `processing/result_service.py` - Data retrieval with sheet-specific ordering
+- `processing/result_service/` - Data retrieval service (modular package)
+  - `service.py` - ResultDataService facade with caching
+  - `models.py` - ResultDataset, MaxMinDataset, ResultDatasetMeta
+  - `cache_builder.py` - Standard and element dataset builders
+  - `maxmin_builder.py` - Max/min envelope builders
+  - `metadata.py` - Display label utilities
+  - `story_loader.py` - StoryProvider caching helper
 
 **UI Components:**
-- `gui/main_window.py` - Project cards view
-- `gui/project_detail_window.py` - 3-panel layout orchestration
+- `gui/main_window.py` - Project cards view with navigation
+- `gui/project_detail_window.py` - 3-panel layout orchestration (browser | content)
 - `gui/results_tree_browser.py` - Hierarchical result navigation (global + elements)
-- `gui/results_table_widget.py` - Table with manual selection
+- `gui/result_views/standard_view.py` - Reusable table+plot view component
+- `gui/results_table_widget.py` - Table with manual selection and gradient colors
 - `gui/results_plot_widget.py` - PyQtGraph building profiles
-- `gui/maxmin_drifts_widget.py` - Max/Min view (supports directionless results)
-- `gui/all_rotations_widget.py` - All quad rotations scatter plot with story bins
-- `gui/components/legend.py` - Reusable legend widgets
+- `gui/maxmin_drifts_widget.py` - Max/Min envelope view (supports directionless results)
+- `gui/all_rotations_widget.py` - Scatter plot for all rotations with story bins and jitter
+- `gui/beam_rotations_widget.py` - Beam rotations visualization
+- `gui/components/legend.py` - Reusable legend widgets (static + interactive)
+- `gui/window_utils.py` - Platform-specific utilities (dark title bar, app ID)
+- `gui/ui_helpers.py` - Styled component factories
+- `gui/styles.py` - GMP design system constants
 
 **Utilities:**
 - `utils/color_utils.py` - Gradient color interpolation
 - `utils/plot_builder.py` - Declarative plot API
+- `utils/data_utils.py` - Parsing and formatting helpers
 - `utils/slug.py` - Slug utilities for project folders
+
+**Processing Utilities:**
+- `processing/maxmin_calculator.py` - Absolute Max/Min calculations from envelope data
 
 ---
 
@@ -593,9 +697,9 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 - This ensures correct vertical building ordering despite lexicographic element sorting in Excel
 
 **Key Code Locations:**
-- `processing/result_service.py:320-325` - Quad rotation detection in `get_element_maxmin_dataset()`
-- `processing/result_service.py:469-500` - Quad rotation re-sorting in `_order_element_cache_entries()`
-- `processing/result_service.py:851` - Global sort order in `get_all_quad_rotations_dataset()`
+- `processing/result_service/service.py` - `get_element_maxmin_dataset()` - Quad rotation detection (lines ~195-204)
+- `processing/result_service/cache_builder.py` - Story ordering logic in `build_element_dataset()` (lines ~109-119)
+- `processing/result_service/service.py` - `get_all_quad_rotations_dataset()` - Global sort order usage (lines ~284-326)
 
 **Database columns:**
 - `Story.sort_order` - Global story order from Story Drifts sheet (0=bottom floor)
@@ -604,6 +708,93 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 
 ---
 
-**Last Updated**: 2025-10-28
-**Status**: Production-ready, database naming updated, acceleration data source migrated to Diaphragm Accelerations
+**Last Updated**: 2025-11-02
+**Status**: Production-ready with smart data detection, optimized browser UX, and responsive layouts
 **Note**: Structural details moved to [ARCHITECTURE.md](ARCHITECTURE.md) - this file focuses on quick development tasks
+
+---
+
+## Recent Changes (November 2025)
+
+### ✅ Smart Data Detection & Browser Optimization (v1.7)
+
+**Data Detection System**:
+- ✅ Implemented automatic result type filtering based on loaded data
+- ✅ Queries `GlobalResultsCache` and `ElementResultsCache` on project load
+- ✅ Browser shows only sections with imported data (Drifts, Walls, Columns, etc.)
+- ✅ Conditional rendering for all element categories (Walls, Columns, Beams)
+- ✅ Backward compatible - shows all sections if data detection fails
+
+**Browser UX Optimization**:
+- ✅ Configured hierarchical expansion states for streamlined navigation:
+  - **Global section**: Expanded (shows Drifts, Forces, Displacements at a glance)
+  - **Elements section**: Expanded (shows Walls, Columns, Beams at a glance)
+  - **Result types**: Collapsed (hides X/Y directions, Max/Min subsections)
+  - **Element categories**: Collapsed (hides Shears/Rotations subcategories, pier lists)
+- ✅ Reduces initial visual clutter while maintaining quick access to all result types
+
+**Layout Optimization**:
+- ✅ Standard views: Adjusted splitter to 60/40 (table/plot) for better plot visibility
+- ✅ Table font reduced to 10px for compact display without scrolling
+- ✅ Legend repositioned below plots in multi-row grid layout (4 items per row)
+- ✅ Plot titles removed to maximize visualization area
+- ✅ Max/Min tables: Ultra-compact layout (7px font, 0px 1px padding) for small screens
+- ✅ Responsive design ensures readability on various screen sizes
+
+**Implementation Details**:
+- `project_detail_window.py:252-289` - `_get_available_result_types()` data detection
+- `results_tree_browser.py:22-33` - `_has_data_for()` backward-compatible checking
+- `results_tree_browser.py:329-356` - Conditional Walls section rendering
+- `results_tree_browser.py:528-560` - Conditional Columns section rendering
+- `results_tree_browser.py:762-784` - Conditional Beams section rendering
+- `standard_view.py:45-56` - Optimized splitter proportions and expansion states
+
+### ✅ Result Service Modularization (v1.6)
+
+**Service Layer Refactor**:
+- ✅ Refactored monolithic `result_service.py` (1117 lines) into focused package (6 modules, ~200 lines each)
+- ✅ New modular structure:
+  - `service.py` - ResultDataService facade with multi-level caching
+  - `models.py` - Data models (ResultDataset, MaxMinDataset, ResultDatasetMeta)
+  - `cache_builder.py` - Standard and element dataset builders
+  - `maxmin_builder.py` - Drift and generic max/min builders
+  - `metadata.py` - Display label utilities and overrides
+  - `story_loader.py` - StoryProvider for centralized story caching
+- ✅ Backward compatible imports via `__init__.py` (no breaking changes)
+- ✅ Comprehensive unit tests added (`test_result_data_service.py`)
+- ✅ Improved testability with stub/mock patterns
+
+**Benefits**:
+- **Single Responsibility**: Each module has one clear purpose
+- **Testability**: Individual components can be tested in isolation
+- **Maintainability**: Smaller files easier to navigate and understand
+- **Separation of Concerns**: Models, builders, and service logic cleanly separated
+
+### ✅ UI Refactor & Architecture Improvements (v1.5)
+
+**View Pattern Introduction**:
+- ✅ New `StandardResultView` component (reusable table+plot pattern)
+- ✅ View orchestration in `ProjectDetailWindow` (dynamic widget switching)
+- ✅ Extracted `window_utils.py` for platform-specific utilities
+- ✅ Extracted `maxmin_calculator.py` for Max/Min calculations
+- ✅ New `result_views/` directory for view components
+
+**Improved Organization**:
+- ✅ Clearer separation between reusable components and specialized widgets
+- ✅ Automatic signal wiring in `StandardResultView`
+- ✅ Simplified `ProjectDetailWindow` (~200 lines removed)
+- ✅ Better maintainability with single source of truth for layouts
+
+**Code Quality**:
+- ✅ Reduced duplication (table+plot layout defined once)
+- ✅ Consistent patterns across all directional results
+- ✅ Easier to add new view types (just create widget, add to orchestrator)
+
+**What You Need to Know**:
+1. **`project_detail_window.py` is now an orchestrator** - it manages multiple specialized widgets and shows/hides them based on result type
+2. **`StandardResultView` is for directional results** - use this for any result type with X/Y or V2/V3 directions
+3. **Create specialized widgets for unique visualizations** - like `MaxMinDriftsWidget`, `AllRotationsWidget`, etc.
+4. **Window utilities are platform-specific** - dark title bar only works on Windows, gracefully ignored on Linux/Mac
+5. **Signal wiring is automatic in StandardResultView** - table ↔ plot communication is handled internally
+
+---

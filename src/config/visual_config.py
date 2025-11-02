@@ -28,8 +28,8 @@ ZERO_LINE_COLOR = "#4a7d89"
 STORY_PADDING_STANDARD = 0.1
 STORY_PADDING_MAXMIN = 0.1
 
-TABLE_CELL_PADDING = "4px 6px"
-TABLE_HEADER_PADDING = "4px 6px"
+TABLE_CELL_PADDING = "0px 1px"  # Ultra-minimal padding for maximum space
+TABLE_HEADER_PADDING = "0px 1px"  # Ultra-minimal padding for maximum space
 
 
 def series_color(index: int) -> str:

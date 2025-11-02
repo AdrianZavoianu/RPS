@@ -153,8 +153,8 @@ class ResultsTableWidget(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Set size policy: fixed width, expand vertically to match plot height
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        # Set size policy: preferred width (can shrink/grow), expand vertically to match plot height
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
         # No border on container - table will have its own border
         self.setObjectName("tableContainer")
@@ -209,12 +209,12 @@ class ResultsTableWidget(QFrame):
         palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 0, 0, 0))  # Transparent highlight
         self.table.setPalette(palette)
 
-        # Disable scrolling - table should fit all columns
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Enable scrollbars when table is resized smaller than content
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        # Set consistent font across entire table
-        table_font = QFont("Inter", 14)
+        # Set consistent font across entire table (compact for fitting both table and plot)
+        table_font = QFont("Inter", 10)
         self.table.setFont(table_font)
         self.table.horizontalHeader().setFont(table_font)
 
@@ -361,7 +361,7 @@ class ResultsTableWidget(QFrame):
 
     def _resize_columns(self, column_count: int) -> None:
         """Apply width constraints based on column type counts."""
-        story_column_width = 60
+        story_column_width = 52  # Reduced for 10px font
         data_column_width = self._column_width_for_type()
 
         for col_idx in range(column_count):
@@ -371,10 +371,13 @@ class ResultsTableWidget(QFrame):
                 self.table.setColumnWidth(col_idx, data_column_width)
 
         total_width = story_column_width + max(0, column_count - 1) * data_column_width + 2
+        # Set minimum width to content width - table should not scroll
+        # This allows table to take just enough space, giving more to the plot
         self.table.setMinimumWidth(total_width)
-        self.table.setMaximumWidth(total_width)
         self.setMinimumWidth(total_width)
-        self.setMaximumWidth(total_width)
+        # But allow table to grow slightly if space available
+        self.table.setMaximumWidth(total_width + 50)  # Allow up to 50px extra
+        self.setMaximumWidth(total_width + 50)
 
     def _format_value(self, value, config) -> str:
         """Format numeric table value with unit string."""
@@ -582,20 +585,21 @@ class ResultsTableWidget(QFrame):
         self._update_header_styling()
 
     def _column_width_for_type(self) -> int:
+        """Column width optimized for 10px font to fit table and plot without scrolling."""
         base = self._base_result_type()
         if base == "Drifts":
-            return 58
+            return 50
         if base == "Accelerations":
-            return 54
+            return 48
         if base == "Forces":
-            return 60
+            return 52
         if base == "Displacements":
-            return 56
+            return 48
         if base == "WallShears":
-            return 60
+            return 52
         if base == "QuadRotations":
-            return 58
-        return 50
+            return 50
+        return 46
 
     def _base_result_type(self) -> str:
         value = self._current_result_type or ""

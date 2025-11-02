@@ -221,8 +221,8 @@ class MaxMinDriftsWidget(QWidget):
         # Content widget
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(16)
+        layout.setContentsMargins(6, 6, 6, 6)  # Proper margins for readability
+        layout.setSpacing(12)  # Readable spacing between X and Y tables
 
         # X Direction container (Min and Max side-by-side)
         x_container = self._create_direction_tables("X")
@@ -243,12 +243,12 @@ class MaxMinDriftsWidget(QWidget):
         container = QWidget()
         main_layout = QVBoxLayout(container)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(8)
+        main_layout.setSpacing(6)  # Readable spacing between title and tables
 
         # Title
         title_label = QLabel(f"{direction} Direction")
         title_label.setStyleSheet(f"""
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             color: {COLORS['text']};
         """)
@@ -257,7 +257,7 @@ class MaxMinDriftsWidget(QWidget):
         # Horizontal layout for Min and Max tables
         tables_layout = QHBoxLayout()
         tables_layout.setContentsMargins(0, 0, 0, 0)
-        tables_layout.setSpacing(12)
+        tables_layout.setSpacing(8)  # Readable horizontal spacing between Min and Max
 
         # Min table
         min_table = self._create_single_table("Min")
@@ -288,12 +288,12 @@ class MaxMinDriftsWidget(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(4)  # Readable spacing between label and table
 
         # Label for Min/Max
         label_widget = QLabel(label)
         label_widget.setStyleSheet(f"""
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 600;
             color: {COLORS['text']};
         """)
@@ -335,6 +335,12 @@ class MaxMinDriftsWidget(QWidget):
                 border: none;
             }}
         """)
+
+        # Set smaller font for compact display on smaller screens
+        from PyQt6.QtGui import QFont
+        table_font = QFont("Inter", 7)  # Ultra-compact font for Max/Min tables
+        table.setFont(table_font)
+        table.horizontalHeader().setFont(table_font)
 
         # Hide vertical header (row numbers) - matches normal drift page
         table.verticalHeader().setVisible(False)

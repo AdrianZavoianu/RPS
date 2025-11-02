@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QTabWidget,
     QLabel,
     QFrame,
@@ -100,11 +101,11 @@ class ResultsPlotWidget(QWidget):
 
     def _create_plot_widget(self, title: str) -> QWidget:
         """Create a styled PyQtGraph plot widget with external legend."""
-        # Container widget with horizontal layout
+        # Container widget with vertical layout (plot on top, legend below)
         container = QWidget()
-        layout = QHBoxLayout(container)
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)  # Spacing between plot and legend
+        layout.setSpacing(4)  # Minimal spacing between plot and legend
 
         # Create the plot
         plot_widget = pg.PlotWidget()
@@ -130,25 +131,10 @@ class ResultsPlotWidget(QWidget):
         # Set padding for plot
         view_box.setDefaultPadding(0.0)
 
-        # Set title with spacing
-        plot_widget.setTitle(title, color='#4a7d89', size='12pt')
+        # No title - maximizes plot area
+        plot_widget.setTitle(None)
 
-        # Add spacing between title row and plot area row
-        plot_item = plot_widget.getPlotItem()
-        plot_item.layout.setRowSpacing(0, 12)  # Space between title and plot
-
-        # Create legend as a separate widget
-        # Wrapper for legend with top spacing
-        legend_wrapper = QWidget()
-        legend_wrapper.setMaximumWidth(150)
-        legend_wrapper_layout = QVBoxLayout(legend_wrapper)
-        legend_wrapper_layout.setContentsMargins(0, 0, 0, 0)
-        legend_wrapper_layout.setSpacing(0)
-
-        # Add spacer to align legend with top of plot area
-        top_spacer = QSpacerItem(0, 41, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        legend_wrapper_layout.addItem(top_spacer)
-
+        # Create legend as a separate widget below the plot
         legend_widget = QFrame()
         legend_widget.setStyleSheet("""
             QFrame {
@@ -158,26 +144,27 @@ class ResultsPlotWidget(QWidget):
             }
         """)
         legend_widget.setSizePolicy(
-            legend_widget.sizePolicy().Policy.Fixed,
-            legend_widget.sizePolicy().Policy.Maximum  # Fit content height, don't expand
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Maximum  # Fit content height, don't expand
         )
 
-        legend_layout = QVBoxLayout(legend_widget)
-        legend_layout.setContentsMargins(8, 8, 8, 8)
-        legend_layout.setSpacing(6)
-        legend_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Use grid layout for multi-row legend (4 items per row)
+        legend_layout = QGridLayout(legend_widget)
+        legend_layout.setContentsMargins(6, 4, 6, 4)  # Reduced padding
+        legend_layout.setHorizontalSpacing(12)  # Horizontal space between items
+        legend_layout.setVerticalSpacing(2)  # Minimal vertical space between rows
+        legend_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        legend_wrapper_layout.addWidget(legend_widget)
-        legend_wrapper_layout.addStretch()  # Push everything to top
-
-        # Add plot and legend to container
+        # Add plot and legend to container (vertical stack)
         layout.addWidget(plot_widget, 1)  # Plot stretches
-        layout.addWidget(legend_wrapper, 0, Qt.AlignmentFlag.AlignTop)  # Legend wrapper fixed
+        layout.addWidget(legend_widget, 0)  # Legend below, fixed height
 
         # Store references
         container._plot_widget = plot_widget
         container._legend_layout = legend_layout
         container._legend_items = []
+        container._legend_row = 0  # Track current row for grid layout
+        container._legend_col = 0  # Track current column for grid layout
 
         self._plot_legends[container] = legend_layout
         return container
@@ -187,10 +174,21 @@ class ResultsPlotWidget(QWidget):
         return container._plot_widget
 
     def _add_legend_item(self, container, color: str, label: str):
-        """Add a legend item to the external legend."""
+        """Add a legend item to the external legend (grid layout, 4 items per row)."""
         item_widget = create_static_legend_item(color, label)
-        container._legend_layout.addWidget(item_widget)
+        # Add to grid layout at current position
+        container._legend_layout.addWidget(
+            item_widget,
+            container._legend_row,
+            container._legend_col
+        )
         container._legend_items.append(item_widget)
+
+        # Move to next position (4 items per row)
+        container._legend_col += 1
+        if container._legend_col >= 4:
+            container._legend_col = 0
+            container._legend_row += 1
 
     def load_dataset(self, dataset: ResultDataset) -> None:
         """Load data and generate plots from a ResultDataset."""
@@ -259,12 +257,7 @@ class ResultsPlotWidget(QWidget):
         plot.setLabel('bottom', 'Story')
         plot.setLabel('left', dataset.config.y_label)
 
-        # Update title
-        plot.setTitle(
-            f"Maximum {dataset.meta.display_name} by Story",
-            color='#4a7d89',
-            size='12pt',
-        )
+        # No title - maximizes plot area
 
     def _plot_comparison(self, dataset: ResultDataset):
         """Plot load case comparison."""
@@ -303,12 +296,7 @@ class ResultsPlotWidget(QWidget):
         plot.setLabel('bottom', 'Story')
         plot.setLabel('left', dataset.config.y_label)
 
-        # Update title
-        plot.setTitle(
-            f"{dataset.meta.display_name} - Load Case Comparison",
-            color='#4a7d89',
-            size='12pt',
-        )
+        # No title - maximizes plot area
 
     def _plot_profile(self, dataset: ResultDataset):
         """Plot building profile (story height vs max value)."""
@@ -351,7 +339,7 @@ class ResultsPlotWidget(QWidget):
             symbolSize=5,
             symbolBrush='#4a7d89'
         )
-        self._add_legend_item(container, '#4a7d89', 'Average')
+        self._add_legend_item(container, '#4a7d89', 'Avg')
 
         # Configure axes
         axis = plot.getAxis('left')
@@ -359,10 +347,7 @@ class ResultsPlotWidget(QWidget):
         plot.setLabel('left', 'Story')
         plot.setLabel('bottom', dataset.config.y_label)
 
-        # Update title
-        plot.setTitle(
-            f"{dataset.meta.display_name} - Building Profile", color='#4a7d89', size='12pt'
-        )
+        # No title - maximizes plot area
 
     def _plot_building_profile(self, dataset: ResultDataset):
         """Plot building profile - drift vs height."""
@@ -433,7 +418,7 @@ class ResultsPlotWidget(QWidget):
                 y_positions,
                 pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
             )
-            self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Average')
+            self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Avg')
 
         # Use PlotBuilder for common configuration
         builder = PlotBuilder(plot, dataset.config)
@@ -470,8 +455,7 @@ class ResultsPlotWidget(QWidget):
         # Enable grid with increased visibility
         plot.showGrid(x=True, y=True, alpha=0.5)
 
-        # Set title
-        builder.set_title(dataset.meta.display_name)
+        # No title - maximizes plot area
 
     def highlight_load_cases(self, selected_cases: list):
         """Highlight multiple selected load cases, dim others, always show average at full opacity."""
@@ -573,3 +557,7 @@ class ResultsPlotWidget(QWidget):
             container._legend_layout.removeWidget(item)
             item.deleteLater()
         container._legend_items.clear()
+
+        # Reset grid position counters
+        container._legend_row = 0
+        container._legend_col = 0

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from processing.result_service import ResultDataset
@@ -18,6 +18,7 @@ class StandardResultView(QWidget):
 
         self.table = ResultsTableWidget()
         self.plot = ResultsPlotWidget()
+        self._initial_sizes_set = False
 
         self._configure_layout()
         self._connect_signals()
@@ -26,10 +27,20 @@ class StandardResultView(QWidget):
     # Public API
     # ------------------------------------------------------------------ #
 
+    def showEvent(self, event) -> None:
+        """Set splitter proportions after widget is shown with actual size."""
+        super().showEvent(event)
+        if not self._initial_sizes_set:
+            # Defer size setting until after layout is complete
+            QTimer.singleShot(0, self._apply_splitter_proportions)
+            self._initial_sizes_set = True
+
     def set_dataset(self, dataset: ResultDataset) -> None:
         """Populate the table and plot with the provided dataset."""
         self.table.load_dataset(dataset)
         self.plot.load_dataset(dataset)
+        # Force splitter proportions after data is loaded
+        QTimer.singleShot(100, self._apply_splitter_proportions)
 
     def clear(self) -> None:
         """Reset both table and plot."""
@@ -39,6 +50,13 @@ class StandardResultView(QWidget):
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
+
+    def _apply_splitter_proportions(self) -> None:
+        """Let table take minimum width needed, give remaining space to plot."""
+        # Don't force specific sizes - let stretch factors and minimum widths work together
+        # Table has minimum width set to content, stretch factor 1
+        # Plot has no minimum, stretch factor 2 (gets twice as much extra space)
+        pass
 
     def _configure_layout(self) -> None:
         layout = QVBoxLayout(self)
@@ -64,8 +82,10 @@ class StandardResultView(QWidget):
         splitter.addWidget(self.table)
         splitter.addWidget(self.plot)
 
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        # Table: minimum size (content width), stretch factor 1
+        # Plot: gets remaining space, stretch factor 2 (prefers to grow more)
+        splitter.setStretchFactor(0, 1)  # Table - just what it needs
+        splitter.setStretchFactor(1, 2)  # Plot - gets more of the extra space
 
         layout.addWidget(splitter)
 

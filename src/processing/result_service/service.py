@@ -94,10 +94,16 @@ class ResultDataService:
         if cache_key in self._element_cache:
             return self._element_cache[cache_key]
 
+        # Build full result type key (e.g., 'WallShears_V2', or 'QuadRotations' if no direction)
+        if direction:
+            full_result_type = f"{result_type}_{direction}"
+        else:
+            full_result_type = result_type
+
         cache_entries = self.element_cache_repo.get_cache_for_display(
             project_id=self.project_id,
             element_id=element_id,
-            result_type=result_type,
+            result_type=full_result_type,
             result_set_id=result_set_id,
         )
 
@@ -186,7 +192,15 @@ class ResultDataService:
         if not element:
             return None
 
-        from database.models import QuadRotation, WallShear, LoadCase, Story
+        from database.models import (
+            QuadRotation,
+            WallShear,
+            ColumnShear,
+            ColumnRotation,
+            BeamRotation,
+            LoadCase,
+            Story,
+        )
 
         if base_result_type == "WallShears":
             model = WallShear
@@ -194,6 +208,24 @@ class ResultDataService:
             min_attr = "min_force"
             direction_attr = "direction"
             multiplier = 1.0
+        elif base_result_type == "ColumnShears":
+            model = ColumnShear
+            max_attr = "max_force"
+            min_attr = "min_force"
+            direction_attr = "direction"
+            multiplier = 1.0
+        elif base_result_type == "ColumnRotations":
+            model = ColumnRotation
+            max_attr = "max_rotation"
+            min_attr = "min_rotation"
+            direction_attr = "direction"  # R2, R3
+            multiplier = 100.0  # radians to %
+        elif base_result_type == "BeamRotations":
+            model = BeamRotation
+            max_attr = "max_r3_plastic"
+            min_attr = "min_r3_plastic"
+            direction_attr = None
+            multiplier = 100.0  # radians to %
         elif base_result_type == "QuadRotations":
             model = QuadRotation
             max_attr = "max_rotation"
@@ -313,6 +345,51 @@ class ResultDataService:
                     "Element": element.name,
                     "Story": story.name,
                     "LoadCase": load_case.name,
+                    "Rotation": value * 100.0,
+                    "StoryOrder": story.sort_order or 0,
+                    "StoryIndex": story.sort_order or 0,
+                }
+            )
+
+        if not data_rows:
+            return None
+
+        df = pd.DataFrame(data_rows)
+        return df.sort_values(by="StoryOrder", ascending=True).reset_index(drop=True)
+
+    def get_all_column_rotations_dataset(
+        self, result_set_id: int, max_min: str = "Max"
+    ) -> Optional[pd.DataFrame]:
+        """Return column rotation points (all elements) for scatter visuals."""
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import ColumnRotation, LoadCase, Story, Element
+
+        records = (
+            self.session.query(ColumnRotation, LoadCase, Story, Element)
+            .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
+            .join(Story, ColumnRotation.story_id == Story.id)
+            .join(Element, ColumnRotation.element_id == Element.id)
+            .filter(Story.project_id == self.project_id)
+            .all()
+        )
+
+        if not records:
+            return None
+
+        data_rows: List[Dict[str, object]] = []
+        for rotation, load_case, story, element in records:
+            value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
+            if value is None:
+                continue
+
+            data_rows.append(
+                {
+                    "Element": element.name,
+                    "Story": story.name,
+                    "LoadCase": load_case.name,
+                    "Direction": rotation.direction,  # R2 or R3
                     "Rotation": value * 100.0,
                     "StoryOrder": story.sort_order or 0,
                     "StoryIndex": story.sort_order or 0,

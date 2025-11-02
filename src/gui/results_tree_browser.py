@@ -19,6 +19,19 @@ class ResultsTreeBrowser(QWidget):
         self.elements = []  # Will be populated with project elements
         self.setup_ui()
 
+    def _has_data_for(self, result_set_id: int, result_type: str) -> bool:
+        """Check if data exists for a given result type in a result set."""
+        if not self.available_result_types:
+            return True  # If no info provided, show all (backward compatibility)
+
+        result_types_for_set = self.available_result_types.get(result_set_id, set())
+
+        # If no info for this result set, show all (backward compatibility)
+        if not result_types_for_set:
+            return True
+
+        return result_type in result_types_for_set
+
     def setup_ui(self):
         """Setup the browser UI."""
         layout = QVBoxLayout(self)
@@ -33,7 +46,7 @@ class ResultsTreeBrowser(QWidget):
         # Tree widget
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(16)
+        self.tree.setIndentation(8)  # Reduced from 16px to 8px for laptop screens
         self.tree.setAnimated(True)
         self.tree.setUniformRowHeights(False)
         self.tree.itemClicked.connect(self.on_item_clicked)
@@ -83,16 +96,18 @@ class ResultsTreeBrowser(QWidget):
 
         layout.addWidget(self.tree)
 
-    def populate_tree(self, result_sets, stories, elements=None):
+    def populate_tree(self, result_sets, stories, elements=None, available_result_types=None):
         """Populate tree with project structure.
 
         Args:
             result_sets: List of ResultSet model instances
             stories: List of Story model instances
             elements: List of Element model instances (optional)
+            available_result_types: Dict mapping result_set_id to set of available result types (optional)
         """
         self.tree.clear()
         self.elements = elements or []
+        self.available_result_types = available_result_types or {}
 
         # Project info item
         info_item = QTreeWidgetItem(self.tree)
@@ -164,40 +179,44 @@ class ResultsTreeBrowser(QWidget):
             "category": "Envelopes",
             "category_type": "Global"
         })
-        global_item.setExpanded(True)
+        global_item.setExpanded(True)  # Expanded to show result types
 
-        # Result types under Global
+        # Result types under Global (only show if data exists)
         # Drifts with special subsections
-        self._add_drifts_section(global_item, result_set.id)
+        if self._has_data_for(result_set.id, "Drifts"):
+            self._add_drifts_section(global_item, result_set.id)
 
         # Other result types
-        self._add_result_type_with_directions(
-            global_item,
-            "> Story Accelerations",
-            result_set.id,
-            "Envelopes",
-            "Accelerations",
-            include_maxmin=True,
-            maxmin_label="Accelerations",
-        )
-        self._add_result_type_with_directions(
-            global_item,
-            "> Story Forces",
-            result_set.id,
-            "Envelopes",
-            "Forces",
-            include_maxmin=True,
-            maxmin_label="Story Forces",
-        )
-        self._add_result_type_with_directions(
-            global_item,
-            "> Floors Displacements",
-            result_set.id,
-            "Envelopes",
-            "Displacements",
-            include_maxmin=True,
-            maxmin_label="Floors Displacements",
-        )
+        if self._has_data_for(result_set.id, "Accelerations"):
+            self._add_result_type_with_directions(
+                global_item,
+                "> Story Accelerations",
+                result_set.id,
+                "Envelopes",
+                "Accelerations",
+                include_maxmin=True,
+                maxmin_label="Accelerations",
+            )
+        if self._has_data_for(result_set.id, "Forces"):
+            self._add_result_type_with_directions(
+                global_item,
+                "> Story Forces",
+                result_set.id,
+                "Envelopes",
+                "Forces",
+                include_maxmin=True,
+                maxmin_label="Story Forces",
+            )
+        if self._has_data_for(result_set.id, "Displacements"):
+            self._add_result_type_with_directions(
+                global_item,
+                "> Floors Displacements",
+                result_set.id,
+                "Envelopes",
+                "Displacements",
+                include_maxmin=True,
+                maxmin_label="Floors Displacements",
+            )
 
         # Elements category
         elements_item = QTreeWidgetItem(envelopes_item)
@@ -208,7 +227,7 @@ class ResultsTreeBrowser(QWidget):
             "category": "Envelopes",
             "category_type": "Elements"
         })
-        elements_item.setExpanded(True)
+        elements_item.setExpanded(True)  # Expanded to show element types (Walls, Columns, Beams)
 
         # Walls subsection under Elements
         self._add_walls_section(elements_item, result_set.id)
@@ -251,7 +270,7 @@ class ResultsTreeBrowser(QWidget):
             "category": "Envelopes",
             "result_type": "Drifts"
         })
-        drifts_parent.setExpanded(True)
+        drifts_parent.setExpanded(False)  # Collapsed to hide directions
 
         # X Direction
         x_item = QTreeWidgetItem(drifts_parent)
@@ -307,6 +326,13 @@ class ResultsTreeBrowser(QWidget):
                     ├── Rotation
                     └── Max/Min
         """
+        # Check if any wall result types have data
+        has_shears = self._has_data_for(result_set_id, "WallShears")
+        has_quad_rotations = self._has_data_for(result_set_id, "QuadRotations")
+
+        if not has_shears and not has_quad_rotations:
+            return  # Don't show Walls section if no data
+
         # Walls parent item
         walls_parent = QTreeWidgetItem(parent_item)
         walls_parent.setText(0, "› Walls")
@@ -316,16 +342,18 @@ class ResultsTreeBrowser(QWidget):
             "category": "Envelopes",
             "element_type": "Walls"
         })
-        walls_parent.setExpanded(True)
+        walls_parent.setExpanded(False)  # Collapsed to hide subcategories
 
         # Filter elements to get only walls/piers
         wall_elements = [elem for elem in self.elements if elem.element_type == "Wall"]
 
-        # Shears subsection under Walls
-        self._add_shears_section(walls_parent, result_set_id, wall_elements)
+        # Shears subsection under Walls (only if data exists)
+        if has_shears:
+            self._add_shears_section(walls_parent, result_set_id, wall_elements)
 
-        # Quad Rotations subsection under Walls
-        self._add_quad_rotations_section(walls_parent, result_set_id, wall_elements)
+        # Quad Rotations subsection under Walls (only if data exists)
+        if has_quad_rotations:
+            self._add_quad_rotations_section(walls_parent, result_set_id, wall_elements)
 
     def _add_shears_section(self, parent_item: QTreeWidgetItem, result_set_id: int, wall_elements):
         """Add Shears subsection with piers."""
@@ -497,6 +525,14 @@ class ResultsTreeBrowser(QWidget):
                     ├── R3
                     └── Max/Min
         """
+        # Check if any column result types have data
+        has_shears = self._has_data_for(result_set_id, "ColumnShears")
+        has_axials = self._has_data_for(result_set_id, "ColumnAxials")
+        has_rotations = self._has_data_for(result_set_id, "ColumnRotations")
+
+        if not has_shears and not has_axials and not has_rotations:
+            return  # Don't show Columns section if no data
+
         # Columns parent item
         columns_parent = QTreeWidgetItem(parent_item)
         columns_parent.setText(0, "› Columns")
@@ -506,19 +542,22 @@ class ResultsTreeBrowser(QWidget):
             "category": "Envelopes",
             "element_type": "Columns"
         })
-        columns_parent.setExpanded(True)
+        columns_parent.setExpanded(False)  # Collapsed to hide subcategories
 
         # Filter elements to get only columns
         column_elements = [elem for elem in self.elements if elem.element_type == "Column"]
 
-        # Shears subsection under Columns
-        self._add_column_shears_section(columns_parent, result_set_id, column_elements)
+        # Shears subsection under Columns (only if data exists)
+        if has_shears:
+            self._add_column_shears_section(columns_parent, result_set_id, column_elements)
 
-        # Min Axial subsection under Columns
-        self._add_column_min_axials_section(columns_parent, result_set_id, column_elements)
+        # Min Axial subsection under Columns (only if data exists)
+        if has_axials:
+            self._add_column_min_axials_section(columns_parent, result_set_id, column_elements)
 
-        # Rotations subsection under Columns
-        self._add_column_rotations_section(columns_parent, result_set_id, column_elements)
+        # Rotations subsection under Columns (only if data exists)
+        if has_rotations:
+            self._add_column_rotations_section(columns_parent, result_set_id, column_elements)
 
     def _add_column_shears_section(self, parent_item: QTreeWidgetItem, result_set_id: int, column_elements):
         """Add Column Shears subsection with columns."""
@@ -720,6 +759,12 @@ class ResultsTreeBrowser(QWidget):
                     ├── Table
                     └── Plot
         """
+        # Check if beam rotation data exists
+        has_beam_rotations = self._has_data_for(result_set_id, "BeamRotations")
+
+        if not has_beam_rotations:
+            return  # Don't show Beams section if no data
+
         beams_parent = QTreeWidgetItem(parent_item)
         beams_parent.setText(0, "› Beams")
         beams_parent.setData(0, Qt.ItemDataRole.UserRole, {
@@ -794,7 +839,7 @@ class ResultsTreeBrowser(QWidget):
             "category": category,
             "result_type": result_type,
         })
-        parent_result_item.setExpanded(True)
+        parent_result_item.setExpanded(False)  # Collapsed to hide directions
 
         x_item = QTreeWidgetItem(parent_result_item)
         x_item.setText(0, "   X Direction")

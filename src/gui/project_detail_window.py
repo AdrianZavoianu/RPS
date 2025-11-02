@@ -249,6 +249,45 @@ class ProjectDetailWindow(QMainWindow):
 
         return widget
 
+    def _get_available_result_types(self, result_sets):
+        """Check which result types have data for each result set.
+
+        Returns:
+            Dict mapping result_set_id to set of available result types
+        """
+        from database.models import GlobalResultsCache, ElementResultsCache
+
+        available_types = {}
+
+        for result_set in result_sets:
+            types_for_set = set()
+
+            # Check GlobalResultsCache for global result types
+            global_types = (
+                self.session.query(GlobalResultsCache.result_type)
+                .filter(GlobalResultsCache.result_set_id == result_set.id)
+                .distinct()
+                .all()
+            )
+            for (result_type,) in global_types:
+                types_for_set.add(result_type)
+
+            # Check ElementResultsCache for element result types
+            element_types = (
+                self.session.query(ElementResultsCache.result_type)
+                .filter(ElementResultsCache.result_set_id == result_set.id)
+                .distinct()
+                .all()
+            )
+            for (result_type,) in element_types:
+                # Extract base type (e.g., "WallShears_V2" → "WallShears")
+                base_type = result_type.split('_')[0]
+                types_for_set.add(base_type)
+
+            available_types[result_set.id] = types_for_set
+
+        return available_types
+
     def load_project_data(self):
         """Load project data and populate browser."""
         self.session.expire_all()
@@ -263,8 +302,11 @@ class ProjectDetailWindow(QMainWindow):
             # Get elements (walls, columns, beams, etc.)
             elements = self.element_repo.get_by_project(self.project_id)
 
+            # Check which result types have data for each result set
+            available_result_types = self._get_available_result_types(result_sets)
+
             # Populate browser
-            self.browser.populate_tree(result_sets, stories, elements)
+            self.browser.populate_tree(result_sets, stories, elements, available_result_types)
 
             self.statusBar().showMessage(
                 f"Loaded project: {self.project_name} "
