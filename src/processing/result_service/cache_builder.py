@@ -71,6 +71,16 @@ def build_standard_dataset(
 
     numeric_df.insert(0, "Story", story_labels)
 
+    # Sort load case columns lexicographically for consistent display
+    load_case_cols = [
+        col for col in numeric_df.columns if col not in summary_columns and col != "Story"
+    ]
+    sorted_load_case_cols = sorted(load_case_cols)
+
+    # Reorder DataFrame columns: Story, sorted load cases, then summary columns
+    column_order = ["Story"] + sorted_load_case_cols + summary_columns
+    numeric_df = numeric_df[column_order]
+
     meta = ResultDatasetMeta(
         result_type=result_type,
         direction=direction,
@@ -82,9 +92,7 @@ def build_standard_dataset(
         meta=meta,
         data=numeric_df,
         config=config,
-        load_case_columns=[
-            col for col in numeric_df.columns if col not in summary_columns and col != "Story"
-        ],
+        load_case_columns=sorted_load_case_cols,
         summary_columns=summary_columns,
     )
 
@@ -146,6 +154,16 @@ def build_element_dataset(
 
     numeric_df.insert(0, "Story", story_labels)
 
+    # Sort load case columns lexicographically for consistent display
+    load_case_cols = [
+        col for col in numeric_df.columns if col not in summary_columns and col != "Story"
+    ]
+    sorted_load_case_cols = sorted(load_case_cols)
+
+    # Reorder DataFrame columns: Story, sorted load cases, then summary columns
+    column_order = ["Story"] + sorted_load_case_cols + summary_columns
+    numeric_df = numeric_df[column_order]
+
     meta = ResultDatasetMeta(
         result_type=result_type,
         direction=direction,
@@ -157,8 +175,6 @@ def build_element_dataset(
         meta=meta,
         data=numeric_df,
         config=config,
-        load_case_columns=[
-            col for col in numeric_df.columns if col not in summary_columns and col != "Story"
-        ],
+        load_case_columns=sorted_load_case_cols,
         summary_columns=summary_columns,
     )

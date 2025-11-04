@@ -66,6 +66,9 @@ src/
 │   ├── maxmin_drifts_widget.py   # Max/Min envelope visualization
 │   ├── all_rotations_widget.py   # Scatter plot for all rotations
 │   ├── beam_rotations_widget.py  # Beam rotation visualization
+│   ├── folder_import_dialog.py   # Folder import with integrated load case selection (3-column layout)
+│   ├── load_case_selection_dialog.py   # DEPRECATED: Minimalist load case list (replaced by inline selection)
+│   ├── load_case_conflict_dialog.py    # Conflict resolution dialog (shown when duplicates exist)
 │   └── components/
 │       └── legend.py             # Reusable legend components
 ├── processing/
@@ -74,7 +77,9 @@ src/
 │   ├── import_context.py         # ResultImportHelper (shared import utilities)
 │   ├── maxmin_calculator.py      # Absolute Max/Min calculations
 │   ├── data_importer.py          # Single file → DB pipeline (per project)
-│   ├── folder_importer.py        # Batch folder → DB pipeline (context-aware)
+│   ├── folder_importer.py        # Standard batch folder → DB pipeline (context-aware)
+│   ├── enhanced_folder_importer.py  # Enhanced import with load case selection
+│   ├── selective_data_importer.py   # Filtered import (only selected load cases)
 │   ├── result_processor.py       # Result processing logic
 │   └── result_service/           # Data retrieval service (modular package)
 │       ├── __init__.py           # Public API exports
@@ -1017,9 +1022,260 @@ self.table.hover_cleared.connect(self.plot.clear_hover)
 
 ---
 
+## 8.5. Integrated Load Case Selection Architecture
+
+### Overview
+
+The integrated load case selection provides a streamlined single-page workflow for selecting load cases and resolving conflicts when importing from multiple Excel files. This addresses the common scenario where load cases are split across files for computational efficiency, or when test/preliminary cases need to be filtered out.
+
+**Key Components**:
+1. **FolderImportDialog** - Main import dialog with three-column layout (Files | Load Cases | Progress)
+2. **LoadCaseConflictDialog** - Conflict resolution dialog (only shown when duplicates exist)
+3. **EnhancedFolderImporter** - Orchestrates the enhanced import workflow
+4. **SelectiveDataImporter** - Filters dataframes before import
+
+### Component Architecture
+
+```
+FolderImportDialog (GUI) - Single Page with 3 Columns
+├─> Column 1: Files to Process (compact list)
+├─> Column 2: Load Cases (inline checkbox selection)
+│   ├─> Auto-scans when folder selected
+│   ├─> Checkboxes for all discovered load cases
+│   ├─> "All" / "None" quick action buttons
+│   └─> Modern styling (20px checkboxes, cyan accent)
+├─> Column 3: Import Progress (status + log)
+└─> FolderImportWorker (background thread)
+    ├─> if selected_load_cases exists and > 0:
+    │   └─> EnhancedFolderImporter
+    │       ├─> Conflict detection (in main thread before worker)
+    │       ├─> LoadCaseConflictDialog (if conflicts, main thread, modal)
+    │       └─> SelectiveDataImporter (per file)
+    │           └─> Filter dataframe → DataImporter logic
+    └─> else:
+        └─> FolderImporter (standard import, all load cases)
+```
+
+### Workflow Details
+
+**Phase 1: Auto-Scan on Folder Selection** (Main Thread)
+```python
+# FolderImportDialog._scan_load_cases() - triggered by browse_folder()
+file_load_cases = EnhancedFolderImporter.prescan_folder_for_load_cases(...)
+# Collect unique load cases and sources
+all_load_cases = set()
+load_case_sources = {}  # load_case → [(file, sheet), ...]
+# Populate inline checkbox list
+self._populate_load_case_list(sorted(all_load_cases))
+# Result: UI shows checkboxes for all discovered load cases (all checked by default)
+```
+
+**Phase 2: User Selection** (Inline UI)
+```python
+# FolderImportDialog - Load Cases column
+- Scrollable checkbox list (modern design: 20px boxes, 2px borders, cyan accent)
+- "All" / "None" quick action buttons at top
+- User clicks checkboxes to select/deselect
+- No separate dialog - all inline in main import window
+```
+
+**Phase 3: Conflict Detection** (Main Thread, on Start Import click)
+```python
+# FolderImportDialog._handle_conflicts()
+selected_load_cases = self._get_selected_load_cases()
+# Build conflict structure: {load_case: {sheet: [file1, file2, ...]}}
+for lc in selected_load_cases:
+    sources = self.load_case_sources.get(lc, [])  # [(file, sheet), ...]
+    if len(sources) > 1:
+        # Group by sheet
+        sheet_files = {}
+        for file_name, sheet_name in sources:
+            sheet_files[sheet_name].append(file_name)
+        # Check for actual conflicts (same sheet in multiple files)
+        if any(len(files) > 1 for files in sheet_files.values()):
+            conflicts[lc] = sheet_files
+```
+
+**Phase 4: Conflict Resolution** (Only if conflicts exist)
+```python
+# LoadCaseConflictDialog (modal popup)
+- For each conflict:
+    - Radio buttons: Choose file1 | Choose file2 | Skip this case
+    - Quick actions: Use first file for all | Use last file for all
+- Returns: {load_case: chosen_file}
+- Transform to format expected by worker: {sheet: {load_case: file}}
+```
+
+**Phase 5: Selective Import** (Background Worker Thread)
+```python
+# SelectiveDataImporter (extends DataImporter)
+def _import_story_drifts(self, session, project_id):
+    df, load_cases, stories = self.parser.get_story_drifts()
+
+    # Filter load cases
+    filtered_cases = [lc for lc in load_cases if lc in self.allowed_load_cases]
+    if not filtered_cases:
+        return stats  # Skip this result type
+
+    # Filter dataframe (early filtering for performance)
+    df = df[df['Output Case'].isin(filtered_cases)].copy()
+
+    # Continue with normal DataImporter logic
+    # (transforms, bulk insert, cache generation)
+```
+
+### Design Decisions
+
+**Why Inheritance (SelectiveDataImporter extends DataImporter)?**
+- Reuses all existing import logic (transformers, cache generation, error handling)
+- Only overrides data filtering step
+- Maintains consistency with standard import
+- ~550 lines vs ~2000 lines if reimplemented
+
+**Why Early Dataframe Filtering?**
+```python
+# Good: Filter first, process less data
+df = df[df['Output Case'].isin(allowed)].copy()
+processed = ResultProcessor.process_story_drifts(df, ...)
+
+# Bad: Process all data, filter objects later
+processed = ResultProcessor.process_story_drifts(df, ...)
+filtered = [obj for obj in processed if obj.load_case in allowed]
+```
+Benefits: Less memory, faster processing, simpler logic
+
+**Why Worker Thread for Enhanced Import?**
+- Dialogs must run on main thread (Qt requirement)
+- Import processing runs on background thread (non-blocking UI)
+- Worker calls `dialog.exec()` which blocks worker thread but not main thread
+- User sees responsive UI during file scanning and import
+
+### Benefits of Integrated Approach
+
+**UX Improvements**:
+- ✅ Single-page experience - no popup dialogs for load case selection
+- ✅ All context visible at once (files, load cases, progress)
+- ✅ Faster workflow - fewer clicks and context switches
+- ✅ Immediate visual feedback when selecting folder (load cases appear automatically)
+- ✅ Modern, clean design with clear checkboxes (20px, 2px borders, cyan accent)
+
+**Technical Improvements**:
+- ✅ Load case scanning happens in main thread (no blocking)
+- ✅ Conflict resolution only shows when actually needed
+- ✅ Proper data transformation: `{load_case: file}` → `{sheet: {load_case: file}}`
+- ✅ Backward compatible - standard import if no load cases selected
+
+**Default Behavior**:
+- All load cases checked by default (user can deselect unwanted ones)
+- If no load cases selected: Standard import (all load cases imported)
+- If some selected: Enhanced import with selective filtering
+- Conflict dialog only appears when actual conflicts exist
+
+### File Statistics
+
+**Status**: ✅ Fully functional as of Nov 4, 2025 (integrated UI + all import bugs resolved)
+
+**Key Files**:
+- `gui/folder_import_dialog.py` - Redesigned with 3-column layout, inline load case selection (~800 lines total)
+- `gui/load_case_selection_dialog.py` - DEPRECATED: Minimalist standalone dialog (replaced by inline selection)
+- `gui/load_case_conflict_dialog.py` - Conflict resolution dialog (350 lines, only shown when needed)
+- `processing/enhanced_folder_importer.py` - Enhanced import orchestration (550 lines)
+- `processing/selective_data_importer.py` - Filtered import logic (700 lines, includes element import fixes)
+
+**Total Code**: ~2400 lines for enhanced import system
+
+**Bug Fixes Applied** (Nov 4, 2025):
+- Fixed column name mismatches (UX→Ux, OutputCase→"Output Case")
+- Implemented element dictionary pattern for all element types
+- Corrected field names (shear→force, axial→force, Rotation→R3Plastic)
+- Replaced non-existent bulk_create methods with session.bulk_save_objects()
+
+### Critical Implementation Notes (Nov 4, 2025)
+
+**Bulk Insert Pattern**:
+All element imports MUST use `session.bulk_save_objects()` directly, NOT repository methods:
+```python
+# ✅ CORRECT - Direct SQLAlchemy bulk insert
+session.bulk_save_objects(element_objects)
+session.commit()
+
+# ❌ INCORRECT - ElementRepository doesn't have bulk_create methods
+element_repo.bulk_create_wall_shears(shear_objects)  # AttributeError!
+```
+
+**Element Dictionary Pattern**:
+Pre-create all elements before processing rows (like data_importer.py):
+```python
+# 1. Create element dictionary upfront
+pier_elements = {}
+for pier_name in piers:
+    element = element_repo.get_or_create(
+        project_id=project_id,
+        element_type="Wall",
+        unique_name=pier_name,
+        name=pier_name,
+    )
+    pier_elements[pier_name] = element
+
+# 2. Look up during processing
+for _, row in processed.iterrows():
+    element = pier_elements[row["Pier"]]  # Direct dict lookup
+```
+
+**Column Name Consistency**:
+DataFrames use spaces in column names (from Excel parser):
+- ✅ `df['Output Case']` - Correct (with space)
+- ❌ `df['OutputCase']` - Wrong (causes KeyError)
+- ✅ `column_name = "Ux"` or `"Uy"` - Lowercase x/y
+- ❌ `direction = "UX"` or `"UY"` - Wrong in ResultProcessor call
+
+**Field Name Mapping**:
+Database models use specific field names:
+- `WallShear`, `ColumnShear`: Use `force`, `max_force`, `min_force` (NOT shear)
+- `ColumnAxial`: Use `force`, `min_force` (NOT axial)
+- `BeamRotation`: Use `R3Plastic`, `MaxR3Plastic`, `MinR3Plastic` (NOT Rotation)
+
+### Extension Points
+
+**Adding New Result Types**:
+SelectiveDataImporter automatically supports new result types by following the same pattern:
+```python
+def _import_new_result_type(self, session, project_id: int) -> dict:
+    # 1. Get data
+    df, load_cases, ... = self.parser.get_new_result_type()
+
+    # 2. Filter load cases
+    filtered_cases = self._filter_load_cases(load_cases)
+    if not filtered_cases:
+        return stats
+
+    # 3. Filter dataframe with CORRECT column name
+    df = df[df['Output Case'].isin(filtered_cases)].copy()  # Note: space!
+
+    # 4. For elements: Pre-create element dictionary
+    if is_element_result:
+        element_dict = {}
+        for elem_name in element_names:
+            elem = element_repo.get_or_create(...)
+            element_dict[elem_name] = elem
+
+    # 5. Process and use session.bulk_save_objects()
+    session.bulk_save_objects(objects)
+    session.commit()
+```
+
+**Custom Selection Strategies**:
+Future enhancements could add:
+- Saved selection presets ("DES only", "MCE + SLE", etc.)
+- Load case pattern matching with regex
+- Date-based filtering (import only recent runs)
+- Auto-conflict resolution strategies (newest file, largest file, etc.)
+
+---
+
 ## 9. Data Flow
 
-### Import Pipeline (Folder Batch)
+### Import Pipeline (Standard Folder Batch)
 ```
 1. User browses folder
    ↓
@@ -1036,6 +1292,54 @@ self.table.hover_cleared.connect(self.plot.clear_hover)
    ↓
 5. Refresh UI
 ```
+
+### Enhanced Import Pipeline (With Load Case Selection)
+```
+1. User browses folder, enables enhanced import
+   ↓
+2. Pre-scan phase:
+   → Discover all .xlsx/.xls files
+   → Parse each file to extract load case names
+   → Build map: file → sheet → load_cases
+   ↓
+3. Load Case Selection Dialog:
+   → Display all discovered load cases in table
+   → User filters/searches load cases
+   → User selects desired cases (deselect test/preliminary)
+   → User clicks OK (or Cancel to abort)
+   ↓
+4. Conflict Detection:
+   → Check if same load case appears in multiple files
+   → For selected load cases only
+   → Build conflict map: load_case → [file1, file2, ...]
+   ↓
+5. Conflict Resolution Dialog (if conflicts exist):
+   → Display conflicts with radio buttons
+   → User chooses which file to use for each conflict
+   → Or skips conflicting load cases
+   → User clicks OK (or Cancel to abort)
+   ↓
+6. Selective Import:
+   → For each file:
+     → Parse Excel (pandas)
+     → Filter dataframe to only selected load cases
+     → Filter out conflicting cases (unless this file was chosen)
+     → Transform data (ResultTransformer)
+     → Bulk insert to database
+     → Update progress
+   ↓
+7. Generate wide-format cache
+   ↓
+8. Refresh UI
+```
+
+**Key Differences**:
+- **Standard**: Imports all load cases from all files, last-write-wins for conflicts
+- **Enhanced**: User controls which load cases to import, resolves conflicts explicitly
+- **Use Cases for Enhanced**:
+  - Multiple files with split load cases (efficiency)
+  - Filtering out test/preliminary cases
+  - Explicit conflict resolution
 
 ### Display Pipeline
 

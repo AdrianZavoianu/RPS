@@ -109,6 +109,9 @@ class DataImporter:
             self.result_category_id = result_category.id
             self.result_set_id = result_set.id
 
+            print(f"\n[DEBUG DataImporter] file_path={self.file_path.name}")
+            print(f"  result_types filter={self.result_types}")
+
             # Import story drifts if available
             if self._should_import("Story Drifts") and self.parser.validate_sheet_exists("Story Drifts"):
                 drift_stats = self._import_story_drifts(session, project.id)

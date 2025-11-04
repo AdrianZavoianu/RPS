@@ -41,7 +41,8 @@
       "Bash(git config:*)",
       "Bash(git add:*)",
       "Bash(git restore --staged data/projects/**/*.db nul)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

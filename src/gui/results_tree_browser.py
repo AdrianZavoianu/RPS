@@ -218,7 +218,7 @@ class ResultsTreeBrowser(QWidget):
                 maxmin_label="Floors Displacements",
             )
 
-        # Elements category
+        # Elements category - always create, child sections will self-filter
         elements_item = QTreeWidgetItem(envelopes_item)
         elements_item.setText(0, "◇ Elements")
         elements_item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -229,14 +229,14 @@ class ResultsTreeBrowser(QWidget):
         })
         elements_item.setExpanded(True)  # Expanded to show element types (Walls, Columns, Beams)
 
-        # Walls subsection under Elements
+        # Child sections check for data internally and return early if none exists
         self._add_walls_section(elements_item, result_set.id)
-
-        # Columns subsection under Elements
         self._add_columns_section(elements_item, result_set.id)
-
-        # Beams subsection under Elements
         self._add_beams_section(elements_item, result_set.id)
+
+        # If no child sections were added (all returned early), hide the Elements section
+        if elements_item.childCount() == 0:
+            envelopes_item.removeChild(elements_item)
 
         # Time-Series category (placeholder)
         timeseries_item = QTreeWidgetItem(result_set_item)

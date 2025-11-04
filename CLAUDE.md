@@ -30,6 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Hybrid normalized + wide-format cache data model
 - ✅ Hierarchical data organization (Result Sets → Categories → Results)
 - ✅ Folder-based batch import with progress tracking
+- ✅ **Integrated Load Case Selection**: Inline load case selection and conflict resolution in import dialog
 - ✅ Single-file import with validation
 - ✅ Project detail view: Browser | Table | Plot (3-panel)
 - ✅ Story drifts visualization with interactive column selection
@@ -110,6 +111,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] Custom report generation
 
 **Recently Completed (October-November 2025):**
+- ✅ **Integrated Load Case Selection UI** (Nov 4, 2025): Streamlined single-page import workflow
+  - Inline load case selection in folder import dialog (no separate popup)
+  - Three-column layout: Files | Load Cases | Progress
+  - Automatic load case scanning when folder selected
+  - Checkbox list with "All/None" quick actions
+  - Conflict resolution dialog only appears when needed
+  - Cleaner, more intuitive user experience
+- ✅ **Selective Import Bug Fixes** (Nov 4, 2025): Fixed critical import issues in enhanced mode
+  - Fixed column name mismatches (UX→Ux, UY→Uy, OutputCase→Output Case)
+  - Fixed missing element dictionary pattern for all element types
+  - Corrected field names (shear→force, axial→force, Rotation→R3Plastic)
+  - Replaced non-existent bulk_create methods with session.bulk_save_objects()
+  - All element imports (Walls, Columns, Beams, Quad Rotations) now work correctly
 - ✅ **Result Service Modularization** (Nov 2025): Refactored into 6 focused modules with comprehensive tests
 - ✅ **Smart Data Detection** (Nov 2025): Browser automatically hides empty result type sections
 - ✅ **Browser UX Optimization** (Nov 2025): Configurable expansion states for streamlined navigation
@@ -185,6 +199,56 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 ---
 
 ## Common Development Tasks
+
+### Using Integrated Load Case Selection
+
+**When to use**: All folder-based imports now use integrated load case selection by default.
+
+**Workflow** (Single-Page Experience):
+1. Open Folder Import dialog (Main Window or Project Detail)
+2. Select folder with Excel files
+3. **Three sections appear automatically**:
+   - **Files to Process** (left): Lists all discovered Excel files
+   - **Load Cases** (middle): Checkboxes for all discovered load cases (auto-scanned)
+   - **Import Progress** (right): Status and log output
+4. **Review and select load cases**:
+   - All load cases checked by default
+   - Use "All" / "None" buttons for quick selection
+   - Click individual checkboxes to select/deselect specific cases
+5. Click "Start Import"
+6. **Conflict Resolution Dialog** appears only if conflicts exist:
+   - Choose which file to use for each duplicate load case
+   - Or skip conflicting cases
+7. Import proceeds with only selected, non-conflicting cases
+
+**Behavior**:
+- If no load cases selected: Standard import (all load cases imported)
+- If some selected: Enhanced import with selective filtering
+- Automatic conflict detection and resolution
+
+**Status**: Fully working as of Nov 4, 2025. All result types (Global + Elements) import correctly with inline load case filtering.
+
+**Files involved**:
+- `src/gui/folder_import_dialog.py` - Main dialog with three-column layout and inline selection
+- `src/gui/load_case_conflict_dialog.py` - Conflict resolution dialog (only shown when needed)
+- `src/processing/enhanced_folder_importer.py` - Enhanced import orchestration
+- `src/processing/selective_data_importer.py` - Filtered import logic (uses session.bulk_save_objects for all element types)
+
+**Key Implementation Details**:
+- Load case scanning happens automatically when folder selected (no manual trigger)
+- Load case checkboxes styled with modern design (20px, 2px border, cyan accent)
+- Element imports use `session.bulk_save_objects()` directly (not repository methods)
+- Element dictionary pattern: pre-create all elements, then look up by name during processing
+- Column name consistency: DataFrame columns use spaces ("Output Case", "Ux", "Uy")
+- Field name mapping: WallShear/ColumnShear use `force` fields, BeamRotation uses `r3_plastic` fields
+- Conflict resolution transforms data: `{load_case: file}` → `{sheet: {load_case: file}}`
+
+**Benefits**:
+- No popup dialogs for load case selection (all inline)
+- See files, load cases, and progress in one view
+- Faster workflow - fewer clicks and context switches
+
+---
 
 ### Adding a New Result Type
 
@@ -630,7 +694,9 @@ This will rename all `project.db` files to `{slug}.db` and update the catalog.
 **Processing:**
 - `processing/result_transformers.py` - Pluggable transformer system
 - `processing/import_context.py` - ResultImportHelper (shared import utilities, _story_order tracking)
-- `processing/folder_importer.py` - Batch folder import
+- `processing/folder_importer.py` - Standard batch folder import
+- `processing/enhanced_folder_importer.py` - Enhanced import with load case selection and conflict resolution
+- `processing/selective_data_importer.py` - Filtered import (only imports selected load cases)
 - `processing/data_importer.py` - Single file import with cache generation
 - `processing/excel_parser.py` - Excel sheet parsing (global + element results)
 - `processing/result_processor.py` - Result processing logic
@@ -652,6 +718,9 @@ This will rename all `project.db` files to `{slug}.db` and update the catalog.
 - `gui/maxmin_drifts_widget.py` - Max/Min envelope view (supports directionless results)
 - `gui/all_rotations_widget.py` - Scatter plot for all rotations with story bins and jitter
 - `gui/beam_rotations_widget.py` - Beam rotations visualization
+- `gui/folder_import_dialog.py` - Folder import dialog with enhanced mode checkbox
+- `gui/load_case_selection_dialog.py` - Interactive load case selection dialog
+- `gui/load_case_conflict_dialog.py` - Conflict resolution dialog for duplicate load cases
 - `gui/components/legend.py` - Reusable legend widgets (static + interactive)
 - `gui/window_utils.py` - Platform-specific utilities (dark title bar, app ID)
 - `gui/ui_helpers.py` - Styled component factories
@@ -708,13 +777,41 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 
 ---
 
-**Last Updated**: 2025-11-02
-**Status**: Production-ready with smart data detection, optimized browser UX, and responsive layouts
+**Last Updated**: 2025-11-03
+**Status**: Production-ready with enhanced import, smart data detection, and optimized layouts
 **Note**: Structural details moved to [ARCHITECTURE.md](ARCHITECTURE.md) - this file focuses on quick development tasks
 
 ---
 
 ## Recent Changes (November 2025)
+
+### ✅ Enhanced Import with Load Case Selection (v1.8 - November 3, 2025)
+
+**Interactive Multi-File Import**:
+- ✅ Pre-scan files to discover all load cases before import
+- ✅ User selection dialog with table-based UI (filter, search, pattern matching)
+- ✅ Automatic conflict detection for duplicate load cases across files
+- ✅ Interactive conflict resolution (choose source file or skip)
+- ✅ Selective import (only imports chosen, non-conflicting cases)
+- ✅ Enhanced mode checkbox in folder import dialog (enabled by default)
+- ✅ Backward compatible legacy mode (standard import without dialogs)
+
+**Use Cases**:
+- Split load cases across multiple Excel files for computational efficiency
+- Filter out test/preliminary load cases before import
+- Explicitly resolve conflicts instead of silent overwrites
+- Control exactly which data enters the database
+
+**Implementation**:
+- `LoadCaseSelectionDialog` - Full-screen table with 7 columns, pattern buttons
+- `LoadCaseConflictDialog` - Radio button selection with quick actions
+- `EnhancedFolderImporter` - 5-phase workflow orchestration
+- `SelectiveDataImporter` - Extends DataImporter with early dataframe filtering
+- Supports all 10 result types automatically
+
+**Documentation**: See `PHASE3_IMPLEMENTATION.md` for complete details
+
+---
 
 ### ✅ Smart Data Detection & Browser Optimization (v1.7)
 
