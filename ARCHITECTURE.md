@@ -1,9 +1,9 @@
 # Architecture Documentation
 ## Results Processing System (RPS)
 
-**Version**: 1.7
-**Last Updated**: 2025-11-02
-**Status**: Production-ready with smart data detection, optimized browser UX, and modular service architecture
+**Version**: 1.8
+**Last Updated**: 2025-11-05
+**Status**: Production-ready with async import UI, smart data detection, and modular service architecture
 
 ---
 
@@ -811,6 +811,18 @@ QApplication
 │   │   └─> Projects Page: Project Cards Grid
 │   └─> Status Bar
 │
+├─> FolderImportDialog (modal)
+│   ├─> Header (24px title: "Import Project Data")
+│   ├─> Top Row (3 sections with equal 12px padding)
+│   │   ├─> Folder Selection (stretch=2, orange border)
+│   │   ├─> Project (stretch=1, normal border)
+│   │   └─> Result Set (stretch=1, orange border)
+│   ├─> Bottom Row (async data loading)
+│   │   ├─> Files to Process (stretch=3, file list)
+│   │   ├─> Load Cases (stretch=2, checkboxes with ✓)
+│   │   └─> Import Progress (stretch=5, log + progress bar)
+│   └─> Action Buttons (Start Import, Cancel)
+│
 └─> ProjectDetailWindow (per project)
     ├─> Header (64px fixed) with actions
     ├─> 2-Panel Splitter
@@ -822,6 +834,85 @@ QApplication
     │       └─> BeamRotationsTable (wide-format table)
     └─> Status Bar
 ```
+
+### Import Dialog Architecture (v1.9 - Nov 6, 2025)
+
+**Modern Async Import UI** (`gui/folder_import_dialog.py`):
+
+**Threading Model**:
+- `LoadCaseScanWorker(QThread)` - Background load case scanning
+- `FolderImportWorker(QThread)` - Background import processing
+- `QApplication.processEvents()` - Immediate UI feedback on button clicks
+
+**Layout Strategy**:
+```
+Top Row (stretch ratio 2:1:1):
+┌──────────────────┐ ┌────────┐ ┌────────┐
+│ Folder (2)       │ │Proj (1)│ │Res (1) │
+│ 🟠/🔵 dynamic    │ │        │ │🟠/🔵   │
+└──────────────────┘ └────────┘ └────────┘
+
+Bottom Row (stretch ratio 49:30:81 for pixel-perfect alignment):
+┌──────────────┐ ┌────────┐ ┌─────────────────────┐
+│ Files  (49)  │ │Load(30)│ │  Progress  (81)     │
+│ file1.xlsx   │ │☑ TH01  │ │ [=====>      ] 50%  │
+│ file2.xlsx   │ │☑ TH02  │ │ Scanning files...   │
+└──────────────┘ └────────┘ └─────────────────────┘
+```
+
+**Visual Design** (Nov 6, 2025 refinement):
+- **Title**: "Import Project Data" at 24px font (prominent header)
+- **Dynamic Borders**: Smart visual feedback on required fields
+  - 🟠 Orange (#ff8c00): Empty required field
+  - 🔵 Blue (accent): Field has focus (editing)
+  - ⚪ Gray (border): Field filled (normal)
+- **Full-Page Layout**: Minimal margins for maximum space
+  - Top margin: 24px → 16px
+  - Spacing: 16px → 12px
+  - Groupbox padding: 12px → 8px
+  - Input padding: 8px → 6px
+- **Perfect Alignment**: Fine-tuned stretch ratios (49:30:81)
+  - Files + LoadCases right edge aligns with Folder right edge
+  - Progress left edge aligns with Project left edge
+
+**Performance Optimizations**:
+- **Folder Selection**: Background scan with `LoadCaseScanWorker`
+  - Was: 20s UI freeze
+  - Now: 0s freeze, real-time progress updates
+- **Start Import**: Cached conflict detection
+  - Was: 10s UI freeze (rescanning files)
+  - Now: 0s freeze (reuses `self.load_case_sources` from initial scan)
+- **Import Process**: Worker thread with progress signals
+  - Real-time progress bar and log updates
+  - UI remains fully responsive
+
+**Checkbox Implementation**:
+- Dynamic text labels with checkmark: `f"  ✓  {load_case}"`
+- State change callback updates label text
+- Cyan background (#4a7d89) when checked
+- 20px indicators with 2px borders
+
+**Signal Flow**:
+```
+User Action → UI Update → Worker Thread → Progress Signals → UI Feedback
+
+1. Browse Folder:
+   folder_input.setText() → processEvents() → LoadCaseScanWorker.start()
+   → progress signal → update progress bar → finished signal → populate checkboxes
+
+2. Start Import:
+   progress_label.setText() → processEvents() → check conflicts (cached)
+   → FolderImportWorker.start() → progress signals → real-time log updates
+
+3. Checkbox Toggle:
+   stateChanged signal → update_label() → setText("  ✓  ..." or "      ...")
+```
+
+**Key Files**:
+- `gui/folder_import_dialog.py` - Main dialog (lines 151-930)
+- `processing/enhanced_folder_importer.py` - Orchestration (lines 20-610)
+- `processing/selective_data_importer.py` - Filtered import (extends DataImporter)
+- `gui/load_case_conflict_dialog.py` - Conflict resolution UI (shown when needed)
 
 ### View Pattern: StandardResultView
 

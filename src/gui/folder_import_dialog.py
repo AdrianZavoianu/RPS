@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -34,6 +36,76 @@ from services.project_service import (
 
 
 EXCEL_PATTERNS: Sequence[str] = ("*.xlsx", "*.xls")
+
+
+def create_checkbox_icons() -> tuple[QIcon, QIcon]:
+    """Create checkbox icons for unchecked and checked states."""
+    size = 20
+
+    # Unchecked icon (empty)
+    unchecked_pixmap = QPixmap(size, size)
+    unchecked_pixmap.fill(Qt.GlobalColor.transparent)
+    unchecked_icon = QIcon(unchecked_pixmap)
+
+    # Checked icon (with checkmark)
+    checked_pixmap = QPixmap(size, size)
+    checked_pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(checked_pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Draw checkmark
+    painter.setPen(QPen(QColor("#ffffff"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    # Checkmark path (optimized for visibility)
+    painter.drawLine(int(size * 0.25), int(size * 0.5), int(size * 0.4), int(size * 0.65))
+    painter.drawLine(int(size * 0.4), int(size * 0.65), int(size * 0.75), int(size * 0.3))
+
+    painter.end()
+    checked_icon = QIcon(checked_pixmap)
+
+    return unchecked_icon, checked_icon
+
+
+class LoadCaseScanWorker(QThread):
+    """Worker thread for scanning files for load cases."""
+
+    progress = pyqtSignal(str, int, int)  # message, current, total
+    finished = pyqtSignal(dict)  # file_load_cases
+    error = pyqtSignal(str)  # error message
+
+    def __init__(
+        self,
+        folder_path: Path,
+        result_types: Optional[Sequence[str]] = None,
+    ) -> None:
+        super().__init__()
+        self.folder_path = folder_path
+        self.result_types = result_types
+
+    def run(self) -> None:  # pragma: no cover - executes in worker thread
+        """Scan files for load cases in background thread."""
+        try:
+            from processing.enhanced_folder_importer import EnhancedFolderImporter
+
+            # Convert result_types to set if present
+            result_types_set = None
+            if self.result_types:
+                result_types_set = {rt.strip().lower() for rt in self.result_types}
+
+            # Prescan folder for load cases
+            file_load_cases = EnhancedFolderImporter.prescan_folder_for_load_cases(
+                self.folder_path,
+                result_types_set,
+                self._on_progress
+            )
+
+            self.finished.emit(file_load_cases)
+        except Exception as exc:  # pragma: no cover - UI feedback
+            self.error.emit(str(exc))
+
+    def _on_progress(self, message: str, current: int, total: int) -> None:
+        """Relay progress updates back to the dialog thread."""
+        self.progress.emit(message, current, total)
 
 
 class FolderImportWorker(QThread):
@@ -115,7 +187,7 @@ class FolderImportDialog(QDialog):
         result_types: Optional[Sequence[str]] = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Import from Folder")
+        self.setWindowTitle("Import Data")
         # Much wider, less tall - horizontal layout optimization
         self.setMinimumSize(1200, 700)
         self.resize(1400, 750)
@@ -130,7 +202,8 @@ class FolderImportDialog(QDialog):
         self._excel_files: List[Path] = []
         self._lock_project_name = context is not None
 
-        self.worker: Optional[FolderImportWorker] = None
+        self.scan_worker: Optional[LoadCaseScanWorker] = None
+        self.import_worker: Optional[FolderImportWorker] = None
 
         self._build_ui()
         self._apply_defaults()
@@ -141,33 +214,31 @@ class FolderImportDialog(QDialog):
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 24, 24, 24)
-        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(16, 8, 16, 16)  # Reduced top margin from 24 to 8
+        main_layout.setSpacing(12)  # Reduced from 16 to 12
 
-        # Header
-        main_layout.addWidget(create_styled_label("Batch Import from Folder", "header"))
-        subtitle = create_styled_label(
-            "Select a folder with Excel exports. Supported sheets are Story Drifts, "
-            "Story Accelerations, Story Forces, and Floors Displacements.",
-            "muted",
-        )
-        subtitle.setWordWrap(True)
-        main_layout.addWidget(subtitle)
+        # Header with larger font
+        header = create_styled_label("Import Project Data", "header")
+        header.setStyleSheet(f"color: {COLORS['text']}; font-size: 24px; font-weight: 600;")
+        main_layout.addWidget(header)
 
         # ============ TOP ROW: All Configuration in Horizontal Layout ============
         config_row = QHBoxLayout()
-        config_row.setSpacing(12)
+        config_row.setSpacing(8)  # Reduced from 12 to 8
 
-        # Folder selection
+        # Folder selection (reduced vertical padding)
         folder_group = QGroupBox("Folder Selection")
         folder_group.setStyleSheet(self._groupbox_style())
         folder_layout = QVBoxLayout(folder_group)
+        folder_layout.setContentsMargins(8, 8, 8, 8)  # Reduced from 12 to 8
 
         folder_input_layout = QHBoxLayout()
         self.folder_input = QLineEdit()
         self.folder_input.setReadOnly(True)
         self.folder_input.setPlaceholderText("Select folder...")
-        self.folder_input.setStyleSheet(self._entry_style())
+        self.folder_input.setStyleSheet(self._entry_style(required=True))
+        self.folder_input.setProperty("empty", "true")  # Initially empty
+        self.folder_input.textChanged.connect(lambda: self._update_empty_state(self.folder_input))
         folder_input_layout.addWidget(self.folder_input)
 
         self.browse_btn = create_styled_button("Browse", "secondary", "sm")
@@ -177,42 +248,49 @@ class FolderImportDialog(QDialog):
         folder_layout.addLayout(folder_input_layout)
         config_row.addWidget(folder_group, stretch=2)
 
-        # Project information - with required indicator
-        project_group = QGroupBox("Project *")  # Asterisk indicates required
+        # Project information (reduced vertical padding, normal border)
+        project_group = QGroupBox("Project")
         project_group.setStyleSheet(self._groupbox_style())
         project_layout = QVBoxLayout(project_group)
+        project_layout.setContentsMargins(8, 8, 8, 8)  # Reduced from 12 to 8
 
         self.project_input = QLineEdit()
-        self.project_input.setPlaceholderText("Required: Project name...")
-        self.project_input.setStyleSheet(self._entry_style())
+        self.project_input.setPlaceholderText("Project name...")
+        self.project_input.setStyleSheet(self._entry_style(required=False))  # Normal border
         self.project_input.textChanged.connect(self.update_import_button)
         project_layout.addWidget(self.project_input)
         config_row.addWidget(project_group, stretch=1)
 
-        # Result set information - with required indicator
-        result_group = QGroupBox("Result Set *")  # Asterisk indicates required
+        # Result set information (reduced vertical padding, orange border, NO validation label)
+        result_group = QGroupBox("Result Set")
         result_group.setStyleSheet(self._groupbox_style())
         result_layout = QVBoxLayout(result_group)
+        result_layout.setContentsMargins(8, 8, 8, 8)  # Reduced from 12 to 8
 
         self.result_set_input = QLineEdit()
-        self.result_set_input.setPlaceholderText("Required: e.g., DES, MCE, SLE...")
-        self.result_set_input.setStyleSheet(self._entry_style())
+        self.result_set_input.setPlaceholderText("e.g., DES, MCE, SLE...")
+        self.result_set_input.setStyleSheet(self._entry_style(required=True))
+        self.result_set_input.setProperty("empty", "true")  # Initially empty
         self.result_set_input.textChanged.connect(self.update_import_button)
+        self.result_set_input.textChanged.connect(lambda: self._update_empty_state(self.result_set_input))
         result_layout.addWidget(self.result_set_input)
 
-        self.result_set_validation_label = QLabel("Required field")
-        self.result_set_validation_label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px; font-style: italic;")
-        self.result_set_validation_label.setWordWrap(True)
-        result_layout.addWidget(self.result_set_validation_label)
         config_row.addWidget(result_group, stretch=1)
 
         main_layout.addLayout(config_row)
 
         # ============ MIDDLE ROW: Files | Load Cases | Progress ============
-        data_row = QHBoxLayout()
-        data_row.setSpacing(12)
+        # Alignment strategy:
+        # Top row: Folder(2) + Project(1) + ResultSet(1) = 4 total
+        # Bottom row: Files + LoadCases(3) should align right edge with Folder
+        # Progress should align left edge with Project
+        # Adjusting Files and Progress only, keeping LoadCases at 3
+        # Using higher numbers for finer control: multiply all by 10 for precision
 
-        # Files to process (compact)
+        data_row = QHBoxLayout()
+        data_row.setSpacing(8)  # Reduced from 12 to 8
+
+        # Files to process - Was 5, reduce by tiny amount (50 → 49)
         files_group = QGroupBox("Files to Process")
         files_group.setStyleSheet(self._groupbox_style())
         files_layout = QVBoxLayout(files_group)
@@ -220,12 +298,13 @@ class FolderImportDialog(QDialog):
         self.file_list = QListWidget()
         self.file_list.setStyleSheet(self._list_style())
         files_layout.addWidget(self.file_list)
-        data_row.addWidget(files_group, stretch=1)
+        data_row.addWidget(files_group, stretch=49)
 
-        # Load Cases Selection (middle)
+        # Load Cases Selection - Narrow (stretch=2), with reduced margins
         loadcases_group = QGroupBox("Load Cases")
         loadcases_group.setStyleSheet(self._groupbox_style())
         loadcases_layout = QVBoxLayout(loadcases_group)
+        loadcases_layout.setContentsMargins(8, 12, 8, 8)  # Reduced padding
 
         # Quick actions at top
         lc_actions_layout = QHBoxLayout()
@@ -269,17 +348,21 @@ class FolderImportDialog(QDialog):
         self.load_case_scroll.setWidget(self.load_case_container)
         loadcases_layout.addWidget(self.load_case_scroll)
 
-        data_row.addWidget(loadcases_group, stretch=1)
+        # Load cases - Keep at 3, multiply by 10 for precision (30)
+        data_row.addWidget(loadcases_group, stretch=30)
 
         # Track load case checkboxes
         self.load_case_checkboxes = {}  # load_case_name → QCheckBox
         self.load_case_sources = {}  # load_case_name → [(file, sheet), ...]
         self.all_load_cases = set()
 
-        # Progress (compact)
+        # Progress - Was 8, increase by tiny amount (80 → 81)
+        # Files(49) + LoadCases(30) = 79, Progress = 81
+        # Fine 1px adjustment for perfect alignment
         progress_group = QGroupBox("Import Progress")
         progress_group.setStyleSheet(self._groupbox_style())
         progress_layout = QVBoxLayout(progress_group)
+        progress_layout.setContentsMargins(8, 12, 8, 8)  # Reduced padding
 
         self.progress_label = QLabel("Ready to import")
         self.progress_label.setStyleSheet(f"color: {COLORS['muted']};")
@@ -295,7 +378,7 @@ class FolderImportDialog(QDialog):
         self.log_output.setReadOnly(True)
         self.log_output.setStyleSheet(self._log_style())
         progress_layout.addWidget(self.log_output)
-        data_row.addWidget(progress_group, stretch=1)
+        data_row.addWidget(progress_group, stretch=81)  # 1px fine adjustment
 
         main_layout.addLayout(data_row, stretch=1)
 
@@ -335,8 +418,8 @@ class FolderImportDialog(QDialog):
                 background-color: {COLORS['card']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 16px;
+                margin-top: 6px;
+                padding-top: 12px;
                 color: {COLORS['text']};
                 font-weight: 600;
             }}
@@ -348,14 +431,24 @@ class FolderImportDialog(QDialog):
         """
 
     @staticmethod
-    def _entry_style() -> str:
+    def _entry_style(required: bool = False) -> str:
+        # Show orange only when empty, blue when focused, gray otherwise
         return f"""
             QLineEdit {{
                 background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
+                border: 2px solid {COLORS['border']};
                 border-radius: 4px;
-                padding: 8px 12px;
+                padding: 6px 10px;
                 color: {COLORS['text']};
+            }}
+            QLineEdit:focus {{
+                border-color: {COLORS['accent']};
+            }}
+            QLineEdit[empty="true"] {{
+                border-color: #ff8c00;
+            }}
+            QLineEdit[empty="true"]:focus {{
+                border-color: {COLORS['accent']};
             }}
         """
 
@@ -413,6 +506,13 @@ class FolderImportDialog(QDialog):
     # Helpers
     # ------------------------------------------------------------------ #
 
+    def _update_empty_state(self, line_edit: QLineEdit) -> None:
+        """Update the 'empty' property based on whether the field has text."""
+        is_empty = not line_edit.text().strip()
+        line_edit.setProperty("empty", "true" if is_empty else "false")
+        line_edit.style().unpolish(line_edit)
+        line_edit.style().polish(line_edit)
+
     def browse_folder(self) -> None:
         """Prompt the user to select a folder of Excel files."""
         folder = QFileDialog.getExistingDirectory(
@@ -458,56 +558,82 @@ class FolderImportDialog(QDialog):
         self._scan_load_cases()
 
     def _scan_load_cases(self) -> None:
-        """Scan Excel files for load cases and populate the load case list."""
-        from processing.enhanced_folder_importer import EnhancedFolderImporter
-
+        """Scan Excel files for load cases in background thread."""
         # Clear previous load cases
         self._clear_load_case_list()
 
         if not self.folder_path or not self._excel_files:
             return
 
+        # Disable controls during scan
+        self._set_scan_controls_enabled(False)
         self.log_output.append("- Scanning files for load cases...")
+        self.progress_label.setText("Scanning files...")
 
-        # Convert result_types to set if present
-        result_types_set = None
-        if self.result_types:
-            result_types_set = {rt.strip().lower() for rt in self.result_types}
+        # Start background scan
+        self.scan_worker = LoadCaseScanWorker(
+            folder_path=self.folder_path,
+            result_types=self.result_types,
+        )
+        self.scan_worker.progress.connect(self._on_scan_progress)
+        self.scan_worker.finished.connect(self._on_scan_finished)
+        self.scan_worker.error.connect(self._on_scan_error)
+        self.scan_worker.start()
 
-        try:
-            # Prescan folder for load cases
-            file_load_cases = EnhancedFolderImporter.prescan_folder_for_load_cases(
-                self.folder_path,
-                result_types_set,
-                None  # No progress callback for inline scan
-            )
+    def _on_scan_progress(self, message: str, current: int, total: int) -> None:
+        """Update UI with scan progress."""
+        self.progress_label.setText(message)
+        if total > 0:
+            percent = int((current / total) * 100)
+            self.progress_bar.setValue(percent)
+        # Also log scan progress to output
+        self.log_output.append(f"  {message} ({current}/{total})")
 
-            if not file_load_cases:
-                self.log_output.append("- No load cases found")
-                return
+    def _on_scan_finished(self, file_load_cases: Dict) -> None:
+        """Handle scan completion."""
+        self.scan_worker = None
+        self.progress_label.setText("Ready to import")
+        self.progress_bar.setValue(0)
 
-            # Collect all unique load cases
-            all_load_cases = set()
-            load_case_sources = {}  # load_case → [(file, sheet), ...]
+        if not file_load_cases:
+            self.log_output.append("- No load cases found")
+            self._set_scan_controls_enabled(True)
+            return
 
-            for file_name, sheets in file_load_cases.items():
-                for sheet_name, load_cases in sheets.items():
-                    for lc in load_cases:
-                        all_load_cases.add(lc)
-                        if lc not in load_case_sources:
-                            load_case_sources[lc] = []
-                        load_case_sources[lc].append((file_name, sheet_name))
+        # Collect all unique load cases
+        all_load_cases = set()
+        load_case_sources = {}  # load_case → [(file, sheet), ...]
 
-            self.all_load_cases = all_load_cases
-            self.load_case_sources = load_case_sources
+        for file_name, sheets in file_load_cases.items():
+            for sheet_name, load_cases in sheets.items():
+                for lc in load_cases:
+                    all_load_cases.add(lc)
+                    if lc not in load_case_sources:
+                        load_case_sources[lc] = []
+                    load_case_sources[lc].append((file_name, sheet_name))
 
-            # Populate UI
-            self._populate_load_case_list(sorted(all_load_cases))
+        self.all_load_cases = all_load_cases
+        self.load_case_sources = load_case_sources
 
-            self.log_output.append(f"- Found {len(all_load_cases)} unique load case(s)")
+        # Populate UI
+        self._populate_load_case_list(sorted(all_load_cases))
 
-        except Exception as exc:
-            self.log_output.append(f"- Error scanning load cases: {exc}")
+        self.log_output.append(f"- Found {len(all_load_cases)} unique load case(s)")
+        self._set_scan_controls_enabled(True)
+
+    def _on_scan_error(self, error_message: str) -> None:
+        """Handle scan error."""
+        self.scan_worker = None
+        self.progress_label.setText("Scan failed")
+        self.progress_bar.setValue(0)
+        self.log_output.append(f"- Error scanning load cases: {error_message}")
+        self._set_scan_controls_enabled(True)
+
+    def _set_scan_controls_enabled(self, enabled: bool) -> None:
+        """Enable/disable controls during scan."""
+        self.browse_btn.setEnabled(enabled)
+        self.select_all_lc_btn.setEnabled(enabled and bool(self.load_case_checkboxes))
+        self.select_none_lc_btn.setEnabled(enabled and bool(self.load_case_checkboxes))
 
     def _clear_load_case_list(self) -> None:
         """Clear all load case widgets from the container."""
@@ -540,22 +666,46 @@ class FolderImportDialog(QDialog):
             if item.widget():
                 item.widget().deleteLater()
 
+        # Create checkmark image and save to temp file
+        import tempfile
+        import os
+
+        checkmark_pixmap = QPixmap(18, 18)
+        checkmark_pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(checkmark_pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor("#ffffff"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        # Draw checkmark
+        painter.drawLine(4, 9, 7, 12)
+        painter.drawLine(7, 12, 14, 5)
+        painter.end()
+
+        # Save to temp file
+        temp_dir = tempfile.gettempdir()
+        checkmark_path = os.path.join(temp_dir, "rps_checkbox_check.png")
+        checkmark_pixmap.save(checkmark_path, "PNG")
+
+        # Convert path to URL format for stylesheet
+        checkmark_url = checkmark_path.replace("\\", "/")
+
         # Add checkboxes for each load case
         for lc in load_cases:
-            checkbox = QCheckBox(lc)
+            checkbox = QCheckBox(lc)  # Classic label without extra checkmark
             checkbox.setChecked(True)  # Default: all selected
+
+            # Classic checkbox styling with visible checkmark
             checkbox.setStyleSheet(f"""
                 QCheckBox {{
                     color: {COLORS['text']};
                     font-size: 13px;
-                    padding: 6px 12px;
+                    padding: 6px 8px;
                     spacing: 8px;
                 }}
                 QCheckBox::indicator {{
                     width: 18px;
                     height: 18px;
                     border: 2px solid {COLORS['border']};
-                    border-radius: 4px;
+                    border-radius: 3px;
                     background-color: {COLORS['background']};
                 }}
                 QCheckBox::indicator:hover {{
@@ -565,15 +715,19 @@ class FolderImportDialog(QDialog):
                 QCheckBox::indicator:checked {{
                     background-color: {COLORS['accent']};
                     border-color: {COLORS['accent']};
+                    image: url({checkmark_url});
                 }}
                 QCheckBox::indicator:checked:hover {{
-                    background-color: #7fedfa;
-                    border-color: #7fedfa;
+                    background-color: #5a99a8;
+                    border-color: #5a99a8;
+                    image: url({checkmark_url});
                 }}
                 QCheckBox:hover {{
                     background-color: rgba(255, 255, 255, 0.03);
+                    border-radius: 4px;
                 }}
             """)
+
             self.load_case_layout.addWidget(checkbox)
             self.load_case_checkboxes[lc] = checkbox
 
@@ -614,27 +768,11 @@ class FolderImportDialog(QDialog):
         validation_message = ""
         is_valid = True
 
-        # Show different messages based on what's missing
-        if not has_result_set:
-            validation_message = "Required field - enter a result set name"
-        elif has_project and has_result_set:
+        # Check for duplicate result set
+        if has_project and has_result_set:
             context = self._get_validation_context(project_name)
             if context and result_set_exists(context, result_set_name):
-                validation_message = f"⚠ Result set '{result_set_name}' already exists"
                 is_valid = False
-            else:
-                validation_message = "✓ Ready to import"
-
-        # Update validation label styling based on state
-        if not is_valid:
-            color = COLORS['danger']
-        elif has_result_set and is_valid:
-            color = COLORS['success']
-        else:
-            color = COLORS['warning']
-
-        self.result_set_validation_label.setText(validation_message)
-        self.result_set_validation_label.setStyleSheet(f"color: {color}; font-size: 12px; font-style: italic;")
 
         self.import_btn.setEnabled(
             has_folder and has_files and has_project and has_result_set and is_valid
@@ -651,8 +789,15 @@ class FolderImportDialog(QDialog):
 
     def start_import(self) -> None:
         """Kick off the background import."""
+        # Immediate visual feedback
+        self.progress_label.setText("Preparing import...")
+        self.import_btn.setEnabled(False)
+        QApplication.processEvents()  # Force UI update
+
         if not self.folder_path:
             self.log_output.append("- Select a folder before importing.")
+            self.import_btn.setEnabled(True)
+            self.progress_label.setText("Ready to import")
             return
 
         project_name = self.project_input.text().strip()
@@ -660,22 +805,31 @@ class FolderImportDialog(QDialog):
 
         if not project_name:
             self.log_output.append("- Enter a project name before importing.")
+            self.import_btn.setEnabled(True)
+            self.progress_label.setText("Ready to import")
             return
 
         if not result_set_name:
             self.log_output.append("- Enter a result set name before importing.")
+            self.import_btn.setEnabled(True)
+            self.progress_label.setText("Ready to import")
             return
 
+        self.progress_label.setText("Validating project...")
         try:
             context = ensure_project_context(project_name)
         except Exception as exc:  # pragma: no cover - UI feedback
             self.log_output.append(f"- Could not prepare project database: {exc}")
+            self.import_btn.setEnabled(True)
+            self.progress_label.setText("Ready to import")
             return
 
         if result_set_exists(context, result_set_name):
             self.log_output.append(
                 f"- Result set '{result_set_name}' already exists for this project."
             )
+            self.import_btn.setEnabled(True)
+            self.progress_label.setText("Ready to import")
             return
 
         self.context = context
@@ -685,7 +839,7 @@ class FolderImportDialog(QDialog):
         self._set_controls_enabled(False)
 
         self.progress_bar.setValue(0)
-        self.progress_label.setText("Starting import...")
+        self.progress_label.setText("Preparing import...")
         self.log_output.append("")
         self.log_output.append(f"- Importing into project: {context.name}")
         self.log_output.append(f"- Result set: {result_set_name}")
@@ -715,7 +869,7 @@ class FolderImportDialog(QDialog):
             selected_load_cases = None
             conflict_resolution = None
 
-        self.worker = FolderImportWorker(
+        self.import_worker = FolderImportWorker(
             context=context,
             folder_path=self.folder_path,
             result_set_name=result_set_name,
@@ -725,10 +879,10 @@ class FolderImportDialog(QDialog):
             selected_load_cases=selected_load_cases,
             conflict_resolution=conflict_resolution,
         )
-        self.worker.progress.connect(self.on_progress)
-        self.worker.finished.connect(self.on_finished)
-        self.worker.error.connect(self.on_error)
-        self.worker.start()
+        self.import_worker.progress.connect(self.on_progress)
+        self.import_worker.finished.connect(self.on_finished)
+        self.import_worker.error.connect(self.on_error)
+        self.import_worker.start()
 
     def _handle_conflicts(self, selected_load_cases: Set[str]) -> Optional[Dict]:
         """
@@ -737,22 +891,14 @@ class FolderImportDialog(QDialog):
         Returns:
             conflict_resolution dict or None if cancelled
         """
-        from processing.enhanced_folder_importer import EnhancedFolderImporter
         from gui.load_case_conflict_dialog import LoadCaseConflictDialog
 
-        # Convert result_types to set if present
-        result_types_set = None
-        if self.result_types:
-            result_types_set = {rt.strip().lower() for rt in self.result_types}
-
-        # Rescan to build file_load_cases structure for conflict detection
-        file_load_cases = EnhancedFolderImporter.prescan_folder_for_load_cases(
-            self.folder_path,
-            result_types_set,
-            None  # No progress callback
-        )
+        # Update UI to show we're checking for conflicts
+        self.progress_label.setText("Checking for conflicts...")
+        QApplication.processEvents()  # Force UI update
 
         # Detect conflicts for selected load cases only
+        # Use cached load_case_sources from initial scan (no need to rescan!)
         # Build conflicts in the format expected by LoadCaseConflictDialog:
         # { load_case: { sheet_name: [file1, file2, ...] } }
         conflicts = {}
@@ -773,10 +919,12 @@ class FolderImportDialog(QDialog):
 
         if not conflicts:
             self.log_output.append("- No conflicts detected")
+            self.progress_label.setText("Starting import...")
             return {}
 
         # Show conflict resolution dialog
         self.log_output.append(f"- Detected {len(conflicts)} conflicting load case(s)")
+        self.progress_label.setText("Waiting for user input...")
         conflict_dialog = LoadCaseConflictDialog(conflicts, self)
 
         if not conflict_dialog.exec():
@@ -796,6 +944,7 @@ class FolderImportDialog(QDialog):
                     sheet_resolution[sheet_name][lc] = file_name
 
         self.log_output.append("- Conflicts resolved")
+        self.progress_label.setText("Starting import...")
         return sheet_resolution
 
     def _set_controls_enabled(self, enabled: bool) -> None:
@@ -816,7 +965,7 @@ class FolderImportDialog(QDialog):
     def on_finished(self, stats: dict) -> None:
         """Handle successful import completion."""
         self.import_stats = stats
-        self.worker = None
+        self.import_worker = None
         self.progress_bar.setValue(100)
         self.progress_label.setText("Import completed!")
         self.log_output.append("- Import completed successfully.")
@@ -848,7 +997,7 @@ class FolderImportDialog(QDialog):
         self.log_output.append(f"- Import failed: {error_message}")
         self._set_controls_enabled(True)
         self.import_btn.setText("Retry Import")
-        self.worker = None
+        self.import_worker = None
 
     # ------------------------------------------------------------------ #
     # Accessors
