@@ -344,8 +344,11 @@ class ResultsTreeBrowser(QWidget):
         })
         walls_parent.setExpanded(False)  # Collapsed to hide subcategories
 
-        # Filter elements to get only walls/piers
+        # Filter elements to get only walls/piers (for shears)
         wall_elements = [elem for elem in self.elements if elem.element_type == "Wall"]
+
+        # Filter elements to get only quads (for rotations)
+        quad_elements = [elem for elem in self.elements if elem.element_type == "Quad"]
 
         # Shears subsection under Walls (only if data exists)
         if has_shears:
@@ -353,7 +356,7 @@ class ResultsTreeBrowser(QWidget):
 
         # Quad Rotations subsection under Walls (only if data exists)
         if has_quad_rotations:
-            self._add_quad_rotations_section(walls_parent, result_set_id, wall_elements)
+            self._add_quad_rotations_section(walls_parent, result_set_id, quad_elements)
 
     def _add_shears_section(self, parent_item: QTreeWidgetItem, result_set_id: int, wall_elements):
         """Add Shears subsection with piers."""
@@ -421,18 +424,18 @@ class ResultsTreeBrowser(QWidget):
                 "element_id": element.id
             })
 
-    def _add_quad_rotations_section(self, parent_item: QTreeWidgetItem, result_set_id: int, wall_elements):
-        """Add Quad Rotations subsection with piers.
+    def _add_quad_rotations_section(self, parent_item: QTreeWidgetItem, result_set_id: int, quad_elements):
+        """Add Quad Rotations subsection with quad elements.
 
         Structure:
         └── Quad Rotations
             ├── All Rotations
             │   ├── Max
             │   └── Min
-            ├── Pier1
+            ├── Quad A-2
             │   ├── Rotation
             │   └── Max/Min
-            └── Pier2
+            └── Quad B-1
                 ├── Rotation
                 └── Max/Min
         """
@@ -446,13 +449,13 @@ class ResultsTreeBrowser(QWidget):
         })
         quad_parent.setExpanded(True)
 
-        if not wall_elements:
+        if not quad_elements:
             placeholder = QTreeWidgetItem(quad_parent)
-            placeholder.setText(0, "    └ No piers/walls found")
+            placeholder.setText(0, "    └ No quads found")
             placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
             return
 
-        # Add "All Rotations" item as first item (before individual piers)
+        # Add "All Rotations" item as first item (before individual quads)
         all_rotations_item = QTreeWidgetItem(quad_parent)
         all_rotations_item.setText(0, "    ├ All Rotations")
         all_rotations_item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -462,8 +465,8 @@ class ResultsTreeBrowser(QWidget):
             "result_type": "QuadRotations"
         })
 
-        # Create section for each pier/wall under Quad Rotations
-        for element in wall_elements:
+        # Create section for each quad element under Quad Rotations
+        for element in quad_elements:
             pier_item = QTreeWidgetItem(quad_parent)
             pier_item.setText(0, f"    › {element.name}")
             pier_item.setData(0, Qt.ItemDataRole.UserRole, {

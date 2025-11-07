@@ -46,18 +46,19 @@ class LoadCaseConflictDialog(QDialog):
         """
         super().__init__(parent)
         self.conflicts = conflicts
-        self.resolution = {}  # load_case → chosen_file (or None to skip)
+        # CHANGED: Track resolution per sheet: {sheet: {load_case: file}}
+        self.resolution: Dict[str, Dict[str, Optional[str]]] = {}
 
         # Organize conflicts by sheet (result type)
         self.conflicts_by_sheet = self._organize_by_sheet()
 
-        # Initialize default resolution (first file for each conflict)
-        for load_case, sheet_files in conflicts.items():
-            all_files = set()
-            for files in sheet_files.values():
-                all_files.update(files)
-            if all_files:
-                self.resolution[load_case] = sorted(all_files)[0]
+        # Initialize default resolution (first file for each sheet+load_case)
+        for sheet, sheet_conflicts in self.conflicts_by_sheet.items():
+            if sheet not in self.resolution:
+                self.resolution[sheet] = {}
+            for load_case, files in sheet_conflicts.items():
+                # Default to first file alphabetically
+                self.resolution[sheet][load_case] = sorted(files)[0]
 
         self._build_ui()
 
@@ -90,34 +91,25 @@ class LoadCaseConflictDialog(QDialog):
         # Subtitle
         subtitle = QLabel(
             f"Found {len(self.conflicts)} duplicate load case(s). "
-            "Select which file to use for each conflict, organized by result type."
+            "Select which file to use for each conflict."
         )
         subtitle.setStyleSheet(f"color: {COLORS['muted']}; font-size: 14px;")
         subtitle.setWordWrap(True)
         main_layout.addWidget(subtitle)
 
-        # Main content area - split view
-        content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        content_splitter.setHandleWidth(1)
-        content_splitter.setStyleSheet(f"""
-            QSplitter::handle {{
-                background-color: {COLORS['border']};
-            }}
-        """)
+        # Main content area - horizontal layout with spacing (no splitter)
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(8)  # Gap between panels
 
         # Left: Result type list
         result_types_widget = self._create_result_types_panel()
-        content_splitter.addWidget(result_types_widget)
+        content_layout.addWidget(result_types_widget, stretch=3)
 
         # Right: Conflict resolution area
         self.conflicts_panel = self._create_conflicts_panel()
-        content_splitter.addWidget(self.conflicts_panel)
+        content_layout.addWidget(self.conflicts_panel, stretch=7)
 
-        # Set initial proportions (30% result types, 70% conflicts)
-        content_splitter.setStretchFactor(0, 3)
-        content_splitter.setStretchFactor(1, 7)
-
-        main_layout.addWidget(content_splitter, stretch=1)
+        main_layout.addLayout(content_layout)
 
         # Bottom buttons
         button_layout = QHBoxLayout()
@@ -134,50 +126,66 @@ class LoadCaseConflictDialog(QDialog):
 
         main_layout.addLayout(button_layout)
 
-        # Apply base styling
+        # Apply base styling - gray background like import dialog
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: {COLORS['background']};
+                background-color: {COLORS['card']};
             }}
         """)
 
         # Select first result type by default
         if self.conflicts_by_sheet:
             first_sheet = sorted(self.conflicts_by_sheet.keys())[0]
-            self._show_conflicts_for_sheet(first_sheet)
+            self._select_result_type(first_sheet)
+
+    def _select_result_type(self, sheet: str) -> None:
+        """Select a result type and update button states."""
+        # Update button states
+        for sheet_name, btn in self.result_type_buttons.items():
+            is_selected = sheet_name == sheet
+            btn.setProperty("selected", "true" if is_selected else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        # Show conflicts for this sheet
+        self._show_conflicts_for_sheet(sheet)
 
     def _create_result_types_panel(self) -> QWidget:
         """Create left panel showing result type list."""
         panel = QGroupBox("Result Types")
         panel.setStyleSheet(self._groupbox_style())
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(8, 12, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 8, 8, 8)  # Consistent padding
+        layout.setSpacing(2)  # Tighter spacing
 
         # Create list of result types with conflict count
+        self.result_type_buttons = {}  # Track buttons for selection state
         for sheet in sorted(self.conflicts_by_sheet.keys()):
             count = len(self.conflicts_by_sheet[sheet])
             btn = create_styled_button(f"{sheet} ({count})", "ghost", "sm")
+            btn.setProperty("result_type", sheet)  # For state tracking
             btn.setStyleSheet(f"""
                 QPushButton {{
                     text-align: left;
-                    padding: 8px 12px;
-                    font-size: 13px;
+                    padding: 8px 10px;
+                    font-size: 14px;
                     background-color: transparent;
                     color: {COLORS['text']};
                     border: none;
                     border-radius: 4px;
                 }}
                 QPushButton:hover {{
-                    background-color: {COLORS['card']};
+                    background-color: {COLORS['background']};
                     color: {COLORS['accent']};
                 }}
-                QPushButton:pressed {{
-                    background-color: {COLORS['hover']};
+                QPushButton[selected="true"] {{
+                    background-color: {COLORS['background']};
+                    color: {COLORS['accent']};
                 }}
             """)
-            btn.clicked.connect(lambda checked, s=sheet: self._show_conflicts_for_sheet(s))
+            btn.clicked.connect(lambda checked, s=sheet: self._select_result_type(s))
             layout.addWidget(btn)
+            self.result_type_buttons[sheet] = btn
 
         layout.addStretch()
         return panel
@@ -208,7 +216,7 @@ class LoadCaseConflictDialog(QDialog):
 
         # Add title
         title = QLabel(f"{sheet}")
-        title.setStyleSheet(f"color: {COLORS['text']}; font-size: 15px; font-weight: 600; padding-bottom: 8px;")
+        title.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; font-weight: 600; padding-bottom: 8px;")
         self.conflicts_layout.addWidget(title)
 
         # Add scrollable area for conflicts
@@ -217,15 +225,16 @@ class LoadCaseConflictDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(f"""
             QScrollArea {{
-                border: none;
-                background-color: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 4px;
+                background-color: {COLORS['background']};
             }}
         """)
 
         container = QWidget()
         container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(8)
-        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(8)  # Space between load case groups
+        container_layout.setContentsMargins(12, 12, 12, 12)  # Padding inside scroll area
 
         # Add conflict widgets - flatter design
         conflicts = self.conflicts_by_sheet.get(sheet, {})
@@ -244,23 +253,21 @@ class LoadCaseConflictDialog(QDialog):
         files: List[str],
         sheet: str
     ) -> QWidget:
-        """Create widget for one conflicting load case."""
+        """Create widget for one conflicting load case - minimal design."""
         widget = QWidget()
-        widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-            }}
+        widget.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
         """)
 
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(0, 0, 0, 12)  # Only bottom margin for spacing
         layout.setSpacing(4)
 
         # Load case label
         label = QLabel(load_case)
-        label.setStyleSheet(f"color: {COLORS['text']}; font-weight: 600; font-size: 13px; background: transparent; border: none;")
+        label.setStyleSheet(f"color: {COLORS['text']}; font-weight: 600; font-size: 13px;")
         layout.addWidget(label)
 
         # Radio buttons for file selection
@@ -272,13 +279,13 @@ class LoadCaseConflictDialog(QDialog):
             button_group.addButton(radio)
             layout.addWidget(radio)
 
-            # Set checked state based on current resolution
-            if self.resolution.get(load_case) == file_name:
+            # Set checked state based on current resolution for this sheet
+            if self.resolution.get(sheet, {}).get(load_case) == file_name:
                 radio.setChecked(True)
 
             radio.toggled.connect(
-                lambda checked, lc=load_case, f=file_name:
-                self._on_selection(lc, f) if checked else None
+                lambda checked, s=sheet, lc=load_case, f=file_name:
+                self._on_selection(s, lc, f) if checked else None
             )
 
         # Option to skip this load case - subtle styling
@@ -287,16 +294,15 @@ class LoadCaseConflictDialog(QDialog):
             QRadioButton {{
                 color: {COLORS['muted']};
                 font-size: 12px;
-                padding: 2px 8px;
+                padding: 4px 6px;
                 font-style: italic;
-                background: transparent;
-                border: none;
+                spacing: 8px;
             }}
             QRadioButton::indicator {{
-                width: 14px;
-                height: 14px;
+                width: 16px;
+                height: 16px;
                 border: 2px solid {COLORS['border']};
-                border-radius: 7px;
+                border-radius: 8px;
                 background-color: {COLORS['background']};
             }}
             QRadioButton::indicator:hover {{
@@ -313,19 +319,19 @@ class LoadCaseConflictDialog(QDialog):
         button_group.addButton(skip_radio)
         layout.addWidget(skip_radio)
 
-        if self.resolution.get(load_case) is None:
+        if self.resolution.get(sheet, {}).get(load_case) is None:
             skip_radio.setChecked(True)
 
         skip_radio.toggled.connect(
-            lambda checked, lc=load_case:
-            self._on_selection(lc, None) if checked else None
+            lambda checked, s=sheet, lc=load_case:
+            self._on_selection(s, lc, None) if checked else None
         )
 
         return widget
 
     @staticmethod
     def _groupbox_style() -> str:
-        """Get groupbox styling."""
+        """Get groupbox styling matching folder import dialog."""
         return f"""
             QGroupBox {{
                 background-color: {COLORS['card']};
@@ -350,7 +356,7 @@ class LoadCaseConflictDialog(QDialog):
             QRadioButton {{
                 color: {COLORS['text']};
                 font-size: 13px;
-                padding: 4px 8px;
+                padding: 4px 6px;
                 spacing: 8px;
             }}
             QRadioButton::indicator {{
@@ -362,27 +368,27 @@ class LoadCaseConflictDialog(QDialog):
             }}
             QRadioButton::indicator:hover {{
                 border-color: {COLORS['accent']};
-                background-color: {COLORS['card']};
             }}
             QRadioButton::indicator:checked {{
                 background-color: {COLORS['accent']};
                 border-color: {COLORS['accent']};
             }}
             QRadioButton:hover {{
-                background-color: rgba(255, 255, 255, 0.03);
-                border-radius: 4px;
+                color: {COLORS['accent']};
             }}
         """
 
-    def _on_selection(self, load_case: str, file_name: Optional[str]):
-        """Track user's file selection for each conflict."""
-        self.resolution[load_case] = file_name
+    def _on_selection(self, sheet: str, load_case: str, file_name: Optional[str]):
+        """Track user's file selection for each conflict (per sheet)."""
+        if sheet not in self.resolution:
+            self.resolution[sheet] = {}
+        self.resolution[sheet][load_case] = file_name
 
-    def get_resolution(self) -> Dict[str, Optional[str]]:
+    def get_resolution(self) -> Dict[str, Dict[str, Optional[str]]]:
         """
         Get user's resolution choices.
 
         Returns:
-            Dict mapping load_case → chosen_file (or None to skip)
+            Dict mapping sheet → {load_case → chosen_file (or None to skip)}
         """
-        return self.resolution.copy()
+        return {sheet: lc_dict.copy() for sheet, lc_dict in self.resolution.items()}

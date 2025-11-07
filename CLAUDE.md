@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Table of Contents
+1. [Quick Reference](#quick-reference)
+2. [Project Overview](#project-overview)
+3. [Current State](#current-state---november-2024)
+4. [Architecture Overview](#architecture-overview)
+5. [Development Commands](#development-commands)
+6. [Common Development Tasks](#common-development-tasks)
+7. [Quick File Reference](#quick-file-reference)
+8. [Utility Functions](#utility-functions-quick-reference)
+9. [Platform Notes](#platform-notes)
+10. [Troubleshooting](#troubleshooting)
+11. [Story Ordering System](#story-ordering-system)
+12. [Recent Changes](#recent-changes-november-2024)
+
+---
+
 ## Quick Reference
 
 **Documentation Structure:**
@@ -22,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Current State - November 2025
+## Current State - November 2024
 
 ### ✅ Fully Implemented
 
@@ -79,7 +95,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Gradient color preservation in all interaction states
 - ✅ Manual selection system (no Qt default styling conflicts)
 
-**Browser & Navigation (NEW - November 2025):**
+**Browser & Navigation (NEW - November 2024):**
 - ✅ **Smart Data Detection**: Browser automatically hides result types without data
   - Queries GlobalResultsCache and ElementResultsCache on project load
   - Only shows sections (Drifts, Walls, Columns, etc.) that have imported data
@@ -110,63 +126,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] 3D model visualization
 - [ ] Custom report generation
 
-**Recently Completed (October-November 2025):**
-- ✅ **Import Dialog UI Redesign & Optimization** (Nov 5-6, 2025): Complete modernization with compact, full-page design
-  - **Title**: "Import Project Data" with 24px font (larger, more prominent)
-  - **Dynamic Border Colors**: Orange for empty required fields, blue when focused, gray otherwise
-  - **Perfect Alignment**: Three-column layout with precise stretch ratios
-    - Top row: Folder(2) + Project(1) + Result Set(1)
-    - Bottom row: Files(49) + LoadCases(30) + ImportProgress(81) - fine-tuned for pixel-perfect alignment
-  - **Full-Page Layout**: Reduced margins (24px → 16px top, 8px spacing) for maximum space utilization
-  - **Compact Spacing**: Minimal padding (8px groupboxes, 6px inputs) throughout
-  - **Classic Checkboxes**: White checkmark (✓) inside teal rectangle when checked, empty gray box when unchecked
-  - **Checkmark Image**: Uses temp file approach for reliable Qt rendering
-  - **Removed Clutter**: No validation messages, clean interface
-  - **Responsive Design**: Optimized proportions with Files(49):LoadCases(30):Progress(81)
-- ✅ **Background Threading Performance** (Nov 5, 2025): Eliminated all UI freezing
-  - **Async Load Case Scanning**: LoadCaseScanWorker for non-blocking file scanning
-  - **Cached Conflict Detection**: Reuses scan results, no redundant file reading
-  - **Immediate Visual Feedback**: Progress updates via QApplication.processEvents()
-  - **Dual Worker Pattern**: Separate threads for scanning and importing
-  - **Result**: Responsive UI throughout entire import workflow (0s freeze time)
-- ✅ **Conflict Resolution Dialog Redesign** (Nov 6, 2025): Modern split-panel design for load case conflicts
-  - **Split Layout**: Result types list (30%) + Conflicts panel (70%)
-  - **Organized by Result Type**: Conflicts grouped by sheet name (Story Drifts, Story Forces, etc.)
-  - **Compact Design**: 750×700 min, 850×750 default (reduced from 1200×700)
-  - **Subtle Splitter**: 1px divider between panels (was 8px)
-  - **Flattened Hierarchy**: Simple card widgets instead of nested groupboxes
-  - **Radio Selection**: Choose file source for each duplicate load case
-  - **Subtle Skip Option**: Gray italic text instead of prominent red
-  - **Modern Styling**: Matches folder import window design
-- ✅ **Integrated Load Case Selection UI** (Nov 4, 2025): Streamlined single-page import workflow
-  - Inline load case selection in folder import dialog (no separate popup)
-  - Automatic load case scanning when folder selected
-  - Checkbox list with "All/None" quick actions
-  - Conflict resolution dialog only appears when needed
-  - Cleaner, more intuitive user experience
-- ✅ **Selective Import Bug Fixes** (Nov 4, 2025): Fixed critical import issues in enhanced mode
-  - Fixed column name mismatches (UX→Ux, UY→Uy, OutputCase→Output Case)
-  - Fixed missing element dictionary pattern for all element types
-  - Corrected field names (shear→force, axial→force, Rotation→R3Plastic)
-  - Replaced non-existent bulk_create methods with session.bulk_save_objects()
-  - All element imports (Walls, Columns, Beams, Quad Rotations) now work correctly
-- ✅ **Result Service Modularization** (Nov 2025): Refactored into 6 focused modules with comprehensive tests
-- ✅ **Smart Data Detection** (Nov 2025): Browser automatically hides empty result type sections
-- ✅ **Browser UX Optimization** (Nov 2025): Configurable expansion states for streamlined navigation
-- ✅ **Layout Optimization** (Nov 2025): Responsive layouts optimized for smaller screens
-- ✅ Wall Shears element results (V2/V3 directions, per-pier)
-- ✅ Quad Rotations element results (directionless, percentage display)
-- ✅ Column Shears element results (V2/V3 directions, per-column)
-- ✅ Column Minimum Axial forces (per-column)
-- ✅ Column Rotations (R2/R3 plastic hinges, from Fiber Hinge States)
-- ✅ Beam Rotations (R3 plastic hinges, from Hinge States)
-- ✅ Max/Min support for all element results
-- ✅ **All Rotations scatter plots** (combines all elements, story bins with jitter)
-- ✅ **Wide-format tables** for beam rotations (load cases as columns, with Avg/Max/Min)
-- ✅ **Story Ordering System**: Sheet-specific ordering for most results, global Story.sort_order for quad rotations
-- ✅ Directionless result type support (single plot/table, no X/Y split)
-- ✅ **Gradient color formatting** for all tables (value-based colors with center alignment)
-- ✅ **UI View Pattern**: StandardResultView component with view orchestration
+**Recently Completed (October-November 2024):**
+See [Recent Changes](#recent-changes-november-2024) section below for detailed changelog.
 
 ---
 
@@ -228,60 +189,23 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 
 ### Using Integrated Load Case Selection
 
-**When to use**: All folder-based imports now use integrated load case selection by default.
+**Workflow**:
+1. Open Folder Import dialog → Select folder
+2. Three-column layout appears: **Files** | **Load Cases** | **Progress**
+3. Select/deselect load cases (default: all checked)
+4. Click "Start Import"
+5. Conflict resolution dialog appears if duplicates exist
+6. Import proceeds with selected, non-conflicting cases
 
-**Workflow** (Single-Page Experience):
-1. Open Folder Import dialog (Main Window or Project Detail)
-2. Select folder with Excel files
-3. **Three sections appear automatically**:
-   - **Files to Process** (left): Lists all discovered Excel files
-   - **Load Cases** (middle): Checkboxes for all discovered load cases (auto-scanned)
-   - **Import Progress** (right): Status and log output
-4. **Review and select load cases**:
-   - All load cases checked by default
-   - Use "All" / "None" buttons for quick selection
-   - Click individual checkboxes to select/deselect specific cases
-5. Click "Start Import"
-6. **Conflict Resolution Dialog** appears only if conflicts exist:
-   - Choose which file to use for each duplicate load case
-   - Or skip conflicting cases
-7. Import proceeds with only selected, non-conflicting cases
+**Behavior**: Enhanced mode (default) enables selective import; legacy mode imports all.
 
-**Behavior**:
-- If no load cases selected: Standard import (all load cases imported)
-- If some selected: Enhanced import with selective filtering
-- Automatic conflict detection and resolution
+**Key Files**:
+- `folder_import_dialog.py` - Three-column layout with async scanning
+- `load_case_conflict_dialog.py` - Split-panel conflict resolution
+- `enhanced_folder_importer.py` - Orchestration logic
+- `selective_data_importer.py` - Filtered import with bulk operations
 
-**Status**: Fully working as of Nov 4, 2025. All result types (Global + Elements) import correctly with inline load case filtering.
-
-**Files involved**:
-- `src/gui/folder_import_dialog.py` - Main dialog with three-column layout and inline selection
-- `src/gui/load_case_conflict_dialog.py` - Conflict resolution dialog (only shown when needed)
-- `src/processing/enhanced_folder_importer.py` - Enhanced import orchestration
-- `src/processing/selective_data_importer.py` - Filtered import logic (uses session.bulk_save_objects for all element types)
-
-**Key Implementation Details**:
-- **Async Scanning**: LoadCaseScanWorker runs in background thread (no UI freeze)
-- **Cached Results**: Scan results stored in `self.load_case_sources`, reused for conflict detection
-- **Visual Feedback**: Dynamic checkmark (✓) appears in label text when checkbox selected
-- **Perfect Alignment**: Stretch ratios Files(3):LoadCases(2):Progress(5) with 3px margin fine-tuning
-- **Orange Borders**: Required fields (Folder, Result Set) have 2px orange borders (#ff8c00)
-- **Element Imports**: Use `session.bulk_save_objects()` directly (not repository methods)
-- **Element Dictionary**: Pre-create all elements, then look up by name during processing
-- **Column Consistency**: DataFrame columns use spaces ("Output Case", "Ux", "Uy")
-- **Field Mapping**: WallShear/ColumnShear use `force` fields, BeamRotation uses `r3_plastic` fields
-- **Conflict Format**: Transforms `{load_case: file}` → `{sheet: {load_case: file}}`
-
-**Performance**:
-- Folder selection: 0s freeze (was 20s) - background scanning with progress bar
-- Start import: 0s freeze (was 10s) - cached conflict detection, no rescan
-- Import process: Real-time progress updates via worker thread
-
-**Benefits**:
-- No popup dialogs for load case selection (all inline)
-- See files, load cases, and progress in one view
-- Completely responsive UI - no freezing at any point
-- Faster workflow - fewer clicks and context switches
+**Performance**: 0s UI freeze (async scanning + cached conflict detection)
 
 ---
 
@@ -858,16 +782,16 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 
 ---
 
-**Last Updated**: 2025-11-06
+**Last Updated**: 2024-11-07
 **Status**: Production-ready with modern UI, enhanced import workflow, and optimized layouts
 **Version**: 1.9 - UI Polish & Import Refinement
 **Note**: Structural details moved to [ARCHITECTURE.md](ARCHITECTURE.md) - this file focuses on quick development tasks
 
 ---
 
-## Recent Changes (November 2025)
+## Recent Changes (November 2024)
 
-### ✅ UI Polish & Import Dialog Refinement (v1.9 - November 6, 2025)
+### ✅ UI Polish & Import Dialog Refinement (v1.9 - November 6, 2024)
 
 **Folder Import Dialog Enhancements**:
 - ✅ **Full-page compact design**: Reduced all margins and padding for maximum space utilization
@@ -905,7 +829,7 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 - ✅ Consistent spacing grid (4px, 8px, 12px, 16px)
 - ✅ Subtle feedback instead of aggressive warnings
 
-### ✅ Enhanced Import with Load Case Selection (v1.8 - November 3, 2025)
+### ✅ Enhanced Import with Load Case Selection (v1.8 - November 3, 2024)
 
 **Interactive Multi-File Import**:
 - ✅ Pre-scan files to discover all load cases before import
@@ -1016,8 +940,6 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 
 ---
 
-**Last Updated**: 2025-11-05
-**Status**: Production-ready with async import UI, smart data detection, and optimized layouts
-**Version**: 1.8
-
 ---
+
+**End of Document**

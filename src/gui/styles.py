@@ -247,8 +247,7 @@ QMainWindow {{
 #summaryMetricLabel {{
     color: {COLORS['muted']};
     font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font: 13px;
 }}
 
 /* ==================== MENU BAR ==================== */
@@ -329,7 +328,6 @@ QPushButton:hover {{
 
 QPushButton:pressed {{
     background-color: {COLORS['accent']};
-    transform: scale(0.98);
 }}
 
 QPushButton:disabled {{
@@ -351,7 +349,7 @@ QPushButton[styleClass="secondary"]:hover {{
 }}
 
 QPushButton[styleClass="secondary"]:pressed {{
-    transform: scale(0.98);
+    background-color: {COLORS['hover']};
 }}
 
 /* Danger button style - matches GMP danger variant */
@@ -366,7 +364,7 @@ QPushButton[styleClass="danger"]:hover {{
 }}
 
 QPushButton[styleClass="danger"]:pressed {{
-    transform: scale(0.98);
+    background-color: #c53030;
 }}
 
 /* Ghost button style - matches GMP ghost variant */
@@ -382,7 +380,7 @@ QPushButton[styleClass="ghost"]:hover {{
 }}
 
 QPushButton[styleClass="ghost"]:pressed {{
-    transform: scale(0.98);
+    background-color: rgba(127, 139, 154, 0.3);
 }}
 
 /* Small button size - matches GMP sm size */

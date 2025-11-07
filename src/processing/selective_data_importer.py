@@ -649,12 +649,12 @@ class SelectiveDataImporter(DataImporter):
             helper = ResultImportHelper(session, project_id, stories)
             element_repo = ElementRepository(session)
 
-            # Get or create Element records for each pier
+            # Get or create Element records for each quad (different from wall piers!)
             pier_elements = {}
             for pier_name in piers:
                 element = element_repo.get_or_create(
                     project_id=project_id,
-                    element_type="Wall",
+                    element_type="Quad",  # Quads are separate from Wall shears
                     unique_name=pier_name,
                     name=pier_name,
                 )

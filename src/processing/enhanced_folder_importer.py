@@ -117,6 +117,8 @@ class EnhancedFolderImporter:
                 load_cases_by_sheet = {}
 
                 # Scan each result type
+                sheets_found = []
+                sheets_errored = []
                 for sheet_name, result_labels in TARGET_SHEETS.items():
                     # Check if we should import this result type
                     if result_types is not None:
@@ -136,9 +138,26 @@ class EnhancedFolderImporter:
                         )
                         if load_cases:
                             load_cases_by_sheet[sheet_name] = load_cases
-                    except Exception:
-                        # Skip problematic sheets
+                            sheets_found.append(f"{sheet_name}({len(load_cases)})")
+                    except Exception as e:
+                        # Log error and skip problematic sheets
+                        sheets_errored.append(f"{sheet_name}: {str(e)[:30]}")
                         continue
+
+                # Log what was found/errored for this file
+                if progress_callback and (sheets_found or sheets_errored):
+                    if sheets_found:
+                        progress_callback(
+                            f"  ✓ {', '.join(sheets_found[:3])}{'...' if len(sheets_found) > 3 else ''}",
+                            idx,
+                            len(excel_files)
+                        )
+                    if sheets_errored:
+                        progress_callback(
+                            f"  ✗ {sheets_errored[0]}",
+                            idx,
+                            len(excel_files)
+                        )
 
                 if load_cases_by_sheet:
                     file_load_cases[file_path.name] = load_cases_by_sheet
@@ -262,6 +281,8 @@ class EnhancedFolderImporter:
                 load_cases_by_sheet = {}
 
                 # Scan each result type
+                sheets_found = []
+                sheets_errored = []
                 for sheet_name, result_labels in TARGET_SHEETS.items():
                     # Check if we should import this result type
                     should_import_any = any(
@@ -280,9 +301,25 @@ class EnhancedFolderImporter:
                         )
                         if load_cases:
                             load_cases_by_sheet[sheet_name] = load_cases
-                    except Exception:
-                        # Skip problematic sheets
+                            sheets_found.append(f"{sheet_name}({len(load_cases)})")
+                    except Exception as e:
+                        # Log error and skip problematic sheets
+                        sheets_errored.append(f"{sheet_name}: {str(e)[:30]}")
                         continue
+
+                # Log what was found/errored for this file
+                if sheets_found:
+                    self._report_progress(
+                        f"  ✓ {', '.join(sheets_found[:3])}{'...' if len(sheets_found) > 3 else ''}",
+                        idx,
+                        len(self.excel_files)
+                    )
+                if sheets_errored:
+                    self._report_progress(
+                        f"  ✗ {sheets_errored[0]}",
+                        idx,
+                        len(self.excel_files)
+                    )
 
                 if load_cases_by_sheet:
                     file_load_cases[file_path.name] = load_cases_by_sheet
@@ -500,7 +537,19 @@ class EnhancedFolderImporter:
 
             if not allowed_load_cases:
                 # No load cases to import from this file
+                self._report_progress(
+                    f"  Skipping {file_name} (no allowed load cases)",
+                    idx,
+                    len(self.excel_files)
+                )
                 continue
+
+            # Debug: Log what we're importing from this file
+            self._report_progress(
+                f"  Importing {len(allowed_load_cases)} load case(s): {', '.join(sorted(allowed_load_cases)[:3])}{'...' if len(allowed_load_cases) > 3 else ''}",
+                idx,
+                len(self.excel_files)
+            )
 
             # Import file with load case filtering
             try:
@@ -580,6 +629,7 @@ class EnhancedFolderImporter:
             Set of load case names to import from this file
         """
         allowed = set()
+        skipped_by_sheet = {}  # Track what was skipped for debugging
 
         # Process sheet by sheet to handle per-sheet conflicts
         for sheet_name, load_cases_in_sheet in file_sheets.items():
@@ -594,16 +644,37 @@ class EnhancedFolderImporter:
 
                     if chosen_file is None:
                         # User chose to skip this load case for this sheet
+                        if sheet_name not in skipped_by_sheet:
+                            skipped_by_sheet[sheet_name] = []
+                        skipped_by_sheet[sheet_name].append(f"{load_case} (user skipped)")
                         continue
                     elif chosen_file == file_name:
                         # User chose this file for this load case on this sheet
                         allowed.add(load_case)
-                    # else: User chose a different file, skip
+                    else:
+                        # User chose a different file
+                        if sheet_name not in skipped_by_sheet:
+                            skipped_by_sheet[sheet_name] = []
+                        skipped_by_sheet[sheet_name].append(f"{load_case} (using {chosen_file})")
 
                 else:
                     # No conflict for this sheet+load_case combo
-                    # Check if already imported from another file
+                    # Check if already imported from another file FOR THIS SHEET
                     if sheet_name not in already_imported or load_case not in already_imported[sheet_name]:
+                        # This load case hasn't been imported for this sheet yet
                         allowed.add(load_case)
+                    else:
+                        # Already imported from another file
+                        if sheet_name not in skipped_by_sheet:
+                            skipped_by_sheet[sheet_name] = []
+                        skipped_by_sheet[sheet_name].append(f"{load_case} (already imported)")
+
+        # Debug logging
+        if skipped_by_sheet:
+            for sheet, skipped in list(skipped_by_sheet.items())[:2]:  # Show first 2 sheets
+                self._report_progress(
+                    f"    [{sheet}] Skipped: {', '.join(skipped[:2])}{'...' if len(skipped) > 2 else ''}",
+                    0, 1
+                )
 
         return allowed

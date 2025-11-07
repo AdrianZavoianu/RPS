@@ -435,12 +435,12 @@ class DataImporter:
             helper = ResultImportHelper(session, project_id, stories)
             element_repo = ElementRepository(session)
 
-            # Get or create Element records for each pier (from PropertyName)
+            # Get or create Element records for each quad (different from wall piers!)
             pier_elements = {}
             for pier_name in piers:
                 element = element_repo.get_or_create(
                     project_id=project_id,
-                    element_type="Wall",
+                    element_type="Quad",  # Quads are separate from Wall shears
                     unique_name=pier_name,
                     name=pier_name,
                 )
@@ -1000,19 +1000,19 @@ class DataImporter:
         element_repo = ElementRepository(session)
         element_cache_repo = ElementCacheRepository(session)
 
-        # Get all pier elements for this project
-        piers = element_repo.get_by_project(project_id, element_type="Wall")
+        # Get all quad elements for this project
+        quads = element_repo.get_by_project(project_id, element_type="Quad")
 
-        # For each pier, generate cache for rotations
-        for pier in piers:
+        # For each quad, generate cache for rotations
+        for quad in quads:
             result_type = "QuadRotations"
 
-            # Query quad rotations for this pier
+            # Query quad rotations for this quad element
             rotations = (
                 session.query(QuadRotation, LoadCase.name, Story)
                 .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
                 .join(Story, QuadRotation.story_id == Story.id)
-                .filter(QuadRotation.element_id == pier.id)
+                .filter(QuadRotation.element_id == quad.id)
                 .filter(QuadRotation.result_category_id == self.result_category_id)
                 .all()
             )
@@ -1035,7 +1035,7 @@ class DataImporter:
             for story_id, results_matrix in story_data.items():
                 element_cache_repo.upsert_cache_entry(
                     project_id=project_id,
-                    element_id=pier.id,
+                    element_id=quad.id,
                     story_id=story_id,
                     result_type=result_type,
                     results_matrix=results_matrix,

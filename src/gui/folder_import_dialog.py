@@ -615,6 +615,16 @@ class FolderImportDialog(QDialog):
         self.all_load_cases = all_load_cases
         self.load_case_sources = load_case_sources
 
+        # Debug: Log load cases with multiple sources
+        multi_source_lcs = [(lc, sources) for lc, sources in load_case_sources.items() if len(sources) > 1]
+        if multi_source_lcs:
+            self.log_output.append(f"- Load cases in multiple files ({len(multi_source_lcs)}):")
+            for lc, sources in sorted(multi_source_lcs)[:5]:  # Show first 5
+                file_list = ', '.join(set(f for f, s in sources))
+                self.log_output.append(f"  {lc}: {len(sources)} occurrences in {file_list}")
+            if len(multi_source_lcs) > 5:
+                self.log_output.append(f"  ... and {len(multi_source_lcs) - 5} more")
+
         # Populate UI
         self._populate_load_case_list(sorted(all_load_cases))
 
@@ -916,6 +926,11 @@ class FolderImportDialog(QDialog):
                 has_conflict = any(len(files) > 1 for files in sheet_files.values())
                 if has_conflict:
                     conflicts[lc] = sheet_files
+                    # Debug logging
+                    self.log_output.append(f"  Conflict: {lc} in {len(sources)} locations")
+                    for sheet, files in sheet_files.items():
+                        if len(files) > 1:
+                            self.log_output.append(f"    {sheet}: {', '.join(files)}")
 
         if not conflicts:
             self.log_output.append("- No conflicts detected")
@@ -930,18 +945,9 @@ class FolderImportDialog(QDialog):
         if not conflict_dialog.exec():
             return None  # User cancelled
 
-        # Get resolution in format: {load_case: file_name}
-        lc_resolution = conflict_dialog.get_resolution()
-
-        # Transform to format expected by worker: {sheet: {load_case: file}}
-        sheet_resolution = {}
-        for lc, file_name in lc_resolution.items():
-            # Find all sheets this load case appears in
-            if lc in conflicts:
-                for sheet_name in conflicts[lc].keys():
-                    if sheet_name not in sheet_resolution:
-                        sheet_resolution[sheet_name] = {}
-                    sheet_resolution[sheet_name][lc] = file_name
+        # Get resolution in format: {sheet: {load_case: file_name}}
+        # Already in the correct format for the worker!
+        sheet_resolution = conflict_dialog.get_resolution()
 
         self.log_output.append("- Conflicts resolved")
         self.progress_label.setText("Starting import...")
