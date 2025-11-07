@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QLineEdit,
     QTextEdit,
+    QApplication,
+    QStyle,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap
@@ -53,6 +55,8 @@ class MainWindow(QMainWindow):
 
         # Store current project
         self.current_project = None
+        self._project_rows: list[dict] = []
+        self._current_project_columns: int | None = None
 
         # Apply object names for styling
         self.setObjectName("mainWindow")
@@ -91,9 +95,9 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("topHeader")
         header.setFrameShape(QFrame.Shape.NoFrame)
-        header.setFixedHeight(64)  # Compact fixed height
+        header.setFixedHeight(88)  # Taller header for larger logo
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setContentsMargins(20, 6, 20, 6)
         header_layout.setSpacing(16)
 
         # Branded logo on the left
@@ -101,11 +105,32 @@ class MainWindow(QMainWindow):
         logo_label = QLabel()
         logo_label.setObjectName("headerLogo")
         logo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        logo_label.setFixedSize(100, 48)  # Compact logo size
+        # Scale logo based on header height and keep aspect ratio (HiDPI safe)
+        # Use a slightly smaller target than header inner height to avoid any clipping
+        target_logo_height = 60
         pixmap = QPixmap(str(logo_path))
         if not pixmap.isNull():
-            scaled = pixmap.scaled(100, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            # Compute logical width from aspect ratio to avoid DPI cropping
+            aspect = pixmap.width() / pixmap.height() if pixmap.height() else 1.0
+            logical_width = int(target_logo_height * aspect)
+
+            # HiDPI-aware scaling: scale in device pixels and set DPR on pixmap
+            app = QApplication.instance()
+            screen = app.primaryScreen() if app else None
+            dpr = float(screen.devicePixelRatio()) if screen else 1.0
+
+            target_h_px = max(1, int(target_logo_height * dpr))
+            scaled = pixmap.scaledToHeight(
+                target_h_px,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            scaled.setDevicePixelRatio(dpr)
+
             logo_label.setPixmap(scaled)
+            # Prevent stretching; size label to pixmap logical size and keep as minimum
+            logo_label.setScaledContents(False)
+            logo_label.setMinimumSize(int(scaled.width() / dpr), int(scaled.height() / dpr))
+            logo_label.adjustSize()
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         else:
             logo_label.setText("RPS")
@@ -118,7 +143,7 @@ class MainWindow(QMainWindow):
         self.nav_buttons = {}
         nav_items = [
             ("Home", self._show_home),
-            ("Project", self._show_projects),
+            ("Projects", self._show_projects),
             ("Doc", self._show_docs),
         ]
 
@@ -146,9 +171,9 @@ class MainWindow(QMainWindow):
 
         container_layout.addWidget(self.stack, stretch=1)
 
-        # Default to Home
-        self._set_active_nav("Home")
-        self.stack.setCurrentWidget(self.home_page)
+        # Default to Projects page
+        self._set_active_nav("Projects")
+        self.stack.setCurrentWidget(self.projects_page)
         self._refresh_projects()
 
     def _build_home_page(self) -> QWidget:
@@ -213,10 +238,6 @@ class MainWindow(QMainWindow):
         title.setObjectName("pageHeadline")
         outer_layout.addWidget(title)
 
-        subtitle = QLabel("Manage your seismic analysis projects and collaborate with your team.")
-        subtitle.setObjectName("pageSubheadline")
-        outer_layout.addWidget(subtitle)
-
         controls = QHBoxLayout()
         controls.setSpacing(12)
 
@@ -240,9 +261,9 @@ class MainWindow(QMainWindow):
         self.projects_container = QWidget()
         self.projects_layout = QGridLayout(self.projects_container)
         self.projects_layout.setContentsMargins(0, 0, 0, 0)
-        self.projects_layout.setHorizontalSpacing(16)
-        self.projects_layout.setVerticalSpacing(16)
-        self.projects_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.projects_layout.setHorizontalSpacing(20)
+        self.projects_layout.setVerticalSpacing(20)
+        self.projects_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.projects_scroll.setWidget(self.projects_container)
         outer_layout.addWidget(self.projects_scroll)
@@ -316,7 +337,7 @@ class MainWindow(QMainWindow):
 
         if name == "Home":
             self.stack.setCurrentWidget(self.home_page)
-        elif name == "Project":
+        elif name == "Projects":
             self.stack.setCurrentWidget(self.projects_page)
             self._refresh_projects()
         elif name == "Doc":
@@ -328,7 +349,7 @@ class MainWindow(QMainWindow):
 
     def _show_projects(self):
         """Navigate to projects page."""
-        self._set_active_nav("Project")
+        self._set_active_nav("Projects")
 
     def _show_docs(self):
         """Navigate to docs page."""
@@ -344,7 +365,7 @@ class MainWindow(QMainWindow):
             context = summary.context
             row = {
                 "name": context.name,
-                "description": context.description or "Imported project ready for analysis.",
+                "description": context.description,
                 "load_cases": summary.load_cases,
                 "stories": summary.stories,
                 "created_at": context.created_at,
@@ -363,23 +384,14 @@ class MainWindow(QMainWindow):
                 widget.setParent(None)
 
         if not project_rows:
-            empty_label = QLabel("No projects imported yet. Use the Home page to import results.")
-            empty_label.setObjectName("pageBodyText")
-            empty_label.setWordWrap(True)
-            self.projects_layout.addWidget(empty_label, 0, 0)
+            self._project_rows = []
+            self._render_project_cards()
             self._update_summary({"projects": 0, "load_cases": 0, "stories": 0})
             self.summary_card.setVisible(False)
             return
 
-        columns = 3
-        for index, project in enumerate(project_rows):
-            row_idx = index // columns
-            col_idx = index % columns
-            card = self._create_project_card(project)
-            self.projects_layout.addWidget(card, row_idx, col_idx)
-
-        # absorb remaining horizontal space so cards stay left-aligned
-        self.projects_layout.setColumnStretch(columns, 1)
+        self._project_rows = project_rows
+        self._render_project_cards()
 
         self._update_summary(totals)
         self.summary_card.setVisible(True)
@@ -389,22 +401,25 @@ class MainWindow(QMainWindow):
         card = QFrame()
         card.setObjectName("projectCard")
         card.setFrameShape(QFrame.Shape.StyledPanel)
-        card.setFixedSize(320, 240)
-        card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        card.setMinimumSize(220, 220)
+        card.setMaximumWidth(280)
+        card.setFixedHeight(220)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(12)
 
         title = QLabel(data["name"])
         title.setObjectName("cardTitle")
         layout.addWidget(title)
 
-        body_text = data.get("description") or "Imported project with structural results ready for analysis."
-        body = QLabel(body_text)
-        body.setObjectName("cardBody")
-        body.setWordWrap(True)
-        layout.addWidget(body)
+        body_text = data.get("description")
+        if body_text:
+            body = QLabel(body_text)
+            body.setObjectName("cardBody")
+            body.setWordWrap(True)
+            layout.addWidget(body)
 
         stats_container = QFrame()
         stats_container.setObjectName("cardStatsContainer")
@@ -458,21 +473,88 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
 
-        open_button = QPushButton("Open Project")
-        open_button.setObjectName("cardAction")
+        open_button = QPushButton("Open")
+        open_button.setObjectName("cardPrimaryAction")
         open_button.clicked.connect(lambda: self._open_project_detail(data["name"]))
         button_layout.addWidget(open_button)
 
-        delete_button = QPushButton("Delete")
-        delete_button.setObjectName("dangerAction")
+        button_layout.addStretch()
+
+        delete_button = QPushButton()
+        delete_button.setObjectName("cardDeleteAction")
+        delete_button.setToolTip("Delete project")
+        delete_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        delete_button.setIconSize(QSize(18, 18))
+        delete_button.setFixedSize(36, 36)
         delete_button.clicked.connect(lambda: self._delete_project(data["name"]))
         button_layout.addWidget(delete_button)
-
-        button_layout.addStretch()
 
         layout.addLayout(button_layout)
 
         return card
+
+    def _render_project_cards(self) -> None:
+        """Render project cards using current layout constraints."""
+        # Clear existing cards
+        while self.projects_layout.count():
+            item = self.projects_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+        if not self._project_rows:
+            empty_label = QLabel("No projects imported yet. Use the Home page to import results.")
+            empty_label.setObjectName("pageBodyText")
+            empty_label.setWordWrap(True)
+            self.projects_layout.addWidget(empty_label, 0, 0)
+            self._current_project_columns = None
+            return
+
+        columns = self._determine_project_columns(len(self._project_rows))
+        self._current_project_columns = columns
+
+        for col in range(columns):
+            self.projects_layout.setColumnStretch(col, 1)
+
+        for index, project in enumerate(self._project_rows):
+            row_idx = index // columns
+            col_idx = index % columns
+            card = self._create_project_card(project)
+            self.projects_layout.addWidget(card, row_idx, col_idx)
+
+    def _determine_project_columns(self, project_count: int) -> int:
+        """Determine number of columns based on viewport width."""
+        if project_count <= 0:
+            return 1
+
+        viewport = self.projects_scroll.viewport()
+        available_width = viewport.width() or self.projects_scroll.width() or self.width() or 1200
+        scrollbar = self.projects_scroll.verticalScrollBar()
+        if scrollbar:
+            available_width -= scrollbar.sizeHint().width()
+        available_width = max(available_width, 0)
+
+        spacing = self.projects_layout.horizontalSpacing()
+        spacing = 20 if spacing is None or spacing < 0 else spacing
+        min_card_width = 220
+        max_columns = min(5, project_count)
+
+        for columns in range(max_columns, 0, -1):
+            required_width = columns * min_card_width + (columns - 1) * spacing
+            if available_width >= required_width:
+                return columns
+
+        return 1
+
+    def resizeEvent(self, event):
+        """Reflow project cards when window resizes."""
+        super().resizeEvent(event)
+        if not self._project_rows:
+            return
+
+        new_columns = self._determine_project_columns(len(self._project_rows))
+        if new_columns != self._current_project_columns:
+            self._render_project_cards()
 
     def _open_project_detail(self, project_name: str):
         """Open project detail window."""

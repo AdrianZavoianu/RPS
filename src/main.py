@@ -47,10 +47,8 @@ def main():
 
     # Create and show main window
     window = MainWindow()
-    if is_dev_mode():
-        window.showMaximized()
-    else:
-        window.show()
+    # Launch maximized by default for a full-screen project view
+    window.showMaximized()
 
     # Start event loop
     sys.exit(app.exec())

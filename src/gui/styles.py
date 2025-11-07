@@ -40,8 +40,8 @@ QMainWindow {{
 #topHeader {{
     background-color: {COLORS['card']};
     border-bottom: 1px solid {COLORS['border']};
-    min-height: 64px;
-    max-height: 64px;
+    min-height: 88px;
+    max-height: 88px;
 }}
 
 #headerLogo {{
@@ -55,7 +55,7 @@ QMainWindow {{
     padding: 12px 20px;
     border-radius: 6px;
     font-weight: 600;
-    font-size: 15px;
+    font-size: 16px;
     min-width: 80px;
     max-height: 48px;
 }}
@@ -142,9 +142,9 @@ QMainWindow {{
 #projectCard {{
     background-color: {COLORS['card']};
     border: 1px solid {COLORS['border']};
-    border-radius: 16px;
-    min-width: 260px;
-    max-width: 320px;
+    border-radius: 12px;
+    min-width: 220px;
+    max-width: 280px;
 }}
 
 #projectCard:hover {{
@@ -161,46 +161,40 @@ QMainWindow {{
     line-height: 1.5;
 }}
 
-#cardAction {{
+#cardPrimaryAction {{
     background-color: transparent;
     color: {COLORS['accent']};
     border: 1px solid {COLORS['accent']};
-    padding: 8px 16px;
-    border-radius: 6px;
+    padding: 8px 18px;
+    border-radius: 8px;
     font-weight: 500;
 }}
 
-#cardAction:disabled {{
+#cardPrimaryAction:hover {{
+    background-color: rgba(74, 125, 137, 0.1);
+}}
+
+#cardPrimaryAction:disabled {{
     border-color: {COLORS['border']};
     color: {COLORS['muted']};
     background-color: transparent;
     opacity: 0.7;
 }}
 
-#dangerAction {{
+#cardDeleteAction {{
     background-color: transparent;
-    color: #ef4444;
-    border: 1px solid #ef4444;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: 500;
+    border: none;
+    color: #f87171;
+    border-radius: 18px;
 }}
 
-#dangerAction:hover {{
-    background-color: rgba(239, 68, 68, 0.1);
-    border-color: #dc2626;
-    color: #dc2626;
+#cardDeleteAction:hover {{
+    background-color: rgba(248, 113, 113, 0.12);
+    color: #fca5a5;
 }}
 
-#dangerAction:pressed {{
-    background-color: rgba(239, 68, 68, 0.2);
-}}
-
-#dangerAction:disabled {{
-    border-color: {COLORS['border']};
-    color: {COLORS['muted']};
-    background-color: transparent;
-    opacity: 0.7;
+#cardDeleteAction:pressed {{
+    background-color: rgba(248, 113, 113, 0.2);
 }}
 
 #cardStatsContainer {{
