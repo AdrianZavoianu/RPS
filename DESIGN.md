@@ -170,16 +170,62 @@ hover: background: rgba(255, 255, 255, 0.03);
 ```css
 background: #0a0c10;
 color: #d1d5db;
-border: 1px solid #2c313a;
+border: 1px solid #2c313a;  /* Default */
 border-radius: 6px;
 padding: 8px 12px;
 font-size: 14px;
 
-focus: border-color: #4a7d89;
+/* Dynamic border colors (for required fields) */
+empty-required: border: 2px solid #ff8c00;  /* Orange for empty required */
+
+focus: border-color: #4a7d89;  /* Blue when focused */
        outline: none;
        box-shadow: 0 0 0 3px rgba(74, 125, 137, 0.1);
 
 placeholder: color: #7f8b9a;
+```
+
+**Implementation Note**: Use Qt property-based styling for dynamic borders:
+```python
+line_edit.setProperty("empty", "true")  # Initially empty
+line_edit.textChanged.connect(lambda: self._update_empty_state(line_edit))
+
+# Stylesheet:
+# QLineEdit[empty="true"] { border: 2px solid #ff8c00; }
+# QLineEdit:focus { border-color: #4a7d89; }
+```
+
+### Checkboxes
+
+**Classic Style** (visible checkmark inside rectangle):
+
+```css
+/* Unchecked */
+indicator: width: 18px;
+          height: 18px;
+          border: 1px solid #2c313a;
+          border-radius: 4px;
+          background: transparent;
+
+/* Checked */
+indicator-checked: background: #4a7d89;  /* Teal fill */
+                   image: url(checkmark.png);  /* White ✓ symbol */
+                   border-color: #4a7d89;
+
+/* Hover */
+hover: border-color: #4a7d89;
+```
+
+**Implementation Note**: Use temp file for checkmark image:
+```python
+import tempfile
+# Create 18×18 checkmark pixmap with white ✓
+checkmark_pixmap.save(os.path.join(tempfile.gettempdir(), "app_checkbox_check.png"))
+
+# In stylesheet:
+# QCheckBox::indicator:checked {
+#     image: url({temp_path.replace("\\", "/")});
+# }
 ```
 
 ### Cards & Panels
@@ -463,9 +509,9 @@ QLineEdit:focus {
 
 ---
 
-**Last Updated**: 2025-10-23
+**Last Updated**: 2024-11-07
 **Status**: Active - Apply to all new components
-**Version**: 1.0 - Initial design system documentation
+**Version**: 1.1 - Updated with dialog patterns and dynamic borders
 
 ---
 

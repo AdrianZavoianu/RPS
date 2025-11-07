@@ -32,7 +32,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Results Processing System (RPS)** - Desktop application for processing and visualizing structural engineering results from ETABS/SAP2000 Excel exports.
 
-**Status**: Production-ready with refactored, extensible architecture
+**Status**: Production-ready with element type separation, per-sheet conflict resolution, and organized project structure
 
 **Tech Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
 
@@ -47,6 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Hierarchical data organization (Result Sets → Categories → Results)
 - ✅ Folder-based batch import with progress tracking
 - ✅ **Integrated Load Case Selection**: Inline load case selection and conflict resolution in import dialog
+- ✅ **Per-Sheet Conflict Resolution**: Each result type can choose different source files for duplicate load cases
 - ✅ Single-file import with validation
 - ✅ Project detail view: Browser | Table | Plot (3-panel)
 - ✅ Story drifts visualization with interactive column selection
@@ -59,10 +60,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ Load cases shared across all result sets
 - ✅ Result categories: Envelopes → Global Results → Elements (Walls, Columns, Beams)
 - ✅ **Global Results**: Drifts, Accelerations, Forces, Displacements (all with Max/Min)
-- ✅ **Element Results**:
-  - Wall Shears (V2/V3), Quad Rotations (per-pier data)
-  - Column Shears (V2/V3), Column Axials (Min), Column Rotations (R2/R3)
-  - Beam Rotations (R3 Plastic)
+- ✅ **Element Results** (with proper type separation):
+  - Wall Shears (V2/V3) - `element_type="Wall"`
+  - Quad Rotations (%) - `element_type="Quad"` (separate from walls)
+  - Column Shears (V2/V3), Column Axials (Min), Column Rotations (R2/R3) - `element_type="Column"`
+  - Beam Rotations (R3 Plastic) - `element_type="Beam"`
 - ✅ Full UI integration: tree browser + detail views
 - ✅ Duplicate validation for result set names
 - ✅ **Sheet-Specific Story Ordering**: Each result type preserves its own Excel sheet order
@@ -791,6 +793,59 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 
 ## Recent Changes (November 2024)
 
+### ✅ Element Type Separation & Project Structure Cleanup (v1.9.1 - November 7, 2024)
+
+**Critical Bug Fixes**:
+- ✅ **Element Type Separation**: Fixed Quad vs Wall element type confusion
+  - Quad rotations now use `element_type="Quad"` instead of `"Wall"`
+  - Fixed in 4 locations: import, selective import, browser UI, cache generation
+  - Wall Shears now only show pier elements (P1, P2, etc.)
+  - Quad Rotations now display all quad elements (Quad A-2, Quad B-1, etc.)
+  - No more duplicate elements with empty data
+  - **Documentation**: `docs/fixes/QUAD_WALL_ELEMENT_TYPE_FIX.md`
+
+- ✅ **Per-Sheet Conflict Resolution**: Fixed missing load cases in non-drift result types
+  - Changed conflict dialog to track per-sheet resolutions: `{sheet: {load_case: file}}`
+  - Each result type can now have different file choices for the same load case
+  - All result types now import their data correctly (not just drifts)
+  - **Documentation**: `docs/fixes/PER_SHEET_CONFLICT_RESOLUTION_FIX.md`
+
+**Project Structure Improvements**:
+- ✅ **Documentation Organization**: Created `docs/` folder structure
+  - `docs/fixes/` - 8 bug fix documentation files
+  - `docs/implementation/` - 5 implementation guides
+  - `docs/` - 4 other documentation files
+  - Core docs remain in root (README, ARCHITECTURE, PRD, CLAUDE, DESIGN)
+
+- ✅ **Test Scripts Organization**:
+  - Moved check scripts to `scripts/` folder
+  - Moved test scripts to `tests/` folder
+  - Cleaner project root with only essential files
+
+- ✅ **Documentation Updates**:
+  - Fixed all date errors (2025 → 2024) in ARCHITECTURE.md and DESIGN.md
+  - Updated version history to v1.9
+  - Added new UI patterns to DESIGN.md (dynamic borders, classic checkboxes)
+  - Added documentation references to new folder structure
+
+**Files Modified**:
+- `src/processing/data_importer.py` - Element type fix (import + cache generation)
+- `src/processing/selective_data_importer.py` - Element type fix
+- `src/gui/results_tree_browser.py` - Separate quad element filtering
+- `src/gui/load_case_conflict_dialog.py` - Per-sheet resolution tracking
+- `src/gui/folder_import_dialog.py` - Removed incorrect transformation
+- `ARCHITECTURE.md` - Date fixes, version update, doc references
+- `DESIGN.md` - Date fix, new UI patterns added
+- `CLAUDE.md` - Updated references
+
+**Impact**:
+- ✅ All element types now properly separated (Wall, Quad, Column, Beam)
+- ✅ All result types receive their correct load cases during import
+- ✅ Project structure more maintainable with organized documentation
+- ✅ All documentation accurate and up-to-date
+
+---
+
 ### ✅ UI Polish & Import Dialog Refinement (v1.9 - November 6, 2024)
 
 **Folder Import Dialog Enhancements**:
@@ -853,7 +908,7 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 - `SelectiveDataImporter` - Extends DataImporter with early dataframe filtering
 - Supports all 10 result types automatically
 
-**Documentation**: See `PHASE3_IMPLEMENTATION.md` for complete details
+**Documentation**: See `docs/implementation/PHASE3_IMPLEMENTATION.md` for complete details
 
 ---
 
@@ -939,6 +994,12 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 5. **Signal wiring is automatic in StandardResultView** - table ↔ plot communication is handled internally
 
 ---
+
+---
+
+**Last Updated**: 2024-11-07
+**Status**: Production-ready with element type separation, per-sheet conflict resolution, and organized project structure
+**Version**: 1.9.1
 
 ---
 

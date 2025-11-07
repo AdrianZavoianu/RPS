@@ -1,9 +1,9 @@
 # Architecture Documentation
 ## Results Processing System (RPS)
 
-**Version**: 1.8
-**Last Updated**: 2025-11-05
-**Status**: Production-ready with async import UI, smart data detection, and modular service architecture
+**Version**: 1.9
+**Last Updated**: 2024-11-07
+**Status**: Production-ready with element type separation, per-sheet conflict resolution, and optimized project structure
 
 ---
 
@@ -249,11 +249,11 @@ Relationships:
 Purpose: Two-level categorization within result sets
 ```
 
-**Element** - Structural elements (walls, columns, beams)
+**Element** - Structural elements (walls, columns, beams, quads)
 ```python
 id: Integer (PK)
 project_id: Integer FK → projects.id, not null
-element_type: String(50), not null           # "Wall", "Column", "Beam", "Pier"
+element_type: String(50), not null           # "Wall", "Quad", "Column", "Beam"
 name: String(100), not null                  # Display name
 unique_name: String(100), nullable           # ETABS/SAP2000 identifier
 story_id: Integer FK → stories.id, nullable
@@ -262,9 +262,15 @@ Indexes:
   - UNIQUE(project_id, element_type, unique_name)
 
 Relationships:
-  → wall_shears, column_shears, column_axials, column_rotations, quad_rotations
+  → wall_shears, quad_rotations, column_shears, column_axials, column_rotations, beam_rotations
 
 Purpose: Registry of structural elements for element-level results
+
+**Important**: Element types are strictly separated:
+- "Wall" - Pier forces/shears (e.g., P1, P2, WALL1)
+- "Quad" - Quad rotations (e.g., Quad A-2, Quad B-1) - separate from walls!
+- "Column" - Column forces/rotations (e.g., C1, C2, COL123)
+- "Beam" - Beam rotations (e.g., B1, B2, BEAM456)
 ```
 
 ---
@@ -835,7 +841,7 @@ QApplication
     └─> Status Bar
 ```
 
-### Import Dialog Architecture (v1.9 - Nov 6, 2025)
+### Import Dialog Architecture (v1.9 - Nov 6, 2024)
 
 **Modern Async Import UI** (`gui/folder_import_dialog.py`):
 
@@ -860,7 +866,7 @@ Bottom Row (stretch ratio 49:30:81 for pixel-perfect alignment):
 └──────────────┘ └────────┘ └─────────────────────┘
 ```
 
-**Visual Design** (Nov 6, 2025 refinement):
+**Visual Design** (Nov 6, 2024 refinement):
 - **Title**: "Import Project Data" at 24px font (prominent header)
 - **Dynamic Borders**: Smart visual feedback on required fields
   - 🟠 Orange (#ff8c00): Empty required field
@@ -1264,7 +1270,7 @@ Benefits: Less memory, faster processing, simpler logic
 
 ### File Statistics
 
-**Status**: ✅ Fully functional as of Nov 4, 2025 (integrated UI + all import bugs resolved)
+**Status**: ✅ Fully functional as of Nov 7, 2024 (integrated UI, element type separation, per-sheet conflict resolution)
 
 **Key Files**:
 - `gui/folder_import_dialog.py` - Redesigned with 3-column layout, inline load case selection (~800 lines total)
@@ -1275,13 +1281,15 @@ Benefits: Less memory, faster processing, simpler logic
 
 **Total Code**: ~2400 lines for enhanced import system
 
-**Bug Fixes Applied** (Nov 4, 2025):
+**Bug Fixes Applied** (Nov 4-7, 2024):
+- **Element Type Separation** (Nov 7): Fixed Quad vs Wall element type confusion in 4 locations (import, selective import, browser UI, cache generation). See `docs/fixes/QUAD_WALL_ELEMENT_TYPE_FIX.md`
+- **Per-Sheet Conflict Resolution** (Nov 7): Changed conflict dialog to track `{sheet: {load_case: file}}` instead of `{load_case: file}`. Each result type can now have different file choices. See `docs/fixes/PER_SHEET_CONFLICT_RESOLUTION_FIX.md`
 - Fixed column name mismatches (UX→Ux, OutputCase→"Output Case")
 - Implemented element dictionary pattern for all element types
 - Corrected field names (shear→force, axial→force, Rotation→R3Plastic)
 - Replaced non-existent bulk_create methods with session.bulk_save_objects()
 
-### Critical Implementation Notes (Nov 4, 2025)
+### Critical Implementation Notes (Nov 4-7, 2024)
 
 **Bulk Insert Pattern**:
 All element imports MUST use `session.bulk_save_objects()` directly, NOT repository methods:
@@ -1297,16 +1305,27 @@ element_repo.bulk_create_wall_shears(shear_objects)  # AttributeError!
 **Element Dictionary Pattern**:
 Pre-create all elements before processing rows (like data_importer.py):
 ```python
-# 1. Create element dictionary upfront
+# 1. Create element dictionary upfront with CORRECT element type
 pier_elements = {}
 for pier_name in piers:
     element = element_repo.get_or_create(
         project_id=project_id,
-        element_type="Wall",
+        element_type="Wall",  # Use "Wall" for pier forces/shears
         unique_name=pier_name,
         name=pier_name,
     )
     pier_elements[pier_name] = element
+
+# For quad rotations, use element_type="Quad"
+quad_elements = {}
+for quad_name in quads:
+    element = element_repo.get_or_create(
+        project_id=project_id,
+        element_type="Quad",  # NOT "Wall" - quads are separate!
+        unique_name=quad_name,
+        name=quad_name,
+    )
+    quad_elements[quad_name] = element
 
 # 2. Look up during processing
 for _, row in processed.iterrows():
@@ -1756,18 +1775,29 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.6 | 2025-11-01 | Result service modularization: Refactored monolithic `result_service.py` (1117 lines) into focused package with 6 modules (service, models, cache_builder, maxmin_builder, metadata, story_loader). Added comprehensive testing. Backward compatible imports. |
-| 1.5 | 2025-11-01 | Major UI refactor: StandardResultView pattern, view orchestration, window utilities, project structure reorganization |
-| 1.4.1 | 2025-10-27 | All Rotations scatter plot, quad rotation global ordering exception, cache entry tuple fix |
-| 1.4 | 2025-10-27 | Element results (WallShears, QuadRotations), sheet-specific story ordering (story_sort_order), directionless results support, ElementResultsCache |
-| 1.3 | 2025-10-25 | Catalog/per-project DB split, ResultImportHelper, shared visual config/legend components, project_tools CLI |
-| 1.2 | 2025-10-24 | Condensed to ~600 lines, removed redundancy |
-| 1.1 | 2025-10-24 | Added interactive features, plot configuration |
-| 1.0 | 2025-10-23 | Initial consolidated architecture doc |
+| 1.9 | 2024-11-07 | Element type separation fix (Quad vs Wall), per-sheet conflict resolution, project structure cleanup (docs/ folder), cache generation fixes |
+| 1.8 | 2024-11-06 | Import dialog UI refinement (dynamic borders, classic checkboxes, compact layout), conflict dialog redesign (split panels) |
+| 1.7 | 2024-11-05 | Async import UI (background threading), smart data detection, browser UX optimization, layout optimization |
+| 1.6 | 2024-11-01 | Result service modularization: Refactored monolithic `result_service.py` (1117 lines) into focused package with 6 modules (service, models, cache_builder, maxmin_builder, metadata, story_loader). Added comprehensive testing. Backward compatible imports. |
+| 1.5 | 2024-11-01 | Major UI refactor: StandardResultView pattern, view orchestration, window utilities, project structure reorganization |
+| 1.4.1 | 2024-10-27 | All Rotations scatter plot, quad rotation global ordering exception, cache entry tuple fix |
+| 1.4 | 2024-10-27 | Element results (WallShears, QuadRotations), sheet-specific story ordering (story_sort_order), directionless results support, ElementResultsCache |
+| 1.3 | 2024-10-25 | Catalog/per-project DB split, ResultImportHelper, shared visual config/legend components, project_tools CLI |
+| 1.2 | 2024-10-24 | Condensed to ~600 lines, removed redundancy |
+| 1.1 | 2024-10-24 | Added interactive features, plot configuration |
+| 1.0 | 2024-10-23 | Initial consolidated architecture doc |
 
 ---
 
 **Related Documents**
+
+Core Documentation:
 - `PRD.md` - Product requirements and features
 - `CLAUDE.md` - Development guide and code examples
+- `DESIGN.md` - Visual design system and UI guidelines
 - `README.md` - Project overview and setup
+
+Additional Documentation:
+- `docs/fixes/` - Bug fix documentation and debugging notes
+- `docs/implementation/` - Feature implementation guides
+- `docs/README.md` - Documentation index
