@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -11,6 +10,7 @@ from database.repository import ProjectRepository, LoadCaseRepository, StoryRepo
 
 from .excel_parser import ExcelParser
 from .data_importer import DataImporter
+from .base_importer import BaseFolderImporter
 
 TARGET_SHEETS: Dict[str, List[str]] = {
     "Story Drifts": ["Story Drifts"],
@@ -28,7 +28,7 @@ TARGET_SHEETS: Dict[str, List[str]] = {
 }
 
 
-class FolderImporter:
+class FolderImporter(BaseFolderImporter):
     """Import structural analysis results from a folder containing multiple Excel files."""
 
     def __init__(
@@ -40,33 +40,15 @@ class FolderImporter:
         session_factory: Optional[Callable[[], Session]] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ):
-        self.folder_path = Path(folder_path)
-        if not self.folder_path.exists() or not self.folder_path.is_dir():
-            raise ValueError(f"Invalid folder path: {folder_path}")
-
+        super().__init__(
+            folder_path=folder_path,
+            result_types=result_types,
+            session_factory=session_factory,
+            progress_callback=progress_callback,
+        )
         self.project_name = project_name
         self.result_set_name = result_set_name
-        self.result_types = {rt.strip().lower() for rt in result_types} if result_types else None
-        self.progress_callback = progress_callback
-        self.excel_files = self._find_excel_files()
-        if session_factory is None:
-            raise ValueError("FolderImporter requires a session_factory")
         self._session_factory = session_factory
-
-    def _find_excel_files(self) -> List[Path]:
-        files: List[Path] = []
-        for pattern in ("*.xlsx", "*.xls"):
-            files.extend(self.folder_path.glob(pattern))
-        return sorted(f for f in files if not f.name.startswith("~$"))
-
-    def _report_progress(self, message: str, current: int, total: int) -> None:
-        if self.progress_callback:
-            self.progress_callback(message, current, total)
-
-    def _should_import(self, label: str) -> bool:
-        if not self.result_types:
-            return True
-        return label.strip().lower() in self.result_types
 
     def import_all(self) -> Dict[str, Any]:
         """Import data from all Excel files in the folder."""

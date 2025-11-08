@@ -8,6 +8,10 @@ from database.repository import (
     ProjectRepository,
     StoryRepository,
     ResultRepository,
+    StoryDriftDataRepository,
+    StoryAccelerationDataRepository,
+    StoryForceDataRepository,
+    StoryDisplacementDataRepository,
     ResultSetRepository,
     ResultCategoryRepository,
     CacheRepository,
@@ -20,9 +24,10 @@ from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisp
 from .excel_parser import ExcelParser
 from .result_processor import ResultProcessor
 from .import_context import ResultImportHelper
+from .base_importer import BaseImporter
 
 
-class DataImporter:
+class DataImporter(BaseImporter):
     """Import structural analysis results from Excel into database."""
 
     def __init__(
@@ -42,15 +47,12 @@ class DataImporter:
             result_set_name: Name for this result set (e.g., DES, MCE, SLE)
             analysis_type: Optional analysis type (e.g., 'DERG', 'MCR')
         """
+        super().__init__(result_types=result_types, session_factory=session_factory)
         self.file_path = Path(file_path)
         self.project_name = project_name
         self.result_set_name = result_set_name
         self.analysis_type = analysis_type or "General"
         self.parser = ExcelParser(file_path)
-        self.result_types = {rt.strip().lower() for rt in result_types} if result_types else None
-        if session_factory is None:
-            raise ValueError("DataImporter requires a session_factory")
-        self._session_factory = session_factory
 
     def import_all(self) -> dict:
         """Import all available data from Excel file.
@@ -58,7 +60,6 @@ class DataImporter:
         Returns:
             Dictionary with import statistics
         """
-        session = self._session_factory()
         stats = {
             "project": None,
             "load_cases": 0,
@@ -79,115 +80,105 @@ class DataImporter:
         }
 
         try:
-            # Create or get project
-            project_repo = ProjectRepository(session)
-            project = project_repo.get_by_name(self.project_name)
+            with self.session_scope() as session:
+                # Create or get project
+                project_repo = ProjectRepository(session)
+                project = project_repo.get_by_name(self.project_name)
 
-            if not project:
-                project = project_repo.create(
-                    name=self.project_name,
-                    description=f"Imported from {self.file_path.name}",
+                if not project:
+                    project = project_repo.create(
+                        name=self.project_name,
+                        description=f"Imported from {self.file_path.name}",
+                    )
+                stats["project"] = project.name
+
+                # Create or get result set
+                result_set_repo = ResultSetRepository(session)
+                result_set = result_set_repo.get_or_create(
+                    project_id=project.id,
+                    name=self.result_set_name,
                 )
-            stats["project"] = project.name
 
-            # Create or get result set
-            result_set_repo = ResultSetRepository(session)
-            result_set = result_set_repo.get_or_create(
-                project_id=project.id,
-                name=self.result_set_name,
-            )
+                # Create result category (Envelopes → Global)
+                category_repo = ResultCategoryRepository(session)
+                result_category = category_repo.get_or_create(
+                    result_set_id=result_set.id,
+                    category_name="Envelopes",
+                    category_type="Global",
+                )
 
-            # Create result category (Envelopes → Global)
-            category_repo = ResultCategoryRepository(session)
-            result_category = category_repo.get_or_create(
-                result_set_id=result_set.id,
-                category_name="Envelopes",
-                category_type="Global",
-            )
+                # Store for use in import methods
+                self.result_category_id = result_category.id
+                self.result_set_id = result_set.id
 
-            # Store for use in import methods
-            self.result_category_id = result_category.id
-            self.result_set_id = result_set.id
+                print(f"\n[DEBUG DataImporter] file_path={self.file_path.name}")
+                print(f"  result_types filter={self.result_types}")
 
-            print(f"\n[DEBUG DataImporter] file_path={self.file_path.name}")
-            print(f"  result_types filter={self.result_types}")
+                # Import story drifts if available
+                if self._should_import("Story Drifts") and self.parser.validate_sheet_exists("Story Drifts"):
+                    drift_stats = self._import_story_drifts(session, project.id)
+                    stats["load_cases"] += drift_stats.get("load_cases", 0)
+                    stats["stories"] += drift_stats.get("stories", 0)
+                    stats["drifts"] += drift_stats.get("drifts", 0)
 
-            # Import story drifts if available
-            if self._should_import("Story Drifts") and self.parser.validate_sheet_exists("Story Drifts"):
-                drift_stats = self._import_story_drifts(session, project.id)
-                stats["load_cases"] += drift_stats.get("load_cases", 0)
-                stats["stories"] += drift_stats.get("stories", 0)
-                stats["drifts"] += drift_stats.get("drifts", 0)
+                # Import story accelerations if available (from Diaphragm Accelerations sheet)
+                if self._should_import("Story Accelerations") and self.parser.validate_sheet_exists("Diaphragm Accelerations"):
+                    accel_stats = self._import_story_accelerations(session, project.id)
+                    stats["accelerations"] += accel_stats.get("accelerations", 0)
 
-            # Import story accelerations if available (from Diaphragm Accelerations sheet)
-            if self._should_import("Story Accelerations") and self.parser.validate_sheet_exists("Diaphragm Accelerations"):
-                accel_stats = self._import_story_accelerations(session, project.id)
-                stats["accelerations"] += accel_stats.get("accelerations", 0)
+                # Import story forces if available
+                if self._should_import("Story Forces") and self.parser.validate_sheet_exists("Story Forces"):
+                    force_stats = self._import_story_forces(session, project.id)
+                    stats["forces"] += force_stats.get("forces", 0)
+                # Import floor displacements if available
+                if self._should_import("Floors Displacements") and self.parser.validate_sheet_exists("Joint DisplacementsG"):
+                    disp_stats = self._import_joint_displacements(session, project.id)
+                    stats["displacements"] += disp_stats.get("displacements", 0)
 
-            # Import story forces if available
-            if self._should_import("Story Forces") and self.parser.validate_sheet_exists("Story Forces"):
-                force_stats = self._import_story_forces(session, project.id)
-                stats["forces"] += force_stats.get("forces", 0)
-            # Import floor displacements if available
-            if self._should_import("Floors Displacements") and self.parser.validate_sheet_exists("Joint DisplacementsG"):
-                disp_stats = self._import_joint_displacements(session, project.id)
-                stats["displacements"] += disp_stats.get("displacements", 0)
+                # Import pier forces if available
+                if self._should_import("Pier Forces") and self.parser.validate_sheet_exists("Pier Forces"):
+                    pier_stats = self._import_pier_forces(session, project.id)
+                    stats["pier_forces"] += pier_stats.get("pier_forces", 0)
+                    stats["piers"] += pier_stats.get("piers", 0)
 
-            # Import pier forces if available
-            if self._should_import("Pier Forces") and self.parser.validate_sheet_exists("Pier Forces"):
-                pier_stats = self._import_pier_forces(session, project.id)
-                stats["pier_forces"] += pier_stats.get("pier_forces", 0)
-                stats["piers"] += pier_stats.get("piers", 0)
+                # Import column forces if available
+                if self._should_import("Column Forces") and self.parser.validate_sheet_exists("Element Forces - Columns"):
+                    column_stats = self._import_column_forces(session, project.id)
+                    stats["column_forces"] += column_stats.get("column_forces", 0)
+                    stats["columns"] += column_stats.get("columns", 0)
 
-            # Import column forces if available
-            if self._should_import("Column Forces") and self.parser.validate_sheet_exists("Element Forces - Columns"):
-                column_stats = self._import_column_forces(session, project.id)
-                stats["column_forces"] += column_stats.get("column_forces", 0)
-                stats["columns"] += column_stats.get("columns", 0)
+                # Import column axials if available (same sheet as column forces)
+                if self._should_import("Column Axials") and self.parser.validate_sheet_exists("Element Forces - Columns"):
+                    axial_stats = self._import_column_axials(session, project.id)
+                    stats["column_axials"] += axial_stats.get("column_axials", 0)
+                    # Columns already counted from column forces
 
-            # Import column axials if available (same sheet as column forces)
-            if self._should_import("Column Axials") and self.parser.validate_sheet_exists("Element Forces - Columns"):
-                axial_stats = self._import_column_axials(session, project.id)
-                stats["column_axials"] += axial_stats.get("column_axials", 0)
-                # Columns already counted from column forces
+                # Import column rotations if available (from Fiber Hinge States sheet)
+                if self._should_import("Column Rotations") and self.parser.validate_sheet_exists("Fiber Hinge States"):
+                    rotation_stats = self._import_column_rotations(session, project.id)
+                    stats["column_rotations"] += rotation_stats.get("column_rotations", 0)
+                    # Columns already counted
 
-            # Import column rotations if available (from Fiber Hinge States sheet)
-            if self._should_import("Column Rotations") and self.parser.validate_sheet_exists("Fiber Hinge States"):
-                rotation_stats = self._import_column_rotations(session, project.id)
-                stats["column_rotations"] += rotation_stats.get("column_rotations", 0)
-                # Columns already counted
+                # Import beam rotations if available (from Hinge States sheet)
+                if self._should_import("Beam Rotations") and self.parser.validate_sheet_exists("Hinge States"):
+                    beam_stats = self._import_beam_rotations(session, project.id)
+                    stats["beam_rotations"] += beam_stats.get("beam_rotations", 0)
+                    stats["beams"] += beam_stats.get("beams", 0)
 
-            # Import beam rotations if available (from Hinge States sheet)
-            if self._should_import("Beam Rotations") and self.parser.validate_sheet_exists("Hinge States"):
-                beam_stats = self._import_beam_rotations(session, project.id)
-                stats["beam_rotations"] += beam_stats.get("beam_rotations", 0)
-                stats["beams"] += beam_stats.get("beams", 0)
+                # Import quad rotations if available
+                if self._should_import("Quad Rotations") and self.parser.validate_sheet_exists("Quad Strain Gauge - Rotation"):
+                    quad_stats = self._import_quad_rotations(session, project.id)
+                    stats["quad_rotations"] = quad_stats.get("quad_rotations", 0)
+                    # Piers already counted from pier forces if both exist
 
-            # Import quad rotations if available
-            if self._should_import("Quad Rotations") and self.parser.validate_sheet_exists("Quad Strain Gauge - Rotation"):
-                quad_stats = self._import_quad_rotations(session, project.id)
-                stats["quad_rotations"] = quad_stats.get("quad_rotations", 0)
-                # Piers already counted from pier forces if both exist
-
-            # Generate cache for fast display after all imports
-            self._generate_cache(session, project.id, self.result_set_id)
-
-            session.commit()
+                # Generate cache for fast display after all imports
+                self._generate_cache(session, project.id, self.result_set_id)
 
         except Exception as e:
-            session.rollback()
             stats["errors"].append(str(e))
             raise
-        finally:
-            session.close()
 
         return stats
-
-    def _should_import(self, result_label: str) -> bool:
-        """Return True when the given result type should be imported."""
-        if not self.result_types:
-            return True
-        return result_label.strip().lower() in self.result_types
 
     def _import_story_drifts(self, session, project_id: int) -> dict:
         """Import story drift data."""
@@ -196,7 +187,7 @@ class DataImporter:
         try:
             df, load_cases, stories = self.parser.get_story_drifts()
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            drift_repo = StoryDriftDataRepository(session)
 
             # Process each direction
             for direction in ["X", "Y"]:
@@ -226,7 +217,7 @@ class DataImporter:
                     drift_objects.append(drift)
 
                 # Bulk insert
-                result_repo.bulk_create_drifts(drift_objects)
+                drift_repo.bulk_create(drift_objects)
                 stats["drifts"] += len(drift_objects)
 
             stats["load_cases"] = len(load_cases)
@@ -244,7 +235,7 @@ class DataImporter:
         try:
             df, load_cases, stories = self.parser.get_story_accelerations()
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            accel_repo = StoryAccelerationDataRepository(session)
 
             # Process each direction
             for direction in ["UX", "UY"]:
@@ -270,7 +261,7 @@ class DataImporter:
                     )
                     accel_objects.append(accel)
 
-                result_repo.bulk_create_accelerations(accel_objects)
+                accel_repo.bulk_create(accel_objects)
                 stats["accelerations"] += len(accel_objects)
 
         except Exception as e:
@@ -285,7 +276,7 @@ class DataImporter:
         try:
             df, load_cases, stories = self.parser.get_story_forces()
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            force_repo = StoryForceDataRepository(session)
 
             # Process each direction
             for direction in ["VX", "VY"]:
@@ -312,7 +303,7 @@ class DataImporter:
                     )
                     force_objects.append(force)
 
-                result_repo.bulk_create_forces(force_objects)
+                force_repo.bulk_create(force_objects)
                 stats["forces"] += len(force_objects)
 
         except Exception as e:
@@ -331,7 +322,7 @@ class DataImporter:
             if df.empty:
                 return stats
 
-            result_repo = ResultRepository(session)
+            disp_repo = StoryDisplacementDataRepository(session)
 
             for direction in ["Ux", "Uy"]:
                 processed = ResultProcessor.process_joint_displacements(
@@ -359,7 +350,7 @@ class DataImporter:
                     )
                     displacement_objects.append(displacement)
 
-                result_repo.bulk_create_displacements(displacement_objects)
+                disp_repo.bulk_create(displacement_objects)
                 stats["displacements"] += len(displacement_objects)
 
         except Exception as e:

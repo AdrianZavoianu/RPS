@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QTextEdit,
     QApplication,
-    QStyle,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap
@@ -30,6 +29,7 @@ from pathlib import Path
 from .import_dialog import ImportDialog
 from .window_utils import enable_dark_title_bar
 from .project_detail_window import ProjectDetailWindow
+from .project_grid_widget import ProjectGridWidget
 from .styles import COLORS
 from services.project_service import (
     ensure_project_context,
@@ -55,8 +55,6 @@ class MainWindow(QMainWindow):
 
         # Store current project
         self.current_project = None
-        self._project_rows: list[dict] = []
-        self._current_project_columns: int | None = None
 
         # Apply object names for styling
         self.setObjectName("mainWindow")
@@ -258,14 +256,11 @@ class MainWindow(QMainWindow):
 
         self.projects_scroll = QScrollArea()
         self.projects_scroll.setWidgetResizable(True)
-        self.projects_container = QWidget()
-        self.projects_layout = QGridLayout(self.projects_container)
-        self.projects_layout.setContentsMargins(0, 0, 0, 0)
-        self.projects_layout.setHorizontalSpacing(20)
-        self.projects_layout.setVerticalSpacing(20)
-        self.projects_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        self.projects_scroll.setWidget(self.projects_container)
+        self.project_grid = ProjectGridWidget(
+            on_open=self._open_project_detail,
+            on_delete=self._delete_project,
+        )
+        self.projects_scroll.setWidget(self.project_grid)
         outer_layout.addWidget(self.projects_scroll)
 
         self.summary_card = QFrame()
@@ -369,6 +364,7 @@ class MainWindow(QMainWindow):
                 "load_cases": summary.load_cases,
                 "stories": summary.stories,
                 "created_at": context.created_at,
+                "_formatted_created": self._format_date(context.created_at),
             }
             project_rows.append(row)
 
@@ -376,185 +372,15 @@ class MainWindow(QMainWindow):
             totals["load_cases"] += summary.load_cases
             totals["stories"] += summary.stories
 
-        # Clear existing cards
-        while self.projects_layout.count():
-            item = self.projects_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.setParent(None)
+        self.project_grid.set_projects(project_rows)
 
         if not project_rows:
-            self._project_rows = []
-            self._render_project_cards()
             self._update_summary({"projects": 0, "load_cases": 0, "stories": 0})
             self.summary_card.setVisible(False)
             return
 
-        self._project_rows = project_rows
-        self._render_project_cards()
-
         self._update_summary(totals)
         self.summary_card.setVisible(True)
-
-    def _create_project_card(self, data: dict) -> QWidget:
-        """Create a stylized project card."""
-        card = QFrame()
-        card.setObjectName("projectCard")
-        card.setFrameShape(QFrame.Shape.StyledPanel)
-        card.setMinimumSize(220, 220)
-        card.setMaximumWidth(280)
-        card.setFixedHeight(220)
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(12)
-
-        title = QLabel(data["name"])
-        title.setObjectName("cardTitle")
-        layout.addWidget(title)
-
-        body_text = data.get("description")
-        if body_text:
-            body = QLabel(body_text)
-            body.setObjectName("cardBody")
-            body.setWordWrap(True)
-            layout.addWidget(body)
-
-        stats_container = QFrame()
-        stats_container.setObjectName("cardStatsContainer")
-        stats_layout = QVBoxLayout(stats_container)
-        stats_layout.setContentsMargins(0, 0, 0, 0)
-        stats_layout.setSpacing(8)
-
-        stats = [
-            ("Load cases", data.get("load_cases", 0)),
-            ("Stories", data.get("stories", 0)),
-        ]
-
-        for label, value in stats:
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            label_widget = QLabel(label)
-            label_widget.setObjectName("cardStatLabel")
-            value_widget = QLabel(str(value))
-            value_widget.setObjectName("cardStatValue")
-            row.addWidget(label_widget)
-            row.addStretch()
-            row.addWidget(value_widget)
-            stats_layout.addLayout(row)
-
-        layout.addWidget(stats_container)
-
-        layout.addStretch()
-
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setObjectName("cardDivider")
-        layout.addWidget(divider)
-
-        footer = QHBoxLayout()
-        footer.setSpacing(12)
-
-        created_label = QLabel("Created")
-        created_label.setObjectName("cardFooterLabel")
-        footer.addWidget(created_label)
-
-        created_at = data.get("created_at")
-        created_value = QLabel(self._format_date(created_at))
-        created_value.setObjectName("cardFooterValue")
-        footer.addWidget(created_value)
-
-        footer.addStretch()
-
-        layout.addLayout(footer)
-
-        # Action buttons layout
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
-
-        open_button = QPushButton("Open")
-        open_button.setObjectName("cardPrimaryAction")
-        open_button.clicked.connect(lambda: self._open_project_detail(data["name"]))
-        button_layout.addWidget(open_button)
-
-        button_layout.addStretch()
-
-        delete_button = QPushButton()
-        delete_button.setObjectName("cardDeleteAction")
-        delete_button.setToolTip("Delete project")
-        delete_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-        delete_button.setIconSize(QSize(18, 18))
-        delete_button.setFixedSize(36, 36)
-        delete_button.clicked.connect(lambda: self._delete_project(data["name"]))
-        button_layout.addWidget(delete_button)
-
-        layout.addLayout(button_layout)
-
-        return card
-
-    def _render_project_cards(self) -> None:
-        """Render project cards using current layout constraints."""
-        # Clear existing cards
-        while self.projects_layout.count():
-            item = self.projects_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.setParent(None)
-
-        if not self._project_rows:
-            empty_label = QLabel("No projects imported yet. Use the Home page to import results.")
-            empty_label.setObjectName("pageBodyText")
-            empty_label.setWordWrap(True)
-            self.projects_layout.addWidget(empty_label, 0, 0)
-            self._current_project_columns = None
-            return
-
-        columns = self._determine_project_columns(len(self._project_rows))
-        self._current_project_columns = columns
-
-        for col in range(columns):
-            self.projects_layout.setColumnStretch(col, 1)
-
-        for index, project in enumerate(self._project_rows):
-            row_idx = index // columns
-            col_idx = index % columns
-            card = self._create_project_card(project)
-            self.projects_layout.addWidget(card, row_idx, col_idx)
-
-    def _determine_project_columns(self, project_count: int) -> int:
-        """Determine number of columns based on viewport width."""
-        if project_count <= 0:
-            return 1
-
-        viewport = self.projects_scroll.viewport()
-        available_width = viewport.width() or self.projects_scroll.width() or self.width() or 1200
-        scrollbar = self.projects_scroll.verticalScrollBar()
-        if scrollbar:
-            available_width -= scrollbar.sizeHint().width()
-        available_width = max(available_width, 0)
-
-        spacing = self.projects_layout.horizontalSpacing()
-        spacing = 20 if spacing is None or spacing < 0 else spacing
-        min_card_width = 220
-        max_columns = min(5, project_count)
-
-        for columns in range(max_columns, 0, -1):
-            required_width = columns * min_card_width + (columns - 1) * spacing
-            if available_width >= required_width:
-                return columns
-
-        return 1
-
-    def resizeEvent(self, event):
-        """Reflow project cards when window resizes."""
-        super().resizeEvent(event)
-        if not self._project_rows:
-            return
-
-        new_columns = self._determine_project_columns(len(self._project_rows))
-        if new_columns != self._current_project_columns:
-            self._render_project_cards()
 
     def _open_project_detail(self, project_name: str):
         """Open project detail window."""

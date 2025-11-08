@@ -5,17 +5,17 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from database.repository import (
+    StoryDriftDataRepository,
+    StoryAccelerationDataRepository,
+    StoryForceDataRepository,
+    StoryDisplacementDataRepository,
+)
+
 from .data_importer import DataImporter
 
 
 class SelectiveDataImporter(DataImporter):
-    """
-    DataImporter that only imports specific load cases.
-
-    Extends DataImporter to add filtering by load case names. All load cases
-    not in the allowed set are skipped during import.
-    """
-
     def __init__(
         self,
         file_path: str,
@@ -62,7 +62,6 @@ class SelectiveDataImporter(DataImporter):
 
     def _import_story_drifts(self, session, project_id: int) -> dict:
         """Import story drifts with load case filtering."""
-        from database.repository import ResultRepository
         from database.models import StoryDrift
         from .result_processor import ResultProcessor
         from .import_context import ResultImportHelper
@@ -82,7 +81,7 @@ class SelectiveDataImporter(DataImporter):
             df = df[df['Output Case'].isin(filtered_load_cases)].copy()
 
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            drift_repo = StoryDriftDataRepository(session)
 
             # Process each direction
             for direction in ["X", "Y"]:
@@ -108,7 +107,7 @@ class SelectiveDataImporter(DataImporter):
                     )
                     drift_objects.append(drift)
 
-                result_repo.bulk_create_drifts(drift_objects)
+                drift_repo.bulk_create(drift_objects)
                 stats["drifts"] += len(drift_objects)
 
             stats["load_cases"] = len(filtered_load_cases)
@@ -121,7 +120,6 @@ class SelectiveDataImporter(DataImporter):
 
     def _import_story_accelerations(self, session, project_id: int) -> dict:
         """Import story accelerations with load case filtering."""
-        from database.repository import ResultRepository
         from database.models import StoryAcceleration
         from .result_processor import ResultProcessor
         from .import_context import ResultImportHelper
@@ -140,7 +138,7 @@ class SelectiveDataImporter(DataImporter):
             df = df[df['Output Case'].isin(filtered_load_cases)].copy()
 
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            accel_repo = StoryAccelerationDataRepository(session)
 
             for direction in ["UX", "UY"]:
                 processed = ResultProcessor.process_story_accelerations(
@@ -165,7 +163,7 @@ class SelectiveDataImporter(DataImporter):
                     )
                     accel_objects.append(accel)
 
-                result_repo.bulk_create_accelerations(accel_objects)
+                accel_repo.bulk_create(accel_objects)
                 stats["accelerations"] += len(accel_objects)
 
         except Exception as e:
@@ -175,7 +173,6 @@ class SelectiveDataImporter(DataImporter):
 
     def _import_story_forces(self, session, project_id: int) -> dict:
         """Import story forces with load case filtering."""
-        from database.repository import ResultRepository
         from database.models import StoryForce
         from .result_processor import ResultProcessor
         from .import_context import ResultImportHelper
@@ -194,7 +191,7 @@ class SelectiveDataImporter(DataImporter):
             df = df[df['Output Case'].isin(filtered_load_cases)].copy()
 
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            force_repo = StoryForceDataRepository(session)
 
             for direction in ["VX", "VY"]:
                 processed = ResultProcessor.process_story_forces(
@@ -219,7 +216,7 @@ class SelectiveDataImporter(DataImporter):
                     )
                     force_objects.append(force)
 
-                result_repo.bulk_create_forces(force_objects)
+                force_repo.bulk_create(force_objects)
                 stats["forces"] += len(force_objects)
 
         except Exception as e:
@@ -229,7 +226,6 @@ class SelectiveDataImporter(DataImporter):
 
     def _import_joint_displacements(self, session, project_id: int) -> dict:
         """Import joint displacements with load case filtering."""
-        from database.repository import ResultRepository
         from database.models import StoryDisplacement
         from .result_processor import ResultProcessor
         from .import_context import ResultImportHelper
@@ -248,7 +244,7 @@ class SelectiveDataImporter(DataImporter):
             df = df[df['Output Case'].isin(filtered_load_cases)].copy()
 
             helper = ResultImportHelper(session, project_id, stories)
-            result_repo = ResultRepository(session)
+            disp_repo = StoryDisplacementDataRepository(session)
 
             for direction, column_name in [("UX", "Ux"), ("UY", "Uy")]:
                 processed = ResultProcessor.process_joint_displacements(
@@ -273,7 +269,7 @@ class SelectiveDataImporter(DataImporter):
                     )
                     disp_objects.append(disp)
 
-                result_repo.bulk_create_displacements(disp_objects)
+                disp_repo.bulk_create(disp_objects)
                 stats["displacements"] += len(disp_objects)
 
         except Exception as e:

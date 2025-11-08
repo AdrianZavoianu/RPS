@@ -225,6 +225,106 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 
 ---
 
+### Adding a New Data Model
+
+> **📐 See**: [ARCHITECTURE.md Section 10](ARCHITECTURE.md#10-extension-points) for repository patterns
+
+**Quick steps** (~5 minutes):
+1. Define model in `database/models.py`
+2. Create repository extending `BaseRepository[Model]` in `database/repository.py`
+3. Add model-specific create/query methods (CRUD comes free from base)
+
+**Example**:
+```python
+# 1. Define model (in models.py)
+class SpandrelResult(Base):
+    __tablename__ = "spandrel_results"
+    id = Column(Integer, primary_key=True)
+    story_id = Column(Integer, ForeignKey("stories.id"))
+    load_case_id = Column(Integer, ForeignKey("load_cases.id"))
+    force = Column(Float)
+
+# 2. Create repository (in repository.py)
+from .base_repository import BaseRepository
+
+class SpandrelResultRepository(BaseRepository[SpandrelResult]):
+    model = SpandrelResult
+
+    def create_spandrel(self, story_id, load_case_id, force):
+        return super().create(
+            story_id=story_id,
+            load_case_id=load_case_id,
+            force=force
+        )
+
+    def bulk_create(self, results: List[SpandrelResult]):
+        if not results:
+            return
+        self.session.bulk_save_objects(results)
+        self.session.commit()
+
+    def get_by_story(self, story_id):
+        return self.session.query(self.model).filter(
+            self.model.story_id == story_id
+        ).all()
+```
+
+**Done!** Basic CRUD (get_by_id, delete, list_all) works automatically from BaseRepository.
+
+---
+
+### Creating a Custom Importer
+
+> **📐 See**: [ARCHITECTURE.md Section 6](ARCHITECTURE.md#6-transformer-system) for importer hierarchy
+
+**Quick steps** (~10 minutes):
+1. Extend `BaseImporter` (single file) or `BaseFolderImporter` (folder scan)
+2. Implement import logic using `session_scope()` context manager
+3. Use `_should_import(label)` to check if result type should be imported
+
+**Example**:
+```python
+from processing.base_importer import BaseImporter
+
+class CustomImporter(BaseImporter):
+    def __init__(self, data_source, result_types=None, session_factory=None):
+        super().__init__(result_types=result_types, session_factory=session_factory)
+        self.data_source = data_source
+
+    def import_all(self):
+        with self.session_scope() as session:  # Auto commit/rollback
+            project_repo = ProjectRepository(session)
+            project = project_repo.get_by_name(self.project_name)
+
+            if self._should_import("Story Drifts"):  # Check filter
+                drift_repo = StoryDriftDataRepository(session)
+                # ... parse data
+                drift_repo.bulk_create(drift_objects)
+
+            if self._should_import("Story Forces"):
+                force_repo = StoryForceDataRepository(session)
+                # ... parse data
+                force_repo.bulk_create(force_objects)
+```
+
+**Benefits**:
+- Session management handled automatically (commit on success, rollback on error)
+- Result type filtering works consistently across all importers
+- Progress callbacks (if using BaseFolderImporter) work out of the box
+- Centralized error handling
+
+**Importer Hierarchy**:
+```
+BaseImporter
+├── DataImporter (single file import)
+│   └── SelectiveDataImporter (with load case filtering)
+└── BaseFolderImporter (folder scan + progress)
+    ├── FolderImporter (batch import)
+    └── EnhancedFolderImporter (with UI dialogs)
+```
+
+---
+
 ### Modifying Table Colors
 
 ```python
@@ -521,6 +621,12 @@ QCheckBox::indicator:checked {
 - `src/utils/color_utils.py` - Gradient color schemes
 - `src/utils/plot_builder.py` - Declarative plot API
 
+**Base Classes (Architectural Foundation)**:
+- `src/database/base_repository.py` - Generic repository with CRUD operations (36 lines)
+- `src/processing/base_importer.py` - Base importer classes for session + filtering (87 lines)
+- `src/gui/components/results_table_header.py` - Reusable table header components (100 lines)
+- `src/gui/project_grid_widget.py` - Responsive project card grid layout (230 lines)
+
 ---
 
 ## Utility Functions Quick Reference
@@ -792,6 +898,70 @@ Quad rotation Excel sheets are sorted by pier/element name (e.g., "P1", "P10", "
 ---
 
 ## Recent Changes (November 2024)
+
+### ✅ Architecture Refactor: Base Classes & Component Extraction (v2.0 - November 8, 2024)
+
+**Major Refactoring**:
+- ✅ **Repository Layer Refactor**: Eliminated CRUD duplication across 10+ repository classes
+  - Added `BaseRepository[ModelT]` generic base class (36 lines)
+  - Converted all repositories to extend base class
+  - Created specialized per-result repositories (StoryDriftDataRepository, StoryAccelerationDataRepository, etc.)
+  - Removed ~130 lines of duplicated CRUD code
+  - **Impact**: Adding new data models now requires only ~20 lines (vs ~80 before)
+
+- ✅ **Importer Layer Refactor**: Centralized session management and result type filtering
+  - Added `BaseImporter` and `BaseFolderImporter` base classes (87 lines)
+  - Converted 4 importer classes to use inheritance hierarchy
+  - Removed ~95 lines of duplicated session/filtering code
+  - **Impact**: Consistent session handling and filtering across all importers
+
+- ✅ **UI Component Extraction**: Made components reusable and reduced complexity
+  - Extracted `ProjectGridWidget` (230 lines) from MainWindow
+  - Extracted `ClickableTableWidget` and `SelectableHeaderView` (100 lines) from ResultsTableWidget
+  - Reduced MainWindow by 190 lines, ResultsTableWidget by 123 lines
+  - **Impact**: Components can be reused in other views, easier to test and maintain
+
+**Code Quality Improvements**:
+- **Total reduction**: ~350 lines while improving structure and maintainability
+- **Repository.py size**: ~800 lines → ~669 lines (-131 lines)
+- **Main_window.py size**: ~570 lines → ~380 lines (-190 lines)
+- **Results_table_widget.py size**: ~480 lines → ~357 lines (-123 lines)
+- **Duplication**: Significantly reduced across importers and repositories
+
+**New Patterns Established**:
+1. **Generic Repository Pattern**: All new data models extend `BaseRepository[Model]`
+2. **Importer Hierarchy**: All importers extend `BaseImporter` or `BaseFolderImporter`
+3. **Component Extraction**: Reusable UI behaviors in standalone components
+4. **Specialized Repositories**: Each result type gets its own repository class
+
+**Benefits**:
+- ✅ Reduced cognitive load: Each class has a single, clear responsibility
+- ✅ Easier testing: Base classes tested once, derived classes test only unique logic
+- ✅ Better discoverability: IDE autocomplete shows only relevant methods per type
+- ✅ Scalability: Adding new result types requires minimal boilerplate
+- ✅ Consistency: All importers/repositories follow same patterns
+
+**Files Added**:
+- `src/database/base_repository.py` - Generic CRUD base class
+- `src/processing/base_importer.py` - Session management + filtering base classes
+- `src/gui/components/results_table_header.py` - Reusable table interaction components
+- `src/gui/project_grid_widget.py` - Responsive project card grid
+
+**Files Modified**:
+- `src/database/repository.py` - All repositories now extend BaseRepository
+- `src/processing/data_importer.py` - Extends BaseImporter
+- `src/processing/folder_importer.py` - Extends BaseFolderImporter
+- `src/processing/enhanced_folder_importer.py` - Extends BaseFolderImporter
+- `src/processing/selective_data_importer.py` - Extends DataImporter
+- `src/gui/main_window.py` - Uses ProjectGridWidget
+- `src/gui/results_table_widget.py` - Uses table header components
+
+**Documentation Updated**:
+- `CLAUDE.md` - Added sections: "Adding a New Data Model", "Creating a Custom Importer"
+- Updated "Quick File Reference" with base classes
+- Added base class patterns to common tasks
+
+---
 
 ### ✅ Element Type Separation & Project Structure Cleanup (v1.9.1 - November 7, 2024)
 

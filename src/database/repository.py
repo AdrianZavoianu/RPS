@@ -21,55 +21,35 @@ from .models import (
     ElementResultsCache,
     WallShear,
 )
+from .base_repository import BaseRepository
 
 
-class ProjectRepository:
+class ProjectRepository(BaseRepository[Project]):
     """Repository for Project operations."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = Project
 
     def create(self, name: str, description: Optional[str] = None) -> Project:
-        """Create a new project."""
-        project = Project(name=name, description=description)
-        self.session.add(project)
-        self.session.commit()
-        self.session.refresh(project)
-        return project
-
-    def get_by_id(self, project_id: int) -> Optional[Project]:
-        """Get project by ID."""
-        return self.session.query(Project).filter(Project.id == project_id).first()
+        return super().create(name=name, description=description)
 
     def get_by_name(self, name: str) -> Optional[Project]:
-        """Get project by name."""
         return self.session.query(Project).filter(Project.name == name).first()
 
     def get_all(self) -> List[Project]:
-        """Get all projects."""
         return self.session.query(Project).order_by(Project.created_at.desc()).all()
 
-    def update(self, project: Project) -> Project:
-        """Update project."""
-        self.session.commit()
-        self.session.refresh(project)
-        return project
-
     def delete(self, project_id: int) -> bool:
-        """Delete project and all related data."""
         project = self.get_by_id(project_id)
         if project:
-            self.session.delete(project)
-            self.session.commit()
+            super().delete(project)
             return True
         return False
 
 
-class LoadCaseRepository:
+class LoadCaseRepository(BaseRepository[LoadCase]):
     """Repository for LoadCase operations."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = LoadCase
 
     def create(
         self,
@@ -78,17 +58,12 @@ class LoadCaseRepository:
         case_type: Optional[str] = None,
         description: Optional[str] = None,
     ) -> LoadCase:
-        """Create a new load case."""
-        load_case = LoadCase(
+        return super().create(
             project_id=project_id,
             name=name,
             case_type=case_type,
             description=description,
         )
-        self.session.add(load_case)
-        self.session.commit()
-        self.session.refresh(load_case)
-        return load_case
 
     def get_or_create(
         self, project_id: int, name: str, case_type: Optional[str] = None
@@ -104,7 +79,6 @@ class LoadCaseRepository:
         return load_case
 
     def get_by_project(self, project_id: int) -> List[LoadCase]:
-        """Get all load cases for a project."""
         return (
             self.session.query(LoadCase)
             .filter(LoadCase.project_id == project_id)
@@ -112,16 +86,11 @@ class LoadCaseRepository:
             .all()
         )
 
-    def get_by_id(self, load_case_id: int) -> Optional[LoadCase]:
-        """Get a load case by ID."""
-        return self.session.query(LoadCase).filter(LoadCase.id == load_case_id).first()
 
-
-class StoryRepository:
+class StoryRepository(BaseRepository[Story]):
     """Repository for Story operations."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = Story
 
     def create(
         self,
@@ -130,17 +99,12 @@ class StoryRepository:
         elevation: Optional[float] = None,
         sort_order: Optional[int] = None,
     ) -> Story:
-        """Create a new story."""
-        story = Story(
+        return super().create(
             project_id=project_id,
             name=name,
             elevation=elevation,
             sort_order=sort_order,
         )
-        self.session.add(story)
-        self.session.commit()
-        self.session.refresh(story)
-        return story
 
     def get_or_create(
         self, project_id: int, name: str, sort_order: Optional[int] = None
@@ -176,13 +140,10 @@ class StoryRepository:
         )
 
 
-class ResultRepository:
-    """Repository for result data (drifts, accelerations, forces, displacements)."""
+class StoryDriftDataRepository(BaseRepository[StoryDrift]):
+    model = StoryDrift
 
-    def __init__(self, session: Session):
-        self.session = session
-
-    def create_story_drift(
+    def create_drift(
         self,
         story_id: int,
         load_case_id: int,
@@ -191,8 +152,7 @@ class ResultRepository:
         max_drift: Optional[float] = None,
         min_drift: Optional[float] = None,
     ) -> StoryDrift:
-        """Create story drift record."""
-        story_drift = StoryDrift(
+        return super().create(
             story_id=story_id,
             load_case_id=load_case_id,
             direction=direction,
@@ -200,90 +160,8 @@ class ResultRepository:
             max_drift=max_drift,
             min_drift=min_drift,
         )
-        self.session.add(story_drift)
-        self.session.commit()
-        self.session.refresh(story_drift)
-        return story_drift
 
-    def create_story_acceleration(
-        self,
-        story_id: int,
-        load_case_id: int,
-        direction: str,
-        acceleration: float,
-        max_acceleration: Optional[float] = None,
-        min_acceleration: Optional[float] = None,
-    ) -> StoryAcceleration:
-        """Create story acceleration record."""
-        story_accel = StoryAcceleration(
-            story_id=story_id,
-            load_case_id=load_case_id,
-            direction=direction,
-            acceleration=acceleration,
-            max_acceleration=max_acceleration,
-            min_acceleration=min_acceleration,
-        )
-        self.session.add(story_accel)
-        self.session.commit()
-        self.session.refresh(story_accel)
-        return story_accel
-
-    def create_story_force(
-        self,
-        story_id: int,
-        load_case_id: int,
-        direction: str,
-        force: float,
-        location: Optional[str] = None,
-        max_force: Optional[float] = None,
-        min_force: Optional[float] = None,
-    ) -> StoryForce:
-        """Create story force record."""
-        story_force = StoryForce(
-            story_id=story_id,
-            load_case_id=load_case_id,
-            direction=direction,
-            location=location,
-            force=force,
-            max_force=max_force,
-            min_force=min_force,
-        )
-        self.session.add(story_force)
-        self.session.commit()
-        self.session.refresh(story_force)
-        return story_force
-
-    def create_story_displacement(
-        self,
-        story_id: int,
-        load_case_id: int,
-        direction: str,
-        displacement: float,
-        max_displacement: Optional[float] = None,
-        min_displacement: Optional[float] = None,
-    ) -> StoryDisplacement:
-        """Create story displacement record."""
-        record = StoryDisplacement(
-            story_id=story_id,
-            load_case_id=load_case_id,
-            direction=direction,
-            displacement=displacement,
-            max_displacement=max_displacement,
-            min_displacement=min_displacement,
-        )
-        self.session.add(record)
-        self.session.commit()
-        self.session.refresh(record)
-        return record
-
-    def bulk_create_displacements(self, displacements: List[StoryDisplacement]):
-        """Bulk insert displacement records."""
-        if not displacements:
-            return
-        self.session.bulk_save_objects(displacements)
-        self.session.commit()
-
-    def get_drifts_by_project(self, project_id: int) -> List[StoryDrift]:
+    def get_by_project(self, project_id: int) -> List[StoryDrift]:
         """Get all drifts for a project."""
         return (
             self.session.query(StoryDrift)
@@ -303,27 +181,149 @@ class ResultRepository:
             query = query.filter(StoryDrift.direction == direction)
         return query.all()
 
-    def bulk_create_drifts(self, drifts: List[StoryDrift]):
+    def bulk_create(self, drifts: List[StoryDrift]):
         """Bulk insert drift records for better performance."""
+        if not drifts:
+            return
         self.session.bulk_save_objects(drifts)
         self.session.commit()
 
-    def bulk_create_accelerations(self, accelerations: List[StoryAcceleration]):
+
+class StoryAccelerationDataRepository(BaseRepository[StoryAcceleration]):
+    model = StoryAcceleration
+
+    def create_acceleration(
+        self,
+        story_id: int,
+        load_case_id: int,
+        direction: str,
+        acceleration: float,
+        max_acceleration: Optional[float] = None,
+        min_acceleration: Optional[float] = None,
+    ) -> StoryAcceleration:
+        return super().create(
+            story_id=story_id,
+            load_case_id=load_case_id,
+            direction=direction,
+            acceleration=acceleration,
+            max_acceleration=max_acceleration,
+            min_acceleration=min_acceleration,
+        )
+
+    def bulk_create(self, accelerations: List[StoryAcceleration]):
         """Bulk insert acceleration records."""
+        if not accelerations:
+            return
         self.session.bulk_save_objects(accelerations)
         self.session.commit()
 
-    def bulk_create_forces(self, forces: List[StoryForce]):
+
+class StoryForceDataRepository(BaseRepository[StoryForce]):
+    model = StoryForce
+
+    def create_force(
+        self,
+        story_id: int,
+        load_case_id: int,
+        direction: str,
+        force: float,
+        location: Optional[str] = None,
+        max_force: Optional[float] = None,
+        min_force: Optional[float] = None,
+    ) -> StoryForce:
+        return super().create(
+            story_id=story_id,
+            load_case_id=load_case_id,
+            direction=direction,
+            location=location,
+            force=force,
+            max_force=max_force,
+            min_force=min_force,
+        )
+
+    def bulk_create(self, forces: List[StoryForce]):
         """Bulk insert force records."""
+        if not forces:
+            return
         self.session.bulk_save_objects(forces)
         self.session.commit()
 
 
-class ResultSetRepository:
-    """Repository for ResultSet operations."""
+class StoryDisplacementDataRepository(BaseRepository[StoryDisplacement]):
+    model = StoryDisplacement
+
+    def create_displacement(
+        self,
+        story_id: int,
+        load_case_id: int,
+        direction: str,
+        displacement: float,
+        max_displacement: Optional[float] = None,
+        min_displacement: Optional[float] = None,
+    ) -> StoryDisplacement:
+        return super().create(
+            story_id=story_id,
+            load_case_id=load_case_id,
+            direction=direction,
+            displacement=displacement,
+            max_displacement=max_displacement,
+            min_displacement=min_displacement,
+        )
+
+    def bulk_create(self, displacements: List[StoryDisplacement]):
+        """Bulk insert displacement records."""
+        if not displacements:
+            return
+        self.session.bulk_save_objects(displacements)
+        self.session.commit()
+
+
+class ResultRepository:
+    """Facade over story-level result repositories."""
 
     def __init__(self, session: Session):
-        self.session = session
+        self.drifts = StoryDriftDataRepository(session)
+        self.accelerations = StoryAccelerationDataRepository(session)
+        self.forces = StoryForceDataRepository(session)
+        self.displacements = StoryDisplacementDataRepository(session)
+
+    def create_story_drift(self, *args, **kwargs) -> StoryDrift:
+        return self.drifts.create_drift(*args, **kwargs)
+
+    def create_story_acceleration(self, *args, **kwargs) -> StoryAcceleration:
+        return self.accelerations.create_acceleration(*args, **kwargs)
+
+    def create_story_force(self, *args, **kwargs) -> StoryForce:
+        return self.forces.create_force(*args, **kwargs)
+
+    def create_story_displacement(self, *args, **kwargs) -> StoryDisplacement:
+        return self.displacements.create_displacement(*args, **kwargs)
+
+    def bulk_create_drifts(self, drifts: List[StoryDrift]) -> None:
+        self.drifts.bulk_create(drifts)
+
+    def bulk_create_accelerations(self, accelerations: List[StoryAcceleration]) -> None:
+        self.accelerations.bulk_create(accelerations)
+
+    def bulk_create_forces(self, forces: List[StoryForce]) -> None:
+        self.forces.bulk_create(forces)
+
+    def bulk_create_displacements(self, displacements: List[StoryDisplacement]) -> None:
+        self.displacements.bulk_create(displacements)
+
+    def get_drifts_by_project(self, project_id: int) -> List[StoryDrift]:
+        return self.drifts.get_by_project(project_id)
+
+    def get_drifts_by_case(
+        self, load_case_id: int, direction: Optional[str] = None
+    ) -> List[StoryDrift]:
+        return self.drifts.get_drifts_by_case(load_case_id, direction)
+
+
+class ResultSetRepository(BaseRepository[ResultSet]):
+    """Repository for ResultSet operations."""
+
+    model = ResultSet
 
     def create(
         self,
@@ -332,25 +332,16 @@ class ResultSetRepository:
         description: Optional[str] = None,
         result_category: Optional[str] = None,
     ) -> ResultSet:
-        """Create a new result set."""
-        result_set = ResultSet(
+        result_set = super().create(
             project_id=project_id,
             name=name,
             description=description,
         )
-        self.session.add(result_set)
-        self.session.commit()
-        self.session.refresh(result_set)
         if result_category is not None:
             setattr(result_set, "result_category", result_category)
         return result_set
 
-    def get_or_create(
-        self,
-        project_id: int,
-        name: str,
-    ) -> ResultSet:
-        """Get existing result set or create new one."""
+    def get_or_create(self, project_id: int, name: str) -> ResultSet:
         result_set = (
             self.session.query(ResultSet)
             .filter(and_(ResultSet.project_id == project_id, ResultSet.name == name))
@@ -361,7 +352,6 @@ class ResultSetRepository:
         return result_set
 
     def check_duplicate(self, project_id: int, name: str) -> bool:
-        """Check if result set name already exists for this project."""
         return (
             self.session.query(ResultSet)
             .filter(and_(ResultSet.project_id == project_id, ResultSet.name == name))
@@ -378,11 +368,10 @@ class ResultSetRepository:
         )
 
 
-class CacheRepository:
+class CacheRepository(BaseRepository[GlobalResultsCache]):
     """Repository for GlobalResultsCache operations - optimized for tabular display."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = GlobalResultsCache
 
     def upsert_cache_entry(
         self,
@@ -484,11 +473,10 @@ class CacheRepository:
             )
 
 
-class ResultCategoryRepository:
+class ResultCategoryRepository(BaseRepository[ResultCategory]):
     """Repository for ResultCategory operations."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = ResultCategory
 
     def create(
         self,
@@ -497,15 +485,11 @@ class ResultCategoryRepository:
         category_type: str,
     ) -> ResultCategory:
         """Create a new result category."""
-        category = ResultCategory(
+        return super().create(
             result_set_id=result_set_id,
             category_name=category_name,
             category_type=category_type,
         )
-        self.session.add(category)
-        self.session.commit()
-        self.session.refresh(category)
-        return category
 
     def get_or_create(
         self,
@@ -555,11 +539,10 @@ class ResultCategoryRepository:
         )
 
 
-class AbsoluteMaxMinDriftRepository:
+class AbsoluteMaxMinDriftRepository(BaseRepository[AbsoluteMaxMinDrift]):
     """Repository for AbsoluteMaxMinDrift operations."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = AbsoluteMaxMinDrift
 
     def bulk_create(self, drift_records: List[dict]) -> int:
         """Bulk create absolute max/min drift records.
@@ -674,11 +657,10 @@ class AbsoluteMaxMinDriftRepository:
         return count
 
 
-class ElementCacheRepository:
+class ElementCacheRepository(BaseRepository[ElementResultsCache]):
     """Repository for ElementResultsCache operations - optimized for element-level tabular display."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = ElementResultsCache
 
     def upsert_cache_entry(
         self,
@@ -777,11 +759,10 @@ class ElementCacheRepository:
             self.upsert_cache_entry(**entry_data)
 
 
-class ElementRepository:
+class ElementRepository(BaseRepository[Element]):
     """Repository for Element operations."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    model = Element
 
     def create(
         self,
@@ -792,17 +773,13 @@ class ElementRepository:
         story_id: Optional[int] = None,
     ) -> Element:
         """Create a new element."""
-        element = Element(
+        return super().create(
             project_id=project_id,
             element_type=element_type,
             name=name,
             unique_name=unique_name,
             story_id=story_id,
         )
-        self.session.add(element)
-        self.session.commit()
-        self.session.refresh(element)
-        return element
 
     def get_or_create(
         self,
@@ -843,4 +820,4 @@ class ElementRepository:
 
     def get_by_id(self, element_id: int) -> Optional[Element]:
         """Get element by ID."""
-        return self.session.query(Element).filter(Element.id == element_id).first()
+        return super().get_by_id(element_id)

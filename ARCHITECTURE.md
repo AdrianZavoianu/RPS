@@ -1,9 +1,9 @@
 # Architecture Documentation
 ## Results Processing System (RPS)
 
-**Version**: 1.9
-**Last Updated**: 2024-11-07
-**Status**: Production-ready with element type separation, per-sheet conflict resolution, and optimized project structure
+**Version**: 2.0
+**Last Updated**: 2024-11-08
+**Status**: Production-ready with base class refactoring, component extraction, and reduced code duplication (~350 lines)
 
 ---
 
@@ -47,21 +47,23 @@ src/
 │   └── visual_config.py          # Visual styling constants, legend config
 ├── database/
 │   ├── base.py                   # Per-project DB helpers / engine factory
+│   ├── base_repository.py        # ⭐ NEW: Generic repository base class with CRUD operations
 │   ├── catalog_base.py           # Catalog engine + Base metadata
 │   ├── catalog_models.py         # Catalog ORM definitions
 │   ├── catalog_repository.py     # Catalog CRUD helpers
 │   ├── models.py                 # Project-scoped ORM models (hybrid schema)
-│   └── repository.py             # Project-scoped repositories
+│   └── repository.py             # Project-scoped repositories (now extend BaseRepository)
 ├── gui/
 │   ├── styles.py                 # GMP design system colors and constants
 │   ├── ui_helpers.py             # Styled component factory functions
 │   ├── window_utils.py           # Platform-specific window utilities
-│   ├── main_window.py            # Project cards view + navigation
+│   ├── main_window.py            # Project cards view + navigation (now uses ProjectGridWidget)
+│   ├── project_grid_widget.py    # ⭐ NEW: Responsive project card grid component
 │   ├── project_detail_window.py  # View orchestrator (shows/hides specialized widgets)
 │   ├── results_tree_browser.py   # Hierarchical result navigation
 │   ├── result_views/
 │   │   └── standard_view.py      # Reusable table+plot view component
-│   ├── results_table_widget.py   # Table with manual selection
+│   ├── results_table_widget.py   # Table with manual selection (now uses table header components)
 │   ├── results_plot_widget.py    # PyQtGraph building profiles
 │   ├── maxmin_drifts_widget.py   # Max/Min envelope visualization
 │   ├── all_rotations_widget.py   # Scatter plot for all rotations
@@ -70,16 +72,18 @@ src/
 │   ├── load_case_selection_dialog.py   # DEPRECATED: Minimalist load case list (replaced by inline selection)
 │   ├── load_case_conflict_dialog.py    # Conflict resolution dialog (shown when duplicates exist)
 │   └── components/
-│       └── legend.py             # Reusable legend components
+│       ├── legend.py             # Reusable legend components
+│       └── results_table_header.py  # ⭐ NEW: Clickable table + selectable header components
 ├── processing/
+│   ├── base_importer.py          # ⭐ NEW: Base classes for import (session + filtering)
 │   ├── excel_parser.py           # Excel file reading
 │   ├── result_transformers.py    # Pluggable transformers
 │   ├── import_context.py         # ResultImportHelper (shared import utilities)
 │   ├── maxmin_calculator.py      # Absolute Max/Min calculations
-│   ├── data_importer.py          # Single file → DB pipeline (per project)
-│   ├── folder_importer.py        # Standard batch folder → DB pipeline (context-aware)
-│   ├── enhanced_folder_importer.py  # Enhanced import with load case selection
-│   ├── selective_data_importer.py   # Filtered import (only selected load cases)
+│   ├── data_importer.py          # Single file → DB pipeline (extends BaseImporter)
+│   ├── folder_importer.py        # Standard batch folder → DB (extends BaseFolderImporter)
+│   ├── enhanced_folder_importer.py  # Enhanced import with load case selection (extends BaseFolderImporter)
+│   ├── selective_data_importer.py   # Filtered import (extends DataImporter)
 │   ├── result_processor.py       # Result processing logic
 │   └── result_service/           # Data retrieval service (modular package)
 │       ├── __init__.py           # Public API exports
@@ -578,6 +582,105 @@ Purpose: Future support for time-history plotting
 Status: Table exists, not yet populated by importers
 ```
 
+### Repository Pattern (NEW in v2.0)
+
+**Purpose**: Eliminate CRUD duplication across 10+ repository classes using Python generics.
+
+**BaseRepository** (`database/base_repository.py` - 36 lines):
+```python
+from typing import TypeVar, Generic, Type, Optional
+from sqlalchemy.orm import Session
+
+ModelT = TypeVar('ModelT')
+
+class BaseRepository(Generic[ModelT]):
+    """Generic repository providing common CRUD operations."""
+    model: Type[ModelT]  # Set by subclasses
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, **kwargs) -> ModelT:
+        """Create new instance with given attributes."""
+        instance = self.model(**kwargs)
+        self.session.add(instance)
+        self.session.commit()
+        return instance
+
+    def get_by_id(self, pk: int) -> Optional[ModelT]:
+        """Retrieve instance by primary key."""
+        return self.session.query(self.model).filter(self.model.id == pk).first()
+
+    def delete(self, instance: ModelT) -> None:
+        """Delete instance from database."""
+        self.session.delete(instance)
+        self.session.commit()
+
+    def list_all(self) -> list[ModelT]:
+        """Retrieve all instances."""
+        return self.session.query(self.model).all()
+```
+
+**Specialized Repositories** (extend BaseRepository):
+
+**Project Context**:
+- `ProjectRepository(BaseRepository[Project])` - Project management
+- `LoadCaseRepository(BaseRepository[LoadCase])` - Load case management with `get_or_create()`
+- `StoryRepository(BaseRepository[Story])` - Story management
+
+**Result Data** (Per-Type Repositories for type safety):
+- `StoryDriftDataRepository(BaseRepository[StoryDrift])` - Story drift operations + bulk insert
+- `StoryAccelerationDataRepository(BaseRepository[StoryAcceleration])` - Acceleration operations + bulk insert
+- `StoryForceDataRepository(BaseRepository[StoryForce])` - Force operations + bulk insert
+- `StoryDisplacementDataRepository(BaseRepository[StoryDisplacement])` - Displacement operations + bulk insert
+
+**Element Result Repositories** (to be added as needed):
+- Pattern: `WallShearDataRepository(BaseRepository[WallShear])`
+- Pattern: `ColumnShearDataRepository(BaseRepository[ColumnShear])`
+
+**Cache**:
+- `CacheRepository` - GlobalResultsCache operations
+- `ElementCacheRepository` - ElementResultsCache operations
+- `AbsoluteMaxMinDriftRepository` - Max/min envelope cache
+
+**Usage Pattern**:
+```python
+# Old way (duplicated CRUD in every repository)
+class ProjectRepository:
+    def create(self, name, description=None):
+        project = Project(name=name, description=description)
+        self.session.add(project)
+        self.session.commit()
+        return project
+
+    def get_by_id(self, pk):
+        return self.session.query(Project).filter(Project.id == pk).first()
+    # ... repeat for every model
+
+# New way (inherit CRUD from base)
+class ProjectRepository(BaseRepository[Project]):
+    model = Project
+
+    # Only implement project-specific methods
+    def get_by_name(self, name: str) -> Optional[Project]:
+        return self.session.query(Project).filter(Project.name == name).first()
+```
+
+**Benefits**:
+- **Type-safe operations**: Compile-time checks via generics
+- **Reduced duplication**: ~130 lines removed from repository.py
+- **Easier to extend**: New data model requires only ~20 lines (vs ~80 before)
+- **Clear separation**: One repository per result type
+- **Better discoverability**: IDE autocomplete shows only relevant methods
+
+**When to Use**:
+- **Always use** for new data models (extend BaseRepository)
+- Each result type should have its own specialized repository
+- Repository should provide model-specific `create()` and `bulk_create()` methods
+- Only add query methods that are specific to the model type
+
+---
+
 ### Sheet-Specific Story Ordering (NEW in v1.4)
 
 **Problem Solved**: Different Excel sheets may have stories in different orders. For example:
@@ -710,7 +813,127 @@ def get_config(result_type: str) -> ResultTypeConfig:
 
 ---
 
-## 6. Transformer System
+## 6. Processing Layer
+
+### Importer Base Classes (NEW in v2.0)
+
+**Purpose**: Eliminate duplication across import implementations by centralizing session management and result type filtering.
+
+**File**: `src/processing/base_importer.py` (87 lines)
+
+**BaseImporter** - Core importer functionality:
+```python
+class BaseImporter:
+    """Base class providing session management and result type filtering."""
+
+    def __init__(self, result_types=None, session_factory=None):
+        self._result_types = self._normalize_result_types(result_types)
+        self._session_factory = session_factory or get_session_factory()
+
+    @contextmanager
+    def session_scope(self):
+        """Provide transactional scope for database operations.
+
+        Automatically commits on success, rolls back on exception.
+        """
+        session = self._session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def _should_import(self, label: str) -> bool:
+        """Check if result type should be imported based on filter."""
+        if self._result_types is None:
+            return True  # Import all if no filter specified
+        normalized = label.strip().lower()
+        return normalized in self._result_types
+
+    def _normalize_result_types(self, result_types):
+        """Normalize result type labels for case-insensitive matching."""
+        if result_types is None:
+            return None
+        return {rt.strip().lower() for rt in result_types}
+```
+
+**BaseFolderImporter** - Extends BaseImporter with folder scanning:
+```python
+class BaseFolderImporter(BaseImporter):
+    """Base class for folder-based importers with progress reporting."""
+
+    def __init__(self, folder_path, result_types=None,
+                 session_factory=None, progress_callback=None):
+        super().__init__(result_types, session_factory)
+        self.folder_path = Path(folder_path)
+        self.progress_callback = progress_callback
+
+    def _find_excel_files(self) -> List[Path]:
+        """Find all Excel files in folder (excludes temp files starting with ~$)."""
+        files = []
+        for pattern in ['*.xlsx', '*.xls']:
+            for file in self.folder_path.glob(pattern):
+                if not file.name.startswith('~$'):
+                    files.append(file)
+        return sorted(files)
+
+    def _report_progress(self, message: str, current: int = 0, total: int = 0):
+        """Report progress to callback if provided."""
+        if self.progress_callback:
+            self.progress_callback(message, current, total)
+```
+
+**Importer Hierarchy**:
+```
+BaseImporter
+├── DataImporter (single file import)
+│   └── SelectiveDataImporter (with load case filtering)
+└── BaseFolderImporter (folder scan + progress)
+    ├── FolderImporter (standard batch import)
+    └── EnhancedFolderImporter (with UI dialogs)
+```
+
+**Usage Pattern**:
+```python
+# Old way (duplicated session handling in every importer)
+class DataImporter:
+    def import_all(self):
+        session = self.session_factory()
+        try:
+            # ... import logic
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+# New way (inherit session handling from base)
+class DataImporter(BaseImporter):
+    def import_all(self):
+        with self.session_scope() as session:  # From base class
+            if self._should_import("Story Drifts"):  # From base class
+                # ... import logic
+                pass
+```
+
+**Benefits**:
+- **Consistent session handling**: All importers use same commit/rollback logic
+- **Reduced duplication**: ~95 lines removed across 4 importer classes
+- **Centralized filtering**: Result type filtering in one place
+- **Progress reporting**: Built-in callback system for folder importers
+- **Error handling**: Automatic rollback on exception
+
+**When to Use**:
+- **Extend BaseImporter** for single-file importers (custom data sources)
+- **Extend BaseFolderImporter** for batch folder importers (progress tracking)
+- Always use `session_scope()` context manager for database operations
+- Always use `_should_import()` to check result type filters
+
+---
 
 ### Pluggable Data Transformation
 
@@ -920,6 +1143,106 @@ User Action → UI Update → Worker Thread → Progress Signals → UI Feedback
 - `processing/selective_data_importer.py` - Filtered import (extends DataImporter)
 - `gui/load_case_conflict_dialog.py` - Conflict resolution UI (shown when needed)
 
+### Reusable UI Components (NEW in v2.0)
+
+**Purpose**: Extract common UI patterns into standalone components for reuse across views.
+
+#### ProjectGridWidget
+
+**File**: `gui/project_grid_widget.py` (230 lines)
+
+**Functionality**:
+- Responsive grid layout for project cards (1-5 columns based on viewport width)
+- Automatic reflow on window resize
+- Project card creation with stats, actions, and styling
+- Callback-based interactions (on_open, on_delete)
+
+**Usage Pattern**:
+```python
+# Create widget with callbacks
+self.project_grid = ProjectGridWidget(
+    on_open=self._open_project_detail,
+    on_delete=self._delete_project,
+)
+
+# Load data
+self.project_grid.set_projects(project_rows)
+
+# Responds to window resize automatically
+def resizeEvent(self, event):
+    # Grid widget handles responsive layout internally
+    pass
+```
+
+**Benefits**:
+- Extracted from MainWindow (~200 lines removed)
+- MainWindow now focuses on navigation and page orchestration
+- Project grid is reusable in other views (e.g., project selection dialog)
+- Easier to test and maintain grid logic independently
+
+---
+
+#### Table Header Components
+
+**File**: `gui/components/results_table_header.py` (100 lines)
+
+**Two reusable components**:
+
+1. **ClickableTableWidget** - Custom QTableWidget that emits `rowClicked` signals:
+   ```python
+   class ClickableTableWidget(QTableWidget):
+       rowClicked = pyqtSignal(int)  # Emits row index on click
+
+       def mousePressEvent(self, event):
+           if event.button() == Qt.MouseButton.LeftButton:
+               row = self.rowAt(event.pos().y())
+               if row >= 0:
+                   self.rowClicked.emit(row)
+           super().mousePressEvent(event)
+   ```
+
+2. **SelectableHeaderView** - Custom QHeaderView with hover/selection states:
+   ```python
+   class SelectableHeaderView(QHeaderView):
+       section_hovered = pyqtSignal(int)       # Column hovered
+       section_hover_left = pyqtSignal()       # Hover cleared
+       section_selected = pyqtSignal(int)      # Column selected
+
+       def __init__(self, orientation, parent=None):
+           super().__init__(orientation, parent)
+           self._hovered_section = -1
+           self._selected_section = -1
+
+       def paintSection(self, painter, rect, logicalIndex):
+           # Custom paint logic for hover/selected columns
+           # Cyan background + text color for hover
+           # Slightly different styling for selected
+   ```
+
+**Usage Pattern**:
+```python
+# Replace standard QTableWidget
+from .components.results_table_header import ClickableTableWidget, SelectableHeaderView
+
+self.table = ClickableTableWidget()
+custom_header = SelectableHeaderView(Qt.Orientation.Horizontal, self.table)
+self.table.setHorizontalHeader(custom_header)
+
+# Connect signals
+self.table.rowClicked.connect(self._on_row_clicked)
+custom_header.section_hovered.connect(self._on_column_hovered)
+custom_header.section_selected.connect(self._on_column_selected)
+```
+
+**Benefits**:
+- Extracted from ResultsTableWidget (~120 lines removed)
+- Reusable for any table that needs hover/selection on headers
+- ResultsTableWidget now focuses on data rendering and business logic
+- Easier to test interaction behavior separately
+- No conflicts with Qt's default selection model
+
+---
+
 ### View Pattern: StandardResultView
 
 **Reusable Component** (`gui/result_views/standard_view.py`):
@@ -949,6 +1272,29 @@ class StandardResultView(QWidget):
 - Consistent signal wiring (selection, hover)
 - Reduces duplication in `ProjectDetailWindow`
 - Easy to maintain and extend
+
+---
+
+### Component Extraction Pattern
+
+**When to Extract**:
+- Logic exceeds 100 lines and is reusable
+- Component has clear single responsibility
+- Behavior needed in multiple views
+- Testing requires component isolation
+
+**How to Extract**:
+1. **Identify responsibility** - What is the component's single purpose?
+2. **Define interface** - What callbacks/signals does it need?
+3. **Extract to separate file** - Create new file in `gui/` or `gui/components/`
+4. **Pass data, not models** - Use dicts/primitives for generic components
+5. **Document usage** - Add examples to ARCHITECTURE.md
+
+**Examples**:
+- `ProjectGridWidget` - Owns grid layout state (column calculation, reflow)
+- `ClickableTableWidget` - Owns row click detection (emits row index)
+- `SelectableHeaderView` - Owns header interaction state (hover/selection tracking)
+- `StandardResultView` - Owns table+plot layout (splitter configuration, signal wiring)
 
 ### View Orchestration: ProjectDetailWindow
 
@@ -1750,6 +2096,59 @@ $ pipenv run python dev_watch.py
 
 ---
 
+
+## Recent Refactors (November 2024)
+
+### v2.0 - Architecture Refactor: Base Classes & Component Extraction (Nov 8, 2024)
+
+**Major Refactoring** - Reduced ~350 lines while improving structure:
+
+1. **Repository Layer Refactor**:
+   - Added `BaseRepository[ModelT]` generic base class (36 lines)
+   - Converted all repositories to extend base class
+   - Created specialized per-result repositories (StoryDriftDataRepository, StoryAccelerationDataRepository, etc.)
+   - Removed ~130 lines of duplicated CRUD code
+   - **Impact**: New data models require only ~20 lines (vs ~80 before)
+
+2. **Importer Layer Refactor**:
+   - Added `BaseImporter` and `BaseFolderImporter` base classes (87 lines)
+   - Converted 4 importer classes to use inheritance hierarchy
+   - Removed ~95 lines of duplicated session/filtering code
+   - **Impact**: Consistent session handling and filtering across all importers
+
+3. **UI Component Extraction**:
+   - Extracted `ProjectGridWidget` (230 lines) from MainWindow
+   - Extracted `ClickableTableWidget` and `SelectableHeaderView` (100 lines) from ResultsTableWidget
+   - Reduced MainWindow by 190 lines, ResultsTableWidget by 123 lines
+   - **Impact**: Components reusable in other views, easier to test and maintain
+
+**Code Quality Improvements**:
+- Repository.py: ~800 lines → ~669 lines (-131 lines)
+- Main_window.py: ~570 lines → ~380 lines (-190 lines)
+- Results_table_widget.py: ~480 lines → ~357 lines (-123 lines)
+- Significantly reduced duplication across importers and repositories
+
+**New Patterns Established**:
+- Generic Repository Pattern (all models extend BaseRepository[Model])
+- Importer Hierarchy (all importers extend BaseImporter or BaseFolderImporter)
+- Component Extraction Pattern (reusable UI behaviors in standalone components)
+- Specialized Repositories (each result type has its own repository class)
+
+**Files Added**:
+- `src/database/base_repository.py`
+- `src/processing/base_importer.py`
+- `src/gui/components/results_table_header.py`
+- `src/gui/project_grid_widget.py`
+
+---
+
+### v1.9.1 - Element Type Separation & Project Structure Cleanup (Nov 7, 2024)
+
+- **Element Type Separation**: Fixed Quad vs Wall element type confusion
+- **Per-Sheet Conflict Resolution**: Fixed missing load cases in non-drift result types
+- **Documentation Organization**: Created docs/ folder structure
+- **Test Scripts Organization**: Moved check/test scripts to scripts/ and tests/ folders
+
 ## Appendix: Key Decisions
 
 | Decision | Rationale | Trade-offs |
@@ -1775,6 +2174,7 @@ $ pipenv run python dev_watch.py
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.0 | 2024-11-08 | **Architecture Refactor**: BaseRepository generic pattern (36 lines), BaseImporter hierarchy (87 lines), UI component extraction (ProjectGridWidget, table header components). Removed ~350 lines, improved structure and maintainability. |
 | 1.9 | 2024-11-07 | Element type separation fix (Quad vs Wall), per-sheet conflict resolution, project structure cleanup (docs/ folder), cache generation fixes |
 | 1.8 | 2024-11-06 | Import dialog UI refinement (dynamic borders, classic checkboxes, compact layout), conflict dialog redesign (split panels) |
 | 1.7 | 2024-11-05 | Async import UI (background threading), smart data detection, browser UX optimization, layout optimization |
@@ -1801,3 +2201,4 @@ Additional Documentation:
 - `docs/fixes/` - Bug fix documentation and debugging notes
 - `docs/implementation/` - Feature implementation guides
 - `docs/README.md` - Documentation index
+

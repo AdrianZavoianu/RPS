@@ -16,6 +16,12 @@ from database.repository import ProjectRepository, ResultSetRepository
 from utils.slug import slugify
 
 
+def get_session():
+    """Return a catalog-level session (legacy helper for CLI/tests)."""
+    init_catalog_db()
+    return get_catalog_session()
+
+
 @dataclass
 class ProjectContext:
     name: str

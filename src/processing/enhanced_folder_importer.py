@@ -12,12 +12,13 @@ from .excel_parser import ExcelParser
 from .data_importer import DataImporter
 from .selective_data_importer import SelectiveDataImporter
 from .folder_importer import TARGET_SHEETS
+from .base_importer import BaseFolderImporter
 
 from gui.load_case_selection_dialog import LoadCaseSelectionDialog
 from gui.load_case_conflict_dialog import LoadCaseConflictDialog
 
 
-class EnhancedFolderImporter:
+class EnhancedFolderImporter(BaseFolderImporter):
     """
     Enhanced folder importer with load case selection and conflict resolution.
 
@@ -55,29 +56,17 @@ class EnhancedFolderImporter:
             selected_load_cases: Pre-selected load cases (if None, all will be imported)
             conflict_resolution: Sheet-based conflict resolution {sheet: {load_case: file}}
         """
-        self.folder_path = Path(folder_path)
-        if not self.folder_path.exists() or not self.folder_path.is_dir():
-            raise ValueError(f"Invalid folder path: {folder_path}")
-
+        super().__init__(
+            folder_path=folder_path,
+            result_types=result_types,
+            session_factory=session_factory,
+            progress_callback=progress_callback,
+        )
         self.project_name = project_name
         self.result_set_name = result_set_name
-        self.result_types = {rt.strip().lower() for rt in result_types} if result_types else None
-        self.progress_callback = progress_callback
         self.parent_widget = parent_widget
-        self.excel_files = self._find_excel_files()
         self.selected_load_cases = selected_load_cases
         self.conflict_resolution = conflict_resolution or {}
-
-        if session_factory is None:
-            raise ValueError("EnhancedFolderImporter requires a session_factory")
-        self._session_factory = session_factory
-
-    def _find_excel_files(self) -> List[Path]:
-        """Find all Excel files in folder."""
-        files: List[Path] = []
-        for pattern in ("*.xlsx", "*.xls"):
-            files.extend(self.folder_path.glob(pattern))
-        return sorted(f for f in files if not f.name.startswith("~$"))
 
     @staticmethod
     def prescan_folder_for_load_cases(
@@ -202,17 +191,6 @@ class EnhancedFolderImporter:
             return load_cases
         else:
             return []
-
-    def _report_progress(self, message: str, current: int, total: int) -> None:
-        """Report progress if callback is set."""
-        if self.progress_callback:
-            self.progress_callback(message, current, total)
-
-    def _should_import(self, label: str) -> bool:
-        """Check if result type should be imported."""
-        if not self.result_types:
-            return True
-        return label.strip().lower() in self.result_types
 
     def import_all(self) -> Dict[str, Any]:
         """

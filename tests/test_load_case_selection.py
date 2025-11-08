@@ -10,11 +10,14 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+import pytest
+
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from processing.enhanced_folder_importer import EnhancedFolderImporter
 from services.project_service import get_session
 
 
+@pytest.mark.skip(reason="Interactive manual test requires user input")
 def test_enhanced_import():
     """Test the enhanced folder import with load case selection."""
 
