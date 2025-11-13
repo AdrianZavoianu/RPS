@@ -18,8 +18,10 @@ from database.repository import (
     AbsoluteMaxMinDriftRepository,
     ElementRepository,
     ElementCacheRepository,
+    SoilPressureRepository,
+    JointCacheRepository,
 )
-from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement, WallShear, ColumnShear, ColumnAxial, ColumnRotation, QuadRotation, BeamRotation
+from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement, WallShear, ColumnShear, ColumnAxial, ColumnRotation, QuadRotation, BeamRotation, SoilPressure, VerticalDisplacement
 
 from .excel_parser import ExcelParser
 from .result_processor import ResultProcessor
@@ -76,6 +78,7 @@ class DataImporter(BaseImporter):
             "columns": 0,
             "beam_rotations": 0,
             "beams": 0,
+            "soil_pressures": 0,
             "errors": [],
         }
 
@@ -111,9 +114,6 @@ class DataImporter(BaseImporter):
                 self.result_category_id = result_category.id
                 self.result_set_id = result_set.id
 
-                print(f"\n[DEBUG DataImporter] file_path={self.file_path.name}")
-                print(f"  result_types filter={self.result_types}")
-
                 # Import story drifts if available
                 if self._should_import("Story Drifts") and self.parser.validate_sheet_exists("Story Drifts"):
                     drift_stats = self._import_story_drifts(session, project.id)
@@ -130,8 +130,8 @@ class DataImporter(BaseImporter):
                 if self._should_import("Story Forces") and self.parser.validate_sheet_exists("Story Forces"):
                     force_stats = self._import_story_forces(session, project.id)
                     stats["forces"] += force_stats.get("forces", 0)
-                # Import floor displacements if available
-                if self._should_import("Floors Displacements") and self.parser.validate_sheet_exists("Joint DisplacementsG"):
+                # Import floor displacements if available (uses Joint Displacements sheet)
+                if self._should_import("Floors Displacements") and self.parser.validate_sheet_exists("Joint Displacements"):
                     disp_stats = self._import_joint_displacements(session, project.id)
                     stats["displacements"] += disp_stats.get("displacements", 0)
 
@@ -170,6 +170,18 @@ class DataImporter(BaseImporter):
                     quad_stats = self._import_quad_rotations(session, project.id)
                     stats["quad_rotations"] = quad_stats.get("quad_rotations", 0)
                     # Piers already counted from pier forces if both exist
+
+                # Import soil pressures if available
+                if self._should_import("Soil Pressures") and self.parser.validate_sheet_exists("Soil Pressures"):
+                    soil_stats = self._import_soil_pressures(session, project.id)
+                    stats["soil_pressures"] = soil_stats.get("soil_pressures", 0)
+
+                # Import vertical displacements if available (requires both Joint Displacements and Fou sheets)
+                if (self._should_import("Vertical Displacements") and
+                    self.parser.validate_sheet_exists("Joint Displacements") and
+                    self.parser.validate_sheet_exists("Fou")):
+                    vert_disp_stats = self._import_vertical_displacements(session, project.id)
+                    stats["vertical_displacements"] = vert_disp_stats.get("vertical_displacements", 0)
 
                 # Generate cache for fast display after all imports
                 self._generate_cache(session, project.id, self.result_set_id)
@@ -707,6 +719,107 @@ class DataImporter(BaseImporter):
 
         return stats
 
+    def _import_soil_pressures(self, session, project_id: int) -> dict:
+        """Import minimum soil pressure data from Soil Pressures sheet."""
+        stats = {"soil_pressures": 0}
+
+        try:
+            df, load_cases, unique_elements = self.parser.get_soil_pressures()
+            helper = ResultImportHelper(session, project_id, [])  # No stories needed for soil pressures
+
+            # Create or get load cases
+            load_case_map = {}
+            for case_name in load_cases:
+                load_case = helper.get_load_case(case_name)
+                load_case_map[case_name] = load_case
+
+            # Create result category for Joints
+            category_repo = ResultCategoryRepository(session)
+            result_category = category_repo.get_or_create(
+                result_set_id=self.result_set_id,
+                category_name="Envelopes",
+                category_type="Joints",
+            )
+
+            soil_pressure_objects = []
+
+            for _, row in df.iterrows():
+                load_case = load_case_map[row["Output Case"]]
+
+                soil_pressure = SoilPressure(
+                    project_id=project_id,
+                    result_set_id=self.result_set_id,
+                    result_category_id=result_category.id,
+                    load_case_id=load_case.id,
+                    shell_object=row["Shell Object"],
+                    unique_name=row["Unique Name"],
+                    min_pressure=row["Soil Pressure"],
+                )
+                soil_pressure_objects.append(soil_pressure)
+
+            # Bulk insert
+            session.bulk_save_objects(soil_pressure_objects)
+            session.commit()
+            stats["soil_pressures"] += len(soil_pressure_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing soil pressures: {e}")
+
+        return stats
+
+    def _import_vertical_displacements(self, session, project_id: int) -> dict:
+        """Import minimum vertical displacement data from Joint Displacements sheet (filtered by Fou sheet)."""
+        stats = {"vertical_displacements": 0}
+
+        try:
+            df, load_cases, unique_joints = self.parser.get_vertical_displacements()
+
+            if df.empty:
+                return stats
+
+            helper = ResultImportHelper(session, project_id, [])  # No stories needed for joint results
+
+            # Create or get load cases
+            load_case_map = {}
+            for case_name in load_cases:
+                load_case = helper.get_load_case(case_name)
+                load_case_map[case_name] = load_case
+
+            # Create result category for Joints
+            category_repo = ResultCategoryRepository(session)
+            result_category = category_repo.get_or_create(
+                result_set_id=self.result_set_id,
+                category_name="Envelopes",
+                category_type="Joints",
+            )
+
+            vert_disp_objects = []
+
+            for _, row in df.iterrows():
+                load_case = load_case_map[row["Output Case"]]
+
+                vert_disp = VerticalDisplacement(
+                    project_id=project_id,
+                    result_set_id=self.result_set_id,
+                    result_category_id=result_category.id,
+                    load_case_id=load_case.id,
+                    story=row["Story"],
+                    label=row["Label"],
+                    unique_name=row["Unique Name"],
+                    min_displacement=row["Min Uz"],
+                )
+                vert_disp_objects.append(vert_disp)
+
+            # Bulk insert
+            session.bulk_save_objects(vert_disp_objects)
+            session.commit()
+            stats["vertical_displacements"] += len(vert_disp_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing vertical displacements: {e}")
+
+        return stats
+
     def _generate_cache(self, session, project_id: int, result_set_id: int):
         """Generate wide-format cache tables for fast tabular display."""
         story_repo = StoryRepository(session)
@@ -728,6 +841,8 @@ class DataImporter(BaseImporter):
         self._cache_column_rotations(session, project_id, result_set_id, stories)
         self._cache_beam_rotations(session, project_id, result_set_id, stories)
         self._cache_quad_rotations(session, project_id, result_set_id, stories)
+        self._cache_soil_pressures(session, project_id, result_set_id)
+        self._cache_vertical_displacements(session, project_id, result_set_id)
         self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
 
     def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
@@ -1214,4 +1329,92 @@ class DataImporter(BaseImporter):
                 results_matrix=results_matrix,
                 result_set_id=result_set_id,
                 story_sort_order=story_sort_orders.get(story_id),
+            )
+
+    def _cache_soil_pressures(self, session, project_id: int, result_set_id: int):
+        """Generate cache for soil pressures."""
+        from database.models import SoilPressure, LoadCase
+
+        # Get all soil pressures for this project and result set
+        # Order by load case name for lexicographic ordering
+        pressures = (
+            session.query(SoilPressure, LoadCase.name)
+            .join(LoadCase, SoilPressure.load_case_id == LoadCase.id)
+            .filter(SoilPressure.project_id == project_id)
+            .filter(SoilPressure.result_set_id == result_set_id)
+            .order_by(LoadCase.name)  # Lexicographic ordering
+            .all()
+        )
+
+        # Group by unique name (foundation element)
+        element_matrices = {}
+        shell_objects = {}
+
+        for pressure, load_case_name in pressures:
+            unique_name = pressure.unique_name
+            if unique_name not in element_matrices:
+                element_matrices[unique_name] = {}
+                shell_objects[unique_name] = pressure.shell_object
+
+            element_matrices[unique_name][load_case_name] = pressure.min_pressure
+
+        # Store in joint cache
+        joint_cache_repo = JointCacheRepository(session)
+
+        for unique_name, results_matrix in element_matrices.items():
+            # Sort the results_matrix by load case name (lexicographic order)
+            sorted_results_matrix = dict(sorted(results_matrix.items()))
+
+            joint_cache_repo.upsert_cache_entry(
+                project_id=project_id,
+                result_set_id=result_set_id,
+                result_type="SoilPressures_Min",
+                shell_object=shell_objects[unique_name],
+                unique_name=unique_name,
+                results_matrix=sorted_results_matrix,
+            )
+
+    def _cache_vertical_displacements(self, session, project_id: int, result_set_id: int):
+        """Generate cache for vertical displacements."""
+        from database.models import VerticalDisplacement, LoadCase
+
+        # Get all vertical displacements for this project and result set
+        # Order by load case name for lexicographic ordering
+        displacements = (
+            session.query(VerticalDisplacement, LoadCase.name)
+            .join(LoadCase, VerticalDisplacement.load_case_id == LoadCase.id)
+            .filter(VerticalDisplacement.project_id == project_id)
+            .filter(VerticalDisplacement.result_set_id == result_set_id)
+            .order_by(LoadCase.name)  # Lexicographic ordering
+            .all()
+        )
+
+        # Group by unique name (foundation joint)
+        joint_matrices = {}
+        joint_stories = {}
+        joint_labels = {}
+
+        for disp, load_case_name in displacements:
+            unique_name = disp.unique_name
+            if unique_name not in joint_matrices:
+                joint_matrices[unique_name] = {}
+                joint_stories[unique_name] = disp.story
+                joint_labels[unique_name] = disp.label
+
+            joint_matrices[unique_name][load_case_name] = disp.min_displacement
+
+        # Store in joint cache
+        joint_cache_repo = JointCacheRepository(session)
+
+        for unique_name, results_matrix in joint_matrices.items():
+            # Sort the results_matrix by load case name (lexicographic order)
+            sorted_results_matrix = dict(sorted(results_matrix.items()))
+
+            joint_cache_repo.upsert_cache_entry(
+                project_id=project_id,
+                result_set_id=result_set_id,
+                result_type="VerticalDisplacements_Min",
+                shell_object=joint_labels[unique_name],  # Use label as shell_object for display
+                unique_name=unique_name,
+                results_matrix=sorted_results_matrix,
             )

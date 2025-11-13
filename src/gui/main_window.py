@@ -49,6 +49,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Results Processing System")
         self.setMinimumSize(QSize(1200, 800))
 
+        # Apply gray background to main window (match group box background)
+        self.setStyleSheet(f"QMainWindow {{ background-color: {COLORS['card']}; }}")
+
         # Initialize UI components
         self._create_central_widget()
         self._create_status_bar()
@@ -245,11 +248,12 @@ class MainWindow(QMainWindow):
         create_button.clicked.connect(self._on_create_project)
         controls.addWidget(create_button)
 
-        import_button = QPushButton("Import from Excel")
-        import_button.setObjectName("ghostAction")
-        import_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        import_button.clicked.connect(self._on_import)
-        controls.addWidget(import_button)
+        import_project_button = QPushButton("Import Project")
+        import_project_button.setObjectName("secondaryAction")
+        import_project_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        import_project_button.setToolTip("Import complete project from Excel file")
+        import_project_button.clicked.connect(self._on_import_project)
+        controls.addWidget(import_project_button)
 
         controls.addStretch()
         outer_layout.addLayout(controls)
@@ -552,9 +556,10 @@ class MainWindow(QMainWindow):
     def _on_folder_import(self):
         """Handle folder import action."""
         from .folder_import_dialog import FolderImportDialog
+        from .ui_helpers import show_dialog_with_blur
 
         dialog = FolderImportDialog(self)
-        if dialog.exec():
+        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
             project_name = dialog.get_project_name() or "Project"
             result_set = dialog.get_result_set_name()
             stats = dialog.get_import_stats() or {}
@@ -585,6 +590,31 @@ class MainWindow(QMainWindow):
 
             # Refresh projects view
             self._refresh_projects()
+
+    def _on_import_project(self):
+        """Handle project import from Excel file."""
+        from PyQt6.QtWidgets import QFileDialog
+        from pathlib import Path
+
+        # Open file dialog to select Excel file
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Project Excel File",
+            str(Path.home()),
+            "Excel Files (*.xlsx)"
+        )
+
+        if not file_path:
+            return
+
+        # Show import dialog with preview
+        from .import_project_dialog import ImportProjectDialog
+
+        dialog = ImportProjectDialog(Path(file_path), self)
+        if dialog.exec():
+            # Import successful - refresh projects list
+            self._refresh_projects()
+            self.statusBar().showMessage("Project imported successfully!", 5000)
 
     def _on_refresh(self):
         """Handle refresh action."""

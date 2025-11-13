@@ -144,6 +144,17 @@ class BeamRotationTransformer(GenericResultTransformer):
         return df.copy()
 
 
+class SoilPressureTransformer(GenericResultTransformer):
+    """Transformer for minimum soil pressure results."""
+    def __init__(self):
+        result_type = 'SoilPressures_Min'
+        super().__init__(result_type)
+
+    def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep all columns (no direction filtering needed for soil pressures)."""
+        return df.copy()
+
+
 # Transformer registry
 TRANSFORMERS = {
     'Drifts': DriftTransformer(),
@@ -167,6 +178,7 @@ TRANSFORMERS = {
     'ColumnRotations_R3': ColumnRotationTransformer('R3'),
     'BeamRotations_R3Plastic': BeamRotationTransformer(),
     'QuadRotations': QuadRotationTransformer(),
+    'SoilPressures_Min': SoilPressureTransformer(),
 }
 
 

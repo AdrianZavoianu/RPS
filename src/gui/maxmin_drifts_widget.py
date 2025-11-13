@@ -479,8 +479,8 @@ class MaxMinDriftsWidget(QWidget):
             return False
 
         # Separate into Max (positive) and Min (negative) columns
-        max_cols = [col for col in direction_cols if 'Max' in col]
-        min_cols = [col for col in direction_cols if 'Min' in col]
+        max_cols = sorted([col for col in direction_cols if 'Max' in col])
+        min_cols = sorted([col for col in direction_cols if 'Min' in col])
 
         if not max_cols and not min_cols:
             self._clear_direction(display_direction)

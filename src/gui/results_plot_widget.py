@@ -204,9 +204,16 @@ class ResultsPlotWidget(QWidget):
 
         config = dataset.config
 
+        # Check if this is joint-level data (no Story column)
+        has_story_column = 'Story' in df.columns
+
         if config.plot_mode == "building_profile":
             self.tabs.tabBar().hide()  # Hide tabs for clean single plot view
             self._plot_building_profile(dataset)
+        elif not has_story_column:
+            # Joint-level results (soil pressures, etc.) - no plot, just table
+            self.tabs.tabBar().hide()
+            # Don't generate plots for joint results as they don't have story hierarchy
         else:
             self.tabs.tabBar().show()  # Show tabs for other result types
             # Generate standard plots for other result types

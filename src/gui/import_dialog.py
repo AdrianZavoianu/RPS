@@ -1,218 +1,190 @@
-"""Dialog for importing Excel files."""
+"""Simple import dialog for single Excel file import."""
 
+from pathlib import Path
 from PyQt6.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QFileDialog,
-    QDialogButtonBox,
-    QGroupBox,
-    QFormLayout,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QFileDialog, QComboBox,
+    QDialogButtonBox
 )
 from PyQt6.QtCore import Qt
-from pathlib import Path
-from .ui_helpers import create_styled_button, create_styled_label, apply_button_style
-from .styles import COLORS
-from services.project_service import get_project_context, ensure_project_context, result_set_exists
+
+from gui.ui_helpers import create_styled_button, create_styled_label
+from gui.styles import COLORS
 
 
 class ImportDialog(QDialog):
-    """Dialog for selecting and importing Excel files."""
+    """Dialog for importing a single Excel data file into a project."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Import Excel Results")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(400)
+        self.file_path = None
 
-        self.selected_file = None
-        self.project_name = None
-        self.result_set_name = None
+        self.setWindowTitle("Import Data File")
+        self.setModal(True)
+        self.resize(500, 300)
 
-        self._create_ui()
+        self._setup_ui()
+        self._apply_styles()
 
-        # Apply modern styling
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['card']};
-            }}
-        """)
-
-    def _create_ui(self):
-        """Create modern dialog UI."""
+    def _setup_ui(self):
+        """Create dialog layout."""
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
+        layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
 
-        # Header with GMP styling
-        header_label = create_styled_label("Import Results", "header")
-        layout.addWidget(header_label)
+        # Title
+        title = create_styled_label("Import Excel Data", "header")
+        layout.addWidget(title)
 
-        subtitle_label = create_styled_label("Import structural analysis results from Excel files", "muted")
-        layout.addWidget(subtitle_label)
-
-        # File selection group with modern styling
-        file_group = QGroupBox("Excel File")
-        file_group.setStyleSheet("margin-top: 8px;")
-        file_layout = QVBoxLayout()
-        file_layout.setSpacing(8)
-
-        self.file_path_edit = QLineEdit()
-        self.file_path_edit.setReadOnly(True)
-        self.file_path_edit.setPlaceholderText("No file selected...")
-        self.file_path_edit.setMinimumHeight(40)
-
-        browse_button = create_styled_button("› Browse Files...", "secondary")
-        browse_button.setMinimumHeight(40)
-        browse_button.clicked.connect(self._on_browse)
-
-        file_layout.addWidget(self.file_path_edit)
-        file_layout.addWidget(browse_button)
-        file_group.setLayout(file_layout)
-        layout.addWidget(file_group)
-
-        # Project info group
-        project_group = QGroupBox("Project Information")
-        project_group.setStyleSheet("margin-top: 8px;")
-        project_layout = QVBoxLayout()
-        project_layout.setSpacing(12)
+        # File selection
+        file_layout = QHBoxLayout()
+        file_label = QLabel("Excel File:")
+        file_label.setFixedWidth(100)
+        self.file_edit = QLineEdit()
+        self.file_edit.setReadOnly(True)
+        self.file_edit.setPlaceholderText("Select an Excel file...")
+        browse_btn = create_styled_button("Browse...", "secondary", "sm")
+        browse_btn.clicked.connect(self._browse_file)
+        file_layout.addWidget(file_label)
+        file_layout.addWidget(self.file_edit)
+        file_layout.addWidget(browse_btn)
+        layout.addLayout(file_layout)
 
         # Project name
-        name_label = create_styled_label("Project Name", "small")
-        self.project_name_edit = QLineEdit()
-        self.project_name_edit.setPlaceholderText("e.g., 160Wil")
-        self.project_name_edit.setMinimumHeight(40)
+        project_layout = QHBoxLayout()
+        project_label = QLabel("Project Name:")
+        project_label.setFixedWidth(100)
+        self.project_edit = QLineEdit()
+        self.project_edit.setPlaceholderText("Enter project name...")
+        project_layout.addWidget(project_label)
+        project_layout.addWidget(self.project_edit)
+        layout.addLayout(project_layout)
 
         # Result set name
-        result_set_label = create_styled_label("Result Set Name", "small")
+        result_set_layout = QHBoxLayout()
+        result_set_label = QLabel("Result Set:")
+        result_set_label.setFixedWidth(100)
         self.result_set_edit = QLineEdit()
-        self.result_set_edit.setPlaceholderText("e.g., DES, MCE, SLE")
-        self.result_set_edit.setMinimumHeight(40)
-
-        self.result_set_validation_label = QLabel("")
-        self.result_set_validation_label.setStyleSheet(f"color: {COLORS['danger']}; font-size: 13px;")
-        self.result_set_validation_label.setWordWrap(True)
+        self.result_set_edit.setPlaceholderText("e.g., DES, MCE, SLE...")
+        result_set_layout.addWidget(result_set_label)
+        result_set_layout.addWidget(self.result_set_edit)
+        layout.addLayout(result_set_layout)
 
         # Analysis type
-        analysis_label = create_styled_label("Analysis Type (Optional)", "small")
-        self.subfolder_edit = QLineEdit()
-        self.subfolder_edit.setPlaceholderText("e.g., DERG, MCR")
-        self.subfolder_edit.setMinimumHeight(40)
-
-        project_layout.addWidget(name_label)
-        project_layout.addWidget(self.project_name_edit)
-        project_layout.addWidget(result_set_label)
-        project_layout.addWidget(self.result_set_edit)
-        project_layout.addWidget(self.result_set_validation_label)
-        project_layout.addWidget(analysis_label)
-        project_layout.addWidget(self.subfolder_edit)
-
-        project_group.setLayout(project_layout)
-        layout.addWidget(project_group)
-
-        # Info label
-        info_label = QLabel(
-            "ⓘ The importer will process Story Drifts, Accelerations, and Forces from the Excel file."
-        )
-        info_label.setWordWrap(True)
-        info_label.setProperty("styleClass", "muted")
-        info_label.setStyleSheet(f"font-size: 13px; padding: 12px; background-color: {COLORS['hover']}; border-radius: 6px;")
-        layout.addWidget(info_label)
+        analysis_layout = QHBoxLayout()
+        analysis_label = QLabel("Analysis Type:")
+        analysis_label.setFixedWidth(100)
+        self.analysis_combo = QComboBox()
+        self.analysis_combo.addItems(["Response Spectrum", "Time History", "Static"])
+        analysis_layout.addWidget(analysis_label)
+        analysis_layout.addWidget(self.analysis_combo)
+        layout.addLayout(analysis_layout)
 
         layout.addStretch()
 
-        # Dialog buttons with GMP styling
+        # Buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(12)
-
-        cancel_button = create_styled_button("Cancel", "secondary")
-        cancel_button.setMinimumHeight(40)
-        cancel_button.setMinimumWidth(100)
-        cancel_button.clicked.connect(self.reject)
-
-        self.ok_button = create_styled_button("Import", "primary")
-        self.ok_button.setMinimumHeight(40)
-        self.ok_button.setMinimumWidth(100)
-        self.ok_button.setEnabled(False)  # Disabled until file selected
-        self.ok_button.clicked.connect(self._on_accept)
-
         button_layout.addStretch()
-        button_layout.addWidget(cancel_button)
-        button_layout.addWidget(self.ok_button)
+
+        cancel_btn = create_styled_button("Cancel", "secondary", "md")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        import_btn = create_styled_button("Import", "primary", "md")
+        import_btn.clicked.connect(self._on_import)
+        button_layout.addWidget(import_btn)
 
         layout.addLayout(button_layout)
 
-        # Connect signals
-        self.file_path_edit.textChanged.connect(self._validate_inputs)
-        self.project_name_edit.textChanged.connect(self._validate_inputs)
-        self.result_set_edit.textChanged.connect(self._validate_inputs)
+    def _apply_styles(self):
+        """Apply GMP design system styles."""
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
 
-    def _on_browse(self):
+            QLabel {{
+                color: {COLORS['text_primary']};
+                font-size: 14px;
+            }}
+
+            QLineEdit {{
+                background-color: {COLORS['card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 4px;
+                padding: 8px;
+                color: {COLORS['text_primary']};
+                font-size: 14px;
+            }}
+
+            QLineEdit:focus {{
+                border-color: {COLORS['accent']};
+            }}
+
+            QComboBox {{
+                background-color: {COLORS['card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 4px;
+                padding: 8px;
+                color: {COLORS['text_primary']};
+                font-size: 14px;
+            }}
+
+            QComboBox:focus {{
+                border-color: {COLORS['accent']};
+            }}
+
+            QComboBox::drop-down {{
+                border: none;
+            }}
+
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 6px solid {COLORS['text_secondary']};
+                margin-right: 8px;
+            }}
+        """)
+
+    def _browse_file(self):
         """Open file browser to select Excel file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Excel File",
+            "Select Excel Data File",
             str(Path.home()),
-            "Excel Files (*.xlsx *.xls);;All Files (*)",
+            "Excel Files (*.xlsx *.xls)"
         )
 
         if file_path:
-            self.file_path_edit.setText(file_path)
+            self.file_path = file_path
+            self.file_edit.setText(file_path)
 
-            # Auto-fill project name from file if empty
-            if not self.project_name_edit.text():
-                file_name = Path(file_path).stem
-                # Try to extract project name (e.g., "160Wil_DES_Global" -> "160Wil")
-                parts = file_name.split("_")
-                if parts:
-                    self.project_name_edit.setText(parts[0])
+    def _on_import(self):
+        """Validate and accept dialog."""
+        if not self.file_path:
+            return
 
-    def _validate_inputs(self):
-        """Validate that required inputs are filled."""
-        has_file = bool(self.file_path_edit.text())
-        has_project = bool(self.project_name_edit.text().strip())
+        if not self.project_edit.text().strip():
+            return
 
-        # Validate result set name
-        result_set_name = self.result_set_edit.text().strip()
-        has_result_set = bool(result_set_name)
+        if not self.result_set_edit.text().strip():
+            return
 
-        is_valid = True
-        validation_message = ""
-
-        if has_result_set and has_project:
-            context = get_project_context(self.project_name_edit.text().strip())
-            if context and result_set_exists(context, result_set_name):
-                is_valid = False
-                validation_message = (
-                    f"⚠ Result set '{result_set_name}' already exists for this project"
-                )
-
-        self.result_set_validation_label.setText(validation_message)
-        self.ok_button.setEnabled(has_file and has_project and has_result_set and is_valid)
-
-    def _on_accept(self):
-        """Handle OK button click."""
-        self.selected_file = self.file_path_edit.text()
-        self.project_name = self.project_name_edit.text().strip()
-        self.result_set_name = self.result_set_edit.text().strip()
         self.accept()
 
-    def get_selected_file(self):
+    def get_selected_file(self) -> str:
         """Get the selected file path."""
-        return self.selected_file
+        return self.file_path
 
-    def get_project_name(self):
+    def get_project_name(self) -> str:
         """Get the project name."""
-        return self.project_name
+        return self.project_edit.text().strip()
 
-    def get_result_set_name(self):
+    def get_result_set_name(self) -> str:
         """Get the result set name."""
-        return self.result_set_name
+        return self.result_set_edit.text().strip()
 
-    def get_analysis_type(self):
-        """Get the analysis type/subfolder."""
-        return self.subfolder_edit.text().strip()
-
+    def get_analysis_type(self) -> str:
+        """Get the selected analysis type."""
+        return self.analysis_combo.currentText()

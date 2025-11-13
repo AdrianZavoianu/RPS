@@ -4,10 +4,13 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
+from config.result_config import get_config
+
 from .cache_builder import build_element_dataset, build_standard_dataset
+from .comparison_builder import build_element_comparison, build_global_comparison, build_joint_comparison
 from .maxmin_builder import build_drift_maxmin_dataset, build_generic_maxmin_dataset
 from .metadata import build_display_label
-from .models import MaxMinDataset, ResultDataset, ResultDatasetMeta
+from .models import ComparisonDataset, MaxMinDataset, ResultDataset, ResultDatasetMeta
 from .story_loader import StoryProvider
 
 
@@ -23,6 +26,7 @@ class ResultDataService:
         abs_maxmin_repo=None,
         element_cache_repo=None,
         element_repo=None,
+        joint_cache_repo=None,
         session=None,
     ) -> None:
         self.project_id = project_id
@@ -32,12 +36,15 @@ class ResultDataService:
         self.abs_maxmin_repo = abs_maxmin_repo
         self.element_cache_repo = element_cache_repo
         self.element_repo = element_repo
+        self.joint_cache_repo = joint_cache_repo
         self.session = session
 
         self._standard_cache: Dict[Tuple[str, str, int], Optional[ResultDataset]] = {}
         self._maxmin_cache: Dict[Tuple[str, int], Optional[MaxMinDataset]] = {}
         self._element_cache: Dict[Tuple[int, str, str, int], Optional[ResultDataset]] = {}
+        self._joint_cache: Dict[Tuple[str, int], Optional[ResultDataset]] = {}
         self._category_cache: Dict[int, Optional[int]] = {}
+        self._comparison_cache: Dict[Tuple, Optional[ComparisonDataset]] = {}
 
         self._stories = StoryProvider(self.story_repo, self.project_id)
 
@@ -129,6 +136,91 @@ class ResultDataService:
     ) -> None:
         cache_key = (element_id, result_type, direction, result_set_id)
         self._element_cache.pop(cache_key, None)
+
+    # ------------------------------------------------------------------
+    # Joint datasets (for soil pressures and other joint-based results)
+    # ------------------------------------------------------------------
+
+    def get_joint_dataset(
+        self, result_type: str, result_set_id: int
+    ) -> Optional[ResultDataset]:
+        """Get joint-level dataset (e.g., soil pressures)."""
+        if not self.joint_cache_repo:
+            return None
+
+        cache_key = (result_type, result_set_id)
+        if cache_key in self._joint_cache:
+            return self._joint_cache[cache_key]
+
+        # Get all cache entries for this result type
+        cache_entries = self.joint_cache_repo.get_all_for_type(
+            project_id=self.project_id,
+            result_set_id=result_set_id,
+            result_type=result_type,
+        )
+
+        if not cache_entries:
+            self._joint_cache[cache_key] = None
+            return None
+
+        # Build dataset from cache entries
+        config = get_config(result_type)
+        rows = []
+
+        for entry in cache_entries:
+            row_data = {
+                "Shell Object": entry.shell_object,
+                "Unique Name": entry.unique_name,
+            }
+            row_data.update(entry.results_matrix)
+            rows.append(row_data)
+
+        df = pd.DataFrame(rows)
+
+        # Sort by shell object and unique name for consistent ordering
+        if not df.empty:
+            df = df.sort_values(["Shell Object", "Unique Name"]).reset_index(drop=True)
+
+        # Identify load case columns
+        non_data_cols = ["Shell Object", "Unique Name"]
+        load_case_columns = [col for col in df.columns if col not in non_data_cols]
+
+        # Calculate summary columns (Average, Maximum, Minimum) for joint results
+        summary_columns = []
+        if load_case_columns and not df.empty:
+            # Calculate Average
+            df['Average'] = df[load_case_columns].mean(axis=1)
+            summary_columns.append('Average')
+
+            # Calculate Maximum
+            df['Maximum'] = df[load_case_columns].max(axis=1)
+            summary_columns.append('Maximum')
+
+            # Calculate Minimum
+            df['Minimum'] = df[load_case_columns].min(axis=1)
+            summary_columns.append('Minimum')
+
+        meta = ResultDatasetMeta(
+            result_type=result_type,
+            direction="",  # No direction for soil pressures
+            result_set_id=result_set_id,
+            display_name=build_display_label(result_type, ""),
+        )
+
+        dataset = ResultDataset(
+            meta=meta,
+            data=df,
+            config=config,
+            load_case_columns=load_case_columns,
+            summary_columns=summary_columns,
+        )
+        self._joint_cache[cache_key] = dataset
+        return dataset
+
+    def invalidate_joint_dataset(self, result_type: str, result_set_id: int) -> None:
+        """Invalidate joint dataset cache."""
+        cache_key = (result_type, result_set_id)
+        self._joint_cache.pop(cache_key, None)
 
     # ------------------------------------------------------------------
     # Max/min datasets
@@ -497,6 +589,111 @@ class ResultDataService:
         return df
 
     # ------------------------------------------------------------------
+    # Comparison datasets
+    # ------------------------------------------------------------------
+
+    def get_comparison_dataset(
+        self,
+        result_type: str,
+        direction: Optional[str],
+        result_set_ids: List[int],
+        metric: str = 'Avg',
+        element_id: Optional[int] = None,
+        unique_name: Optional[str] = None
+    ) -> Optional[ComparisonDataset]:
+        """
+        Get comparison dataset for multiple result sets.
+
+        Args:
+            result_type: Result type (e.g., 'Drifts', 'WallShears', 'SoilPressures_Min')
+            direction: Direction (e.g., 'X', 'V2')
+            result_set_ids: List of result set IDs to compare
+            metric: Metric to extract ('Avg', 'Max', 'Min')
+            element_id: Element ID for element comparisons (None for global)
+            unique_name: Unique name for joint comparisons (e.g., foundation element name)
+
+        Returns:
+            ComparisonDataset with merged data and warnings
+        """
+        if not result_set_ids:
+            return None
+
+        # Determine scope type
+        if unique_name is not None:
+            scope = 'joint'
+        elif element_id is not None:
+            scope = 'element'
+        else:
+            scope = 'global'
+
+        # Create cache key with frozenset for unordered result set IDs
+        cache_key = (
+            scope,
+            result_type,
+            direction,
+            element_id,
+            unique_name,
+            frozenset(result_set_ids),
+            metric
+        )
+
+        if cache_key in self._comparison_cache:
+            return self._comparison_cache[cache_key]
+
+        # Get result type config
+        transformer_key = f"{result_type}_{direction}" if direction else result_type
+        config = get_config(transformer_key)
+
+        # Get result set repository
+        if not self.session:
+            return None
+
+        from database.repository import ResultSetRepository
+        result_set_repo = ResultSetRepository(self.session)
+
+        # Build comparison dataset based on scope
+        if unique_name is not None:
+            # Joint comparison (soil pressures, vertical displacements)
+            dataset = build_joint_comparison(
+                result_type=result_type,
+                unique_name=unique_name,
+                result_set_ids=result_set_ids,
+                config=config,
+                get_dataset_func=self.get_joint_dataset,
+                result_set_repo=result_set_repo
+            )
+        elif element_id is not None:
+            # Element comparison
+            dataset = build_element_comparison(
+                result_type=result_type,
+                direction=direction,
+                element_id=element_id,
+                result_set_ids=result_set_ids,
+                metric=metric,
+                config=config,
+                get_dataset_func=self.get_element_dataset,
+                result_set_repo=result_set_repo
+            )
+        else:
+            # Global comparison
+            dataset = build_global_comparison(
+                result_type=result_type,
+                direction=direction,
+                result_set_ids=result_set_ids,
+                metric=metric,
+                config=config,
+                get_dataset_func=self.get_standard_dataset,
+                result_set_repo=result_set_repo
+            )
+
+        self._comparison_cache[cache_key] = dataset
+        return dataset
+
+    def invalidate_comparison_cache(self) -> None:
+        """Clear all comparison cache entries."""
+        self._comparison_cache.clear()
+
+    # ------------------------------------------------------------------
     # Cache controls
     # ------------------------------------------------------------------
 
@@ -504,6 +701,7 @@ class ResultDataService:
         self._standard_cache.clear()
         self._maxmin_cache.clear()
         self._element_cache.clear()
+        self._comparison_cache.clear()
 
     # ------------------------------------------------------------------
     # Internals

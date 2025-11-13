@@ -16,7 +16,7 @@ TARGET_SHEETS: Dict[str, List[str]] = {
     "Story Drifts": ["Story Drifts"],
     "Diaphragm Accelerations": ["Story Accelerations"],  # Using Diaphragm Accelerations sheet (newer ETABS format)
     "Story Forces": ["Story Forces"],
-    "Joint DisplacementsG": ["Floors Displacements"],
+    "Joint Displacements": ["Floors Displacements"],  # Floor displacements from Joint Displacements sheet
     "Pier Forces": ["Pier Forces"],
     # Columns sheet supplies both shears and axial compression envelopes.
     "Element Forces - Columns": ["Column Forces", "Column Axials"],
@@ -25,6 +25,7 @@ TARGET_SHEETS: Dict[str, List[str]] = {
     # Hinge States sheet supplies beam rotations (R3 Plastic).
     "Hinge States": ["Beam Rotations"],
     "Quad Strain Gauge - Rotation": ["Quad Rotations"],
+    "Soil Pressures": ["Soil Pressures"],  # Foundation soil pressures
 }
 
 
@@ -88,6 +89,12 @@ class FolderImporter(BaseFolderImporter):
                     for label in labels:
                         if self._should_import(label) and label not in matched_labels:
                             matched_labels.append(label)
+
+                # Special case: If both Joint Displacements and Fou sheets exist, also enable Vertical Displacements
+                # This is separate from Floor Displacements which also uses Joint Displacements
+                if ("Joint Displacements" in available and "Fou" in available):
+                    if "Vertical Displacements" not in matched_labels:
+                        matched_labels.append("Vertical Displacements")
 
                 if not matched_labels:
                     continue

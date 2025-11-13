@@ -154,6 +154,16 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
+    'WallShears': ResultTypeConfig(
+        name='WallShears',
+        direction_suffix='',
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Wall Shear (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
     'WallShears_V2': ResultTypeConfig(
         name='WallShears_V2',
         direction_suffix='_V2',
@@ -181,6 +191,16 @@ RESULT_CONFIGS = {
         decimal_places=2,
         multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
         y_label='Rotation (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'ColumnShears': ResultTypeConfig(
+        name='ColumnShears',
+        direction_suffix='',
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Column Shear (kN)',
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
@@ -214,6 +234,26 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
+    'ColumnAxials': ResultTypeConfig(
+        name='ColumnAxials',
+        direction_suffix='',  # No direction suffix for axial forces
+        unit='kN',
+        decimal_places=0,
+        multiplier=1.0,
+        y_label='Column Axial Force (kN)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
+    'ColumnRotations': ResultTypeConfig(
+        name='ColumnRotations',
+        direction_suffix='',
+        unit='%',
+        decimal_places=2,
+        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
+        y_label='Column Rotation (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
     'ColumnRotations_R2': ResultTypeConfig(
         name='ColumnRotations_R2',
         direction_suffix='_R2',
@@ -234,6 +274,16 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
+    'BeamRotations': ResultTypeConfig(
+        name='BeamRotations',
+        direction_suffix='',  # No direction suffix for beam rotations
+        unit='%',
+        decimal_places=2,
+        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
+        y_label='Beam Rotation (%)',
+        plot_mode='building_profile',
+        color_scheme='blue_orange',
+    ),
     'BeamRotations_R3Plastic': ResultTypeConfig(
         name='BeamRotations_R3Plastic',
         direction_suffix='_R3Plastic',
@@ -244,9 +294,92 @@ RESULT_CONFIGS = {
         plot_mode='building_profile',
         color_scheme='blue_orange',
     ),
+    'SoilPressures_Min': ResultTypeConfig(
+        name='SoilPressures_Min',
+        direction_suffix='',  # No direction suffix for soil pressures
+        unit='kN/m²',
+        decimal_places=1,
+        multiplier=1.0,
+        y_label='Min Soil Pressure (kN/m²)',
+        plot_mode='tabs',  # Use tabs since there's no building profile for foundation elements
+        color_scheme='orange_blue',  # Orange for lower (more negative) values, blue for higher
+    ),
+    'VerticalDisplacements_Min': ResultTypeConfig(
+        name='VerticalDisplacements_Min',
+        direction_suffix='',  # No direction suffix for vertical displacements
+        unit='mm',
+        decimal_places=2,
+        multiplier=1.0,
+        y_label='Min Vertical Displacement (mm)',
+        plot_mode='tabs',  # Use tabs since there's no building profile for foundation joints
+        color_scheme='orange_blue',  # Orange for lower (more negative) values, blue for higher
+    ),
 }
 
 
 def get_config(result_type: str) -> ResultTypeConfig:
     """Get configuration for a result type."""
     return RESULT_CONFIGS.get(result_type, RESULT_CONFIGS['Drifts'])
+
+
+def format_result_type_with_unit(result_type: str, direction: str = None) -> str:
+    """Format result type name with unit in brackets.
+
+    Args:
+        result_type: Base result type (e.g., 'Drifts', 'Forces', 'Displacements')
+        direction: Direction suffix (e.g., 'X', 'Y') - optional
+
+    Returns:
+        Formatted string like "Floor Displacements [mm]" or "Story Forces [kN]"
+
+    Note:
+        - Drifts and rotations are unitless (shown as percentage in tables but conceptually unitless)
+        - Returns display name without unit for drifts and rotations
+    """
+    # Map base result types to display names
+    display_names = {
+        'Drifts': 'Story Drifts',
+        'Accelerations': 'Story Accelerations',
+        'Forces': 'Story Forces',
+        'Displacements': 'Floor Displacements',
+        'WallShears': 'Wall Shears',
+        'QuadRotations': 'Quad Rotations',
+        'ColumnShears': 'Column Shears',
+        'ColumnAxials': 'Column Axials',
+        'MinAxial': 'Min Axial',
+        'ColumnRotations': 'Column Rotations',
+        'BeamRotations': 'Beam Rotations',
+        'SoilPressures_Min': 'Min Soil Pressures',
+        'VerticalDisplacements_Min': 'Min Vertical Displacements',
+    }
+
+    # Get display name
+    display_name = display_names.get(result_type, result_type)
+
+    # Check if result type is drift or rotation (unitless)
+    is_unitless = 'Drift' in result_type or 'Rotation' in result_type
+
+    if is_unitless:
+        # No unit for drifts and rotations
+        if direction:
+            return f"{display_name} - {direction} Direction"
+        return display_name
+
+    # Get config to extract unit
+    config_key = f"{result_type}_{direction}" if direction else result_type
+    config = RESULT_CONFIGS.get(config_key)
+
+    if not config:
+        # Fallback: try base config
+        config = RESULT_CONFIGS.get(result_type)
+
+    if config and config.unit:
+        unit_str = f" [{config.unit}]"
+        if direction:
+            return f"{display_name}{unit_str} - {direction} Direction"
+        return f"{display_name}{unit_str}"
+
+    # Fallback: no unit available
+    if direction:
+        return f"{display_name} - {direction} Direction"
+    return display_name

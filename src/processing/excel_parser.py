@@ -177,12 +177,12 @@ class ExcelParser:
     def get_joint_displacements(self) -> Tuple[pd.DataFrame, List[str], List[str]]:
         """Parse joint displacement data (global) from Excel file.
 
-        Only the 'Joint DisplacementsG' sheet is considered valid for global story displacements.
+        Uses 'Joint Displacements' sheet for global story displacements.
 
         Returns:
             Tuple of (DataFrame, load_cases, stories)
         """
-        sheet = "Joint DisplacementsG"
+        sheet = "Joint Displacements"
 
         if not self.validate_sheet_exists(sheet):
             return pd.DataFrame(), [], []
@@ -194,7 +194,7 @@ class ExcelParser:
         expected_columns = {"Story", "Output Case", "Ux", "Uy"}
         missing = expected_columns - set(df.columns)
         if missing:
-            raise ValueError(f"Missing expected columns in 'Joint DisplacementsG': {missing}")
+            raise ValueError(f"Missing expected columns in 'Joint Displacements': {missing}")
 
         df = df[["Story", "Output Case", "Ux", "Uy"]].dropna(subset=["Story", "Output Case"])
 
@@ -342,3 +342,131 @@ class ExcelParser:
         beams_list = unique_vals["Frame/Wall"]  # Beam identifiers like "B19", "B20"
 
         return df, load_cases, stories, beams_list
+
+    def get_soil_pressures(self) -> Tuple[pd.DataFrame, List[str], List[str]]:
+        """Parse soil pressure data from 'Soil Pressures' sheet.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, unique_elements)
+
+        Note:
+            Computes minimum soil pressure per (Unique Name, Output Case).
+            Each unique name represents a foundation shell element with multiple joints.
+            Returns aggregated data: one row per (Shell Object, Unique Name, Output Case) with minimum pressure.
+        """
+        sheet = "Soil Pressures"
+        # Columns: Story, Shell Object, Unique Name, Shell Element, Joint, Output Case, Case Type, Step Type, Soil Pressure, Global X, Global Y, Global Z
+        # Indices:   0        1               2             3            4         5            6           7           8              9         10        11
+        columns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+        df = self.read_sheet(sheet, columns)
+
+        # Ensure expected column labels
+        df.columns = [
+            "Story", "Shell Object", "Unique Name", "Shell Element", "Joint",
+            "Output Case", "Case Type", "Step Type", "Soil Pressure",
+            "Global X", "Global Y", "Global Z",
+        ]
+
+        # Numeric safety
+        df['Soil Pressure'] = pd.to_numeric(df['Soil Pressure'], errors='coerce')
+
+        # Filter to only Min step type (discard Max entries with value 1)
+        df = df[df['Step Type'] == 'Min'].copy()
+
+        # Min soil pressure per (Shell Object, Unique Name, Output Case)
+        grp = (df.groupby(['Shell Object', 'Unique Name', 'Output Case'], as_index=False)['Soil Pressure']
+                 .min())
+
+        # Get unique values
+        load_cases = grp['Output Case'].unique().tolist()
+        unique_elements = grp['Unique Name'].unique().tolist()
+
+        return grp, load_cases, unique_elements
+
+    def get_foundation_joints(self) -> List[str]:
+        """Parse foundation joint list from 'Fou' sheet.
+
+        Returns:
+            List of unique joint names (strings) to monitor for vertical displacements
+        """
+        sheet = "Fou"
+
+        if not self.validate_sheet_exists(sheet):
+            return []
+
+        # Only read first column (Unique Name)
+        df = self.read_sheet(sheet, columns=[0])
+
+        # Column might be named "Unique Name" or just take first column
+        if 'Unique Name' in df.columns:
+            joint_names = df['Unique Name'].dropna().astype(str).unique().tolist()
+        else:
+            # Use first column regardless of name
+            joint_names = df.iloc[:, 0].dropna().astype(str).unique().tolist()
+
+        return joint_names
+
+    def get_vertical_displacements(self, foundation_joints: Optional[List[str]] = None) -> Tuple[pd.DataFrame, List[str], List[str]]:
+        """Parse vertical displacement data from 'Joint Displacements' sheet.
+
+        Filters to joints specified in foundation_joints parameter or from 'Fou' sheet.
+
+        Args:
+            foundation_joints: Optional list of joint names to filter. If None, reads from Fou sheet.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, unique_joints)
+
+        Note:
+            Computes minimum vertical displacement (Uz) per (Unique Name, Output Case).
+            Each unique name represents a specific joint at a foundation location.
+            Returns aggregated data: one row per (Story, Label, Unique Name, Output Case) with minimum Uz.
+        """
+        sheet = "Joint Displacements"
+
+        # Get foundation joint list from parameter or Fou sheet
+        if foundation_joints is None:
+            foundation_joints = self.get_foundation_joints()
+
+        if not foundation_joints:
+            return pd.DataFrame(), [], []
+
+        # Columns: Story, Label, Unique Name, Output Case, Case Type, Step Type, Ux, Uy, Uz, Rx, Ry, Rz
+        # Indices:   0      1         2             3           4           5        6   7   8   9   10  11
+        columns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+        df = self.read_sheet(sheet, columns, skiprows=[0, 2])  # Skip unit rows
+
+        # Ensure expected column labels
+        df.columns = [
+            "Story", "Label", "Unique Name", "Output Case", "Case Type", "Step Type",
+            "Ux", "Uy", "Uz", "Rx", "Ry", "Rz",
+        ]
+
+        # Convert Unique Name to string and filter to foundation joints only
+        df['Unique Name'] = df['Unique Name'].astype(str)
+        df = df[df['Unique Name'].isin(foundation_joints)].copy()
+
+        if df.empty:
+            return pd.DataFrame(), [], []
+
+        # Numeric safety for Uz
+        df['Uz'] = pd.to_numeric(df['Uz'], errors='coerce')
+
+        # Filter to only Min step type (get minimum vertical displacement)
+        df = df[df['Step Type'] == 'Min'].copy()
+
+        # Min Uz per (Story, Label, Unique Name, Output Case)
+        # Keep Story and Label for reference
+        grp = (df.groupby(['Story', 'Label', 'Unique Name', 'Output Case'], as_index=False)
+                 .agg({'Uz': 'min'}))
+
+        # Rename Uz column to match expected format
+        grp = grp.rename(columns={'Uz': 'Min Uz'})
+
+        # Get unique values
+        load_cases = grp['Output Case'].unique().tolist()
+        unique_joints = grp['Unique Name'].unique().tolist()
+
+        return grp, load_cases, unique_joints

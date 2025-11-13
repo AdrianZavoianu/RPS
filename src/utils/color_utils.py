@@ -45,6 +45,7 @@ def interpolate_color(
 # Predefined color schemes for gradients
 COLOR_SCHEMES = {
     'blue_orange': ('#3b82f6', '#fb923c'),  # Blue to Orange (default)
+    'orange_blue': ('#fb923c', '#3b82f6'),  # Orange to Blue (reversed - for lower values being more critical)
     'green_red': ('#2ed573', '#e74c3c'),    # Green to Red
     'cool_warm': ('#60a5fa', '#f87171'),    # Cool blue to Warm red
     'teal_yellow': ('#14b8a6', '#fbbf24'),  # Teal to Yellow

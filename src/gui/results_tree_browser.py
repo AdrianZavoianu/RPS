@@ -12,6 +12,8 @@ class ResultsTreeBrowser(QWidget):
     """Tree browser for navigating project results."""
 
     selection_changed = pyqtSignal(int, str, str, str, int)  # (result_set_id, category, result_type, direction, element_id)
+    comparison_selected = pyqtSignal(int, str, str)  # (comparison_set_id, result_type, direction)
+    comparison_element_selected = pyqtSignal(int, str, int, str)  # (comparison_set_id, result_type, element_id, direction)
 
     def __init__(self, project_id: int, parent=None):
         super().__init__(parent)
@@ -96,7 +98,7 @@ class ResultsTreeBrowser(QWidget):
 
         layout.addWidget(self.tree)
 
-    def populate_tree(self, result_sets, stories, elements=None, available_result_types=None):
+    def populate_tree(self, result_sets, stories, elements=None, available_result_types=None, comparison_sets=None):
         """Populate tree with project structure.
 
         Args:
@@ -104,10 +106,12 @@ class ResultsTreeBrowser(QWidget):
             stories: List of Story model instances
             elements: List of Element model instances (optional)
             available_result_types: Dict mapping result_set_id to set of available result types (optional)
+            comparison_sets: List of ComparisonSet model instances (optional)
         """
         self.tree.clear()
         self.elements = elements or []
         self.available_result_types = available_result_types or {}
+        self.comparison_sets = comparison_sets or []
 
         # Project info item
         info_item = QTreeWidgetItem(self.tree)
@@ -131,7 +135,7 @@ class ResultsTreeBrowser(QWidget):
         results_root.setData(0, Qt.ItemDataRole.UserRole, {"type": "root"})
         results_root.setExpanded(True)
 
-        if not result_sets:
+        if not result_sets and not self.comparison_sets:
             # Show empty state
             placeholder = QTreeWidgetItem(results_root)
             placeholder.setText(0, "└ No result sets")
@@ -140,6 +144,10 @@ class ResultsTreeBrowser(QWidget):
             # Add each result set
             for result_set in result_sets:
                 self._add_result_set(results_root, result_set)
+
+            # Add comparison sets
+            for comparison_set in self.comparison_sets:
+                self._add_comparison_set(results_root, comparison_set)
 
     def _add_result_set(self, parent_item: QTreeWidgetItem, result_set):
         """Add a result set with its hierarchy.
@@ -238,6 +246,27 @@ class ResultsTreeBrowser(QWidget):
         if elements_item.childCount() == 0:
             envelopes_item.removeChild(elements_item)
 
+        # Joints category - for soil pressures and other joint-based results
+        joints_item = QTreeWidgetItem(envelopes_item)
+        joints_item.setText(0, "◇ Joints")
+        joints_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category_type",
+            "result_set_id": result_set.id,
+            "category": "Envelopes",
+            "category_type": "Joints"
+        })
+        joints_item.setExpanded(True)
+
+        # Add soil pressures if available
+        self._add_soil_pressures_section(joints_item, result_set.id)
+
+        # Add vertical displacements if available
+        self._add_vertical_displacements_section(joints_item, result_set.id)
+
+        # If no child sections were added, hide the Joints section
+        if joints_item.childCount() == 0:
+            envelopes_item.removeChild(joints_item)
+
         # Time-Series category (placeholder)
         timeseries_item = QTreeWidgetItem(result_set_item)
         timeseries_item.setText(0, "◆ Time-Series")
@@ -251,6 +280,396 @@ class ResultsTreeBrowser(QWidget):
         placeholder = QTreeWidgetItem(timeseries_item)
         placeholder.setText(0, "└ Coming soon")
         placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+
+    def _add_comparison_set(self, parent_item: QTreeWidgetItem, comparison_set):
+        """Add a comparison set with its hierarchy.
+
+        Structure:
+        └── Comparison Set Name (COM1, COM2, etc.)
+            ├── Global Results
+            │   ├── Drifts
+            │   ├── Accelerations
+            │   ├── Forces
+            │   └── Displacements
+            └── Elements
+                ├── Walls
+                ├── Columns
+                └── Beams
+        """
+        # Main comparison set item
+        comparison_item = QTreeWidgetItem(parent_item)
+        comparison_item.setText(0, f"▸ {comparison_set.name}")
+        comparison_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_set",
+            "comparison_set_id": comparison_set.id,
+            "comparison_set_name": comparison_set.name,
+            "result_set_ids": comparison_set.result_set_ids,
+            "result_types": comparison_set.result_types
+        })
+        comparison_item.setExpanded(False)
+
+        # Global Results category
+        if any(rt in comparison_set.result_types for rt in ['Drifts', 'Accelerations', 'Forces', 'Displacements']):
+            global_item = QTreeWidgetItem(comparison_item)
+            global_item.setText(0, "◇ Global")
+            global_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_category",
+                "comparison_set_id": comparison_set.id,
+                "category": "Global"
+            })
+            global_item.setExpanded(True)
+
+            # Add global result types
+            if 'Drifts' in comparison_set.result_types:
+                self._add_comparison_result_type_with_directions(
+                    global_item, "› Drifts", comparison_set.id, "Drifts"
+                )
+            if 'Accelerations' in comparison_set.result_types:
+                self._add_comparison_result_type_with_directions(
+                    global_item, "› Accelerations", comparison_set.id, "Accelerations"
+                )
+            if 'Forces' in comparison_set.result_types:
+                self._add_comparison_result_type_with_directions(
+                    global_item, "› Forces", comparison_set.id, "Forces"
+                )
+            if 'Displacements' in comparison_set.result_types:
+                self._add_comparison_result_type_with_directions(
+                    global_item, "› Displacements", comparison_set.id, "Displacements"
+                )
+
+        # Elements category
+        if any(rt in comparison_set.result_types for rt in ['WallShears', 'QuadRotations', 'ColumnShears', 'ColumnAxials', 'ColumnRotations', 'BeamRotations']):
+            elements_item = QTreeWidgetItem(comparison_item)
+            elements_item.setText(0, "◇ Elements")
+            elements_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_category",
+                "comparison_set_id": comparison_set.id,
+                "category": "Elements"
+            })
+            elements_item.setExpanded(True)
+
+            # Add element result types (simplified hierarchy for comparison)
+            if 'WallShears' in comparison_set.result_types or 'QuadRotations' in comparison_set.result_types:
+                self._add_comparison_walls_section(elements_item, comparison_set)
+            if any(rt in comparison_set.result_types for rt in ['ColumnShears', 'ColumnAxials', 'ColumnRotations']):
+                self._add_comparison_columns_section(elements_item, comparison_set)
+            if 'BeamRotations' in comparison_set.result_types:
+                self._add_comparison_beams_section(elements_item, comparison_set)
+
+        # Joints category (foundation results)
+        if any(rt in comparison_set.result_types for rt in ['SoilPressures', 'VerticalDisplacements']):
+            joints_item = QTreeWidgetItem(comparison_item)
+            joints_item.setText(0, "◈ Joints")
+            joints_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_category",
+                "comparison_set_id": comparison_set.id,
+                "category": "Joints"
+            })
+            joints_item.setExpanded(True)
+
+            # Add joint result types
+            if 'SoilPressures' in comparison_set.result_types:
+                self._add_comparison_joint_type(joints_item, comparison_set, 'SoilPressures', 'Soil Pressures')
+            if 'VerticalDisplacements' in comparison_set.result_types:
+                self._add_comparison_joint_type(joints_item, comparison_set, 'VerticalDisplacements', 'Vertical Displacements')
+
+    def _add_comparison_result_type_with_directions(self, parent_item: QTreeWidgetItem, label: str, comparison_set_id: int, result_type: str):
+        """Add a result type with X/Y directions for comparison sets."""
+        result_type_parent = QTreeWidgetItem(parent_item)
+        result_type_parent.setText(0, label)
+        result_type_parent.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_result_type_parent",
+            "comparison_set_id": comparison_set_id,
+            "result_type": result_type
+        })
+        result_type_parent.setExpanded(False)
+
+        # X Direction
+        x_item = QTreeWidgetItem(result_type_parent)
+        x_item.setText(0, "  ├ X Direction")
+        x_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_result_type",
+            "comparison_set_id": comparison_set_id,
+            "result_type": result_type,
+            "direction": "X"
+        })
+
+        # Y Direction
+        y_item = QTreeWidgetItem(result_type_parent)
+        y_item.setText(0, "  └ Y Direction")
+        y_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_result_type",
+            "comparison_set_id": comparison_set_id,
+            "result_type": result_type,
+            "direction": "Y"
+        })
+
+    def _add_comparison_walls_section(self, parent_item: QTreeWidgetItem, comparison_set):
+        """Add Walls section for comparison set."""
+        walls_item = QTreeWidgetItem(parent_item)
+        walls_item.setText(0, "› Walls")
+        walls_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_element_category",
+            "comparison_set_id": comparison_set.id,
+            "element_type": "Walls"
+        })
+        walls_item.setExpanded(False)
+
+        # Get wall elements
+        wall_elements = [elem for elem in self.elements if elem.element_type == "Wall"]
+        quad_elements = [elem for elem in self.elements if elem.element_type == "Quad"]
+
+        if 'WallShears' in comparison_set.result_types:
+            shears_item = QTreeWidgetItem(walls_item)
+            shears_item.setText(0, "  › Shears")
+            shears_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_element_result_parent",
+                "comparison_set_id": comparison_set.id,
+                "element_type": "Walls",
+                "result_type": "WallShears"
+            })
+            shears_item.setExpanded(False)
+
+            # Add individual wall elements with directions
+            for element in wall_elements:
+                element_parent = QTreeWidgetItem(shears_item)
+                element_parent.setText(0, f"    › {element.name}")
+                element_parent.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_parent",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Walls",
+                    "result_type": "WallShears",
+                    "element_id": element.id
+                })
+                element_parent.setExpanded(False)
+
+                # V2 Direction
+                v2_item = QTreeWidgetItem(element_parent)
+                v2_item.setText(0, "      ├ V2")
+                v2_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Walls",
+                    "result_type": "WallShears",
+                    "element_id": element.id,
+                    "element_name": element.name,
+                    "direction": "V2"
+                })
+
+                # V3 Direction
+                v3_item = QTreeWidgetItem(element_parent)
+                v3_item.setText(0, "      └ V3")
+                v3_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Walls",
+                    "result_type": "WallShears",
+                    "element_id": element.id,
+                    "element_name": element.name,
+                    "direction": "V3"
+                })
+
+        if 'QuadRotations' in comparison_set.result_types:
+            rotations_item = QTreeWidgetItem(walls_item)
+            rotations_item.setText(0, "  └ Quad Rotations")
+            rotations_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_element_result_parent",
+                "comparison_set_id": comparison_set.id,
+                "element_type": "Walls",
+                "result_type": "QuadRotations"
+            })
+            rotations_item.setExpanded(False)
+
+            # Add "All Rotations" item first
+            all_rotations_item = QTreeWidgetItem(rotations_item)
+            all_rotations_item.setText(0, "    ├ All Rotations")
+            all_rotations_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_all_rotations",
+                "comparison_set_id": comparison_set.id,
+                "result_type": "QuadRotations"
+            })
+
+            # Add individual quad elements
+            for element in quad_elements:
+                element_item = QTreeWidgetItem(rotations_item)
+                element_item.setText(0, f"    › {element.name}")
+                element_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Walls",
+                    "result_type": "QuadRotations",
+                    "element_id": element.id,
+                    "element_name": element.name
+                })
+
+    def _add_comparison_columns_section(self, parent_item: QTreeWidgetItem, comparison_set):
+        """Add Columns section for comparison set."""
+        columns_item = QTreeWidgetItem(parent_item)
+        columns_item.setText(0, "› Columns")
+        columns_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_element_category",
+            "comparison_set_id": comparison_set.id,
+            "element_type": "Columns"
+        })
+        columns_item.setExpanded(False)
+
+        # Get column elements
+        column_elements = [elem for elem in self.elements if elem.element_type == "Column"]
+
+        # Add column result types
+        if 'ColumnShears' in comparison_set.result_types:
+            shears_item = QTreeWidgetItem(columns_item)
+            shears_item.setText(0, "  › Shears")
+            shears_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_element_result_parent",
+                "comparison_set_id": comparison_set.id,
+                "element_type": "Columns",
+                "result_type": "ColumnShears"
+            })
+            shears_item.setExpanded(False)
+
+            # Add individual column elements with directions
+            for element in column_elements:
+                element_parent = QTreeWidgetItem(shears_item)
+                element_parent.setText(0, f"    › {element.name}")
+                element_parent.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_parent",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Columns",
+                    "result_type": "ColumnShears",
+                    "element_id": element.id
+                })
+                element_parent.setExpanded(False)
+
+                # V2 Direction
+                v2_item = QTreeWidgetItem(element_parent)
+                v2_item.setText(0, "      ├ V2")
+                v2_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Columns",
+                    "result_type": "ColumnShears",
+                    "element_id": element.id,
+                    "element_name": element.name,
+                    "direction": "V2"
+                })
+
+                # V3 Direction
+                v3_item = QTreeWidgetItem(element_parent)
+                v3_item.setText(0, "      └ V3")
+                v3_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Columns",
+                    "result_type": "ColumnShears",
+                    "element_id": element.id,
+                    "element_name": element.name,
+                    "direction": "V3"
+                })
+
+        if 'ColumnAxials' in comparison_set.result_types:
+            axials_item = QTreeWidgetItem(columns_item)
+            axials_item.setText(0, "  › Axials")
+            axials_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_element_result_parent",
+                "comparison_set_id": comparison_set.id,
+                "element_type": "Columns",
+                "result_type": "ColumnAxials"
+            })
+            axials_item.setExpanded(False)
+
+            # Add individual column elements
+            for element in column_elements:
+                element_item = QTreeWidgetItem(axials_item)
+                element_item.setText(0, f"    › {element.name}")
+                element_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Columns",
+                    "result_type": "ColumnAxials",
+                    "element_id": element.id,
+                    "element_name": element.name
+                })
+
+        if 'ColumnRotations' in comparison_set.result_types:
+            rotations_item = QTreeWidgetItem(columns_item)
+            rotations_item.setText(0, "  └ Rotations")
+            rotations_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_element_result_parent",
+                "comparison_set_id": comparison_set.id,
+                "element_type": "Columns",
+                "result_type": "ColumnRotations"
+            })
+            rotations_item.setExpanded(False)
+
+            # Add individual column elements
+            for element in column_elements:
+                element_item = QTreeWidgetItem(rotations_item)
+                element_item.setText(0, f"    › {element.name}")
+                element_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Columns",
+                    "result_type": "ColumnRotations",
+                    "element_id": element.id,
+                    "element_name": element.name
+                })
+
+    def _add_comparison_beams_section(self, parent_item: QTreeWidgetItem, comparison_set):
+        """Add Beams section for comparison set."""
+        beams_item = QTreeWidgetItem(parent_item)
+        beams_item.setText(0, "› Beams")
+        beams_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_element_category",
+            "comparison_set_id": comparison_set.id,
+            "element_type": "Beams"
+        })
+        beams_item.setExpanded(False)
+
+        # Get beam elements
+        beam_elements = [elem for elem in self.elements if elem.element_type == "Beam"]
+
+        if 'BeamRotations' in comparison_set.result_types:
+            rotations_item = QTreeWidgetItem(beams_item)
+            rotations_item.setText(0, "  └ Rotations")
+            rotations_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "comparison_element_result_parent",
+                "comparison_set_id": comparison_set.id,
+                "element_type": "Beams",
+                "result_type": "BeamRotations"
+            })
+            rotations_item.setExpanded(False)
+
+            # Add individual beam elements
+            for element in beam_elements:
+                element_item = QTreeWidgetItem(rotations_item)
+                element_item.setText(0, f"    › {element.name}")
+                element_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "comparison_element_result",
+                    "comparison_set_id": comparison_set.id,
+                    "element_type": "Beams",
+                    "result_type": "BeamRotations",
+                    "element_id": element.id,
+                    "element_name": element.name
+                })
+
+    def _add_comparison_joint_type(self, parent_item: QTreeWidgetItem, comparison_set, result_type: str, display_name: str):
+        """Add a joint result type with scatter plot view for comparison set.
+
+        Args:
+            parent_item: Parent tree item (Joints category)
+            comparison_set: ComparisonSet model instance
+            result_type: Result type key ('SoilPressures', 'VerticalDisplacements')
+            display_name: Display name for the tree item
+        """
+        # Add "All [Type]" item for scatter plot view
+        all_item = QTreeWidgetItem(parent_item)
+        all_item.setText(0, f"  › All {display_name}")
+        all_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_all_joints",
+            "comparison_set_id": comparison_set.id,
+            "result_type": result_type
+        })
 
     def _add_drifts_section(self, parent_item: QTreeWidgetItem, result_set_id: int):
         """Add Drifts section with directions and Max/Min subsection.
@@ -823,6 +1242,90 @@ class ResultsTreeBrowser(QWidget):
             "result_type": "BeamRotations"
         })
 
+    def _add_soil_pressures_section(self, parent_item: QTreeWidgetItem, result_set_id: int):
+        """Add soil pressures section under Joints category with Plot and Table tabs.
+
+        Structure:
+        └── Soil Pressures (Min)
+            ├── Plot (Scatter plot of all foundation elements)
+            └── Table (Wide-format table with all elements)
+        """
+        # Check if soil pressure data exists
+        if not self._has_data_for(result_set_id, "SoilPressures_Min"):
+            return
+
+        # Create parent item for Soil Pressures
+        soil_parent = QTreeWidgetItem(parent_item)
+        soil_parent.setText(0, "  › Soil Pressures (Min)")
+        soil_parent.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "soil_pressure_parent",
+            "category": "Joints",
+            "result_set_id": result_set_id
+        })
+        soil_parent.setExpanded(False)
+
+        # Plot tab - Scatter plot of all foundation elements
+        plot_item = QTreeWidgetItem(soil_parent)
+        plot_item.setText(0, "    ├ Plot")
+        plot_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "soil_pressure_plot",
+            "result_set_id": result_set_id,
+            "category": "Joints",
+            "result_type": "SoilPressures_Min"
+        })
+
+        # Table tab - Wide-format table with all foundation elements
+        table_item = QTreeWidgetItem(soil_parent)
+        table_item.setText(0, "    └ Table")
+        table_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "soil_pressure_table",
+            "result_set_id": result_set_id,
+            "category": "Joints",
+            "result_type": "SoilPressures_Min"
+        })
+
+    def _add_vertical_displacements_section(self, parent_item: QTreeWidgetItem, result_set_id: int):
+        """Add vertical displacements section under Joints category with Plot and Table tabs.
+
+        Structure:
+        └── Vertical Displacements (Min)
+            ├── Plot (Scatter plot of all foundation joints)
+            └── Table (Wide-format table with all joints)
+        """
+        # Check if vertical displacement data exists
+        if not self._has_data_for(result_set_id, "VerticalDisplacements_Min"):
+            return
+
+        # Create parent item for Vertical Displacements
+        vert_disp_parent = QTreeWidgetItem(parent_item)
+        vert_disp_parent.setText(0, "  › Vertical Displacements (Min)")
+        vert_disp_parent.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "vertical_displacement_parent",
+            "category": "Joints",
+            "result_set_id": result_set_id
+        })
+        vert_disp_parent.setExpanded(False)
+
+        # Plot tab - Scatter plot of all foundation joints
+        plot_item = QTreeWidgetItem(vert_disp_parent)
+        plot_item.setText(0, "    ├ Plot")
+        plot_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "vertical_displacement_plot",
+            "result_set_id": result_set_id,
+            "category": "Joints",
+            "result_type": "VerticalDisplacements_Min"
+        })
+
+        # Table tab - Wide-format table with all foundation joints
+        table_item = QTreeWidgetItem(vert_disp_parent)
+        table_item.setText(0, "    └ Table")
+        table_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "vertical_displacement_table",
+            "result_set_id": result_set_id,
+            "category": "Joints",
+            "result_type": "VerticalDisplacements_Min"
+        })
+
     def _add_result_type_with_directions(
         self,
         parent_item: QTreeWidgetItem,
@@ -929,6 +1432,57 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "BeamRotationsTable"
             self.selection_changed.emit(result_set_id, category, result_type, "", -1)  # -1 means all elements
+        elif item_type == "soil_pressure_plot":
+            # Emit for Soil Pressure Plot view (scatter plot of all foundation elements)
+            result_set_id = data.get("result_set_id")
+            category = data.get("category")
+            result_type = "AllSoilPressures"  # Special type for scatter plot
+            self.selection_changed.emit(result_set_id, category, result_type, "", -3)  # -3 means soil pressure plot
+        elif item_type == "soil_pressure_table":
+            # Emit for Soil Pressure Table view (wide-format table)
+            result_set_id = data.get("result_set_id")
+            category = data.get("category")
+            result_type = "SoilPressuresTable"  # Special type for table
+            self.selection_changed.emit(result_set_id, category, result_type, "", -4)  # -4 means soil pressure table
+        elif item_type == "vertical_displacement_plot":
+            # Emit for Vertical Displacement Plot view (scatter plot of all foundation joints)
+            result_set_id = data.get("result_set_id")
+            category = data.get("category")
+            result_type = "AllVerticalDisplacements"  # Special type for scatter plot
+            self.selection_changed.emit(result_set_id, category, result_type, "", -5)  # -5 means vertical displacement plot
+        elif item_type == "vertical_displacement_table":
+            # Emit for Vertical Displacement Table view (wide-format table)
+            result_set_id = data.get("result_set_id")
+            category = data.get("category")
+            result_type = "VerticalDisplacementsTable"  # Special type for table
+            self.selection_changed.emit(result_set_id, category, result_type, "", -6)  # -6 means vertical displacement table
+        elif item_type == "comparison_result_type":
+            # Emit for comparison set result type with direction
+            comparison_set_id = data.get("comparison_set_id")
+            result_type = data.get("result_type")
+            direction = data.get("direction", "X")
+            self.comparison_selected.emit(comparison_set_id, result_type, direction)
+        elif item_type == "comparison_element_result":
+            # Emit for comparison set element result with specific element
+            comparison_set_id = data.get("comparison_set_id")
+            result_type = data.get("result_type")
+            element_id = data.get("element_id")
+            element_name = data.get("element_name", "")
+            direction = data.get("direction")  # Get direction from tree item data
+
+            self.comparison_element_selected.emit(comparison_set_id, result_type, element_id, direction)
+        elif item_type == "comparison_all_rotations":
+            # Emit for comparison all rotations view
+            comparison_set_id = data.get("comparison_set_id")
+            result_type = data.get("result_type")  # QuadRotations
+            # Use special signal or reuse comparison_selected with special marker
+            self.comparison_selected.emit(comparison_set_id, result_type, "All")
+
+        elif item_type == "comparison_all_joints":
+            # Emit for comparison all joints (soil pressures, vertical displacements)
+            comparison_set_id = data.get("comparison_set_id")
+            result_type = data.get("result_type")  # SoilPressures, VerticalDisplacements
+            self.comparison_selected.emit(comparison_set_id, result_type, "AllJoints")
 
 
 

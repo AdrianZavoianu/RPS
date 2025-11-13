@@ -1,4 +1,4 @@
-"""All Rotations widget - scatter plot showing distribution of quad rotations across all elements."""
+"""All Rotations widget - scatter plot and histogram showing distribution of quad rotations across all elements."""
 
 import numpy as np
 import pandas as pd
@@ -8,11 +8,12 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
+    QTabWidget,
 )
 
 
 class AllRotationsWidget(QWidget):
-    """Widget for displaying all quad rotations as scatter plot with story bins (Max and Min combined)."""
+    """Widget for displaying all quad rotations as scatter plot and histogram (Max and Min combined)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,12 +22,41 @@ class AllRotationsWidget(QWidget):
         self.current_data_min = None
 
     def setup_ui(self):
-        """Setup the UI with single plot (no legend)."""
+        """Setup the UI with tabs for scatter plot and histogram."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Create plot widget
+        # Create tab widget
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #2c313a;
+                background-color: #0a0c10;
+                border-radius: 4px;
+            }
+            QTabBar::tab {
+                background-color: #161b22;
+                color: #d1d5db;
+                padding: 8px 16px;
+                border: 1px solid #2c313a;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #0a0c10;
+                color: #4a7d89;
+                border-bottom: 2px solid #4a7d89;
+            }
+            QTabBar::tab:hover {
+                background-color: #1f2937;
+                color: #67e8f9;
+            }
+        """)
+
+        # Create scatter plot widget
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('#0a0c10')
 
@@ -47,30 +77,47 @@ class AllRotationsWidget(QWidget):
         view_box.setMouseEnabled(x=False, y=False)
         view_box.setDefaultPadding(0.0)
 
-        # Set title (default to quad rotations, can be updated via set_title)
-        self.plot_widget.setTitle("All Quad Rotations Distribution", color='#4a7d89', size='12pt')
+        # No title - maximizes plot area
+        self.plot_widget.setTitle(None)
 
-        # Add spacing between title and plot
-        plot_item = self.plot_widget.getPlotItem()
-        plot_item.layout.setRowSpacing(0, 12)
+        # Create histogram widget
+        self.histogram_widget = pg.PlotWidget()
+        self.histogram_widget.setBackground('#0a0c10')
 
-        layout.addWidget(self.plot_widget)
+        # Set histogram area background
+        hist_view_box = self.histogram_widget.getPlotItem().getViewBox()
+        hist_view_box.setBackgroundColor('#0f1419')
+        hist_view_box.setBorder(pg.mkPen('#2c313a', width=1))
 
-    def set_title(self, title: str):
-        """Update the plot title.
+        # Configure histogram appearance
+        self.histogram_widget.showGrid(x=True, y=True, alpha=0.5)
+        self.histogram_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
+        self.histogram_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
+        self.histogram_widget.getAxis('bottom').setTextPen('#d1d5db')
+        self.histogram_widget.getAxis('left').setTextPen('#d1d5db')
 
-        Args:
-            title: New title text
-        """
-        self.plot_widget.setTitle(title, color='#4a7d89', size='12pt')
+        # Disable interactions
+        self.histogram_widget.setMenuEnabled(False)
+        hist_view_box.setMouseEnabled(x=False, y=False)
+        hist_view_box.setDefaultPadding(0.05)
+
+        # No title - maximizes plot area
+        self.histogram_widget.setTitle(None)
+
+        # Add tabs
+        self.tabs.addTab(self.plot_widget, "Scatter")
+        self.tabs.addTab(self.histogram_widget, "Histogram")
+
+        layout.addWidget(self.tabs)
 
     def set_x_label(self, label: str):
-        """Update the X-axis label.
+        """Update the X-axis label for both plots.
 
         Args:
             label: New X-axis label text
         """
         self.plot_widget.setLabel('bottom', label)
+        self.histogram_widget.setLabel('bottom', label)
 
     def load_dataset(self, df_max: pd.DataFrame, df_min: pd.DataFrame):
         """Load and display all rotation data points (both Max and Min).
@@ -86,8 +133,11 @@ class AllRotationsWidget(QWidget):
         self.current_data_max = df_max
         self.current_data_min = df_min
 
-        # Update plot
+        # Update scatter plot
         self._plot_combined_scatter(df_max, df_min)
+
+        # Update histogram
+        self._plot_histogram(df_max, df_min)
 
     def _plot_combined_scatter(self, df_max: pd.DataFrame, df_min: pd.DataFrame):
         """Plot scatter plot with both Max and Min data, story bins, and vertical jitter."""
@@ -252,8 +302,64 @@ class AllRotationsWidget(QWidget):
 
         return QColor(r, g, b, 180)  # 70% opacity
 
+    def _plot_histogram(self, df_max: pd.DataFrame, df_min: pd.DataFrame):
+        """Plot histogram of all rotation values.
+
+        Args:
+            df_max: DataFrame with Max rotation data
+            df_min: DataFrame with Min rotation data
+        """
+        self.histogram_widget.clear()
+
+        # Collect all rotation values
+        all_rotations = []
+        if df_max is not None and not df_max.empty:
+            all_rotations.extend(df_max['Rotation'].values)
+        if df_min is not None and not df_min.empty:
+            all_rotations.extend(df_min['Rotation'].values)
+
+        if not all_rotations:
+            return
+
+        # Calculate histogram with automatic binning
+        # Use 50 bins for good resolution
+        counts, bin_edges = np.histogram(all_rotations, bins=50)
+
+        # Create bar graph
+        bin_width = bin_edges[1] - bin_edges[0]
+        x_positions = bin_edges[:-1]  # Use left edge of each bin
+
+        # Create bar chart
+        bar_item = pg.BarGraphItem(
+            x=x_positions,
+            height=counts,
+            width=bin_width,
+            brush=pg.mkBrush(251, 146, 60, 180),  # Orange with alpha
+            pen=pg.mkPen('#fb923c', width=1)
+        )
+        self.histogram_widget.addItem(bar_item)
+
+        # Add vertical line at x=0 to show center
+        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DashLine))
+        self.histogram_widget.addItem(zero_line)
+
+        # Set axis labels
+        self.histogram_widget.setLabel('bottom', 'Quad Rotation (%)')
+        self.histogram_widget.setLabel('left', 'Count')
+
+        # Set Y-axis to start at 0
+        max_count = max(counts) if len(counts) > 0 else 1
+        self.histogram_widget.setYRange(0, max_count * 1.1, padding=0)
+
+        # Set X-axis range with padding
+        min_x = min(all_rotations)
+        max_x = max(all_rotations)
+        padding_x = (max_x - min_x) * 0.05
+        self.histogram_widget.setXRange(min_x - padding_x, max_x + padding_x, padding=0)
+
     def clear_data(self):
-        """Clear all data from plot."""
+        """Clear all data from plots."""
         self.plot_widget.clear()
+        self.histogram_widget.clear()
         self.current_data_max = None
         self.current_data_min = None

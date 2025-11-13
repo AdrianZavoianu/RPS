@@ -15,11 +15,15 @@ from .models import (
     Element,
     TimeHistoryData,
     ResultSet,
+    ComparisonSet,
     ResultCategory,
     GlobalResultsCache,
     AbsoluteMaxMinDrift,
     ElementResultsCache,
+    JointResultsCache,
     WallShear,
+    SoilPressure,
+    VerticalDisplacement,
 )
 from .base_repository import BaseRepository
 
@@ -366,6 +370,47 @@ class ResultSetRepository(BaseRepository[ResultSet]):
             .order_by(ResultSet.name)
             .all()
         )
+
+
+class ComparisonSetRepository(BaseRepository[ComparisonSet]):
+    """Repository for ComparisonSet operations."""
+
+    model = ComparisonSet
+
+    def create(
+        self,
+        project_id: int,
+        name: str,
+        result_set_ids: List[int],
+        result_types: List[str],
+        description: Optional[str] = None,
+    ) -> ComparisonSet:
+        """Create a new comparison set."""
+        comparison_set = super().create(
+            project_id=project_id,
+            name=name,
+            result_set_ids=result_set_ids,
+            result_types=result_types,
+            description=description,
+        )
+        return comparison_set
+
+    def get_by_project(self, project_id: int) -> List[ComparisonSet]:
+        """Get all comparison sets for a project."""
+        return (
+            self.session.query(ComparisonSet)
+            .filter(ComparisonSet.project_id == project_id)
+            .order_by(ComparisonSet.name)
+            .all()
+        )
+
+    def check_duplicate(self, project_id: int, name: str) -> bool:
+        """Check if a comparison set with this name already exists."""
+        return (
+            self.session.query(ComparisonSet)
+            .filter(and_(ComparisonSet.project_id == project_id, ComparisonSet.name == name))
+            .first()
+        ) is not None
 
 
 class CacheRepository(BaseRepository[GlobalResultsCache]):
@@ -821,3 +866,161 @@ class ElementRepository(BaseRepository[Element]):
     def get_by_id(self, element_id: int) -> Optional[Element]:
         """Get element by ID."""
         return super().get_by_id(element_id)
+
+
+class SoilPressureRepository(BaseRepository[SoilPressure]):
+    """Repository for SoilPressure operations."""
+
+    model = SoilPressure
+
+    def create(
+        self,
+        project_id: int,
+        load_case_id: int,
+        shell_object: str,
+        unique_name: str,
+        min_pressure: float,
+        result_set_id: Optional[int] = None,
+        result_category_id: Optional[int] = None,
+    ) -> SoilPressure:
+        """Create a new soil pressure record."""
+        return super().create(
+            project_id=project_id,
+            load_case_id=load_case_id,
+            shell_object=shell_object,
+            unique_name=unique_name,
+            min_pressure=min_pressure,
+            result_set_id=result_set_id,
+            result_category_id=result_category_id,
+        )
+
+    def get_by_result_set(self, project_id: int, result_set_id: int) -> List[SoilPressure]:
+        """Get all soil pressures for a result set."""
+        return (
+            self.session.query(SoilPressure)
+            .filter(
+                and_(
+                    SoilPressure.project_id == project_id,
+                    SoilPressure.result_set_id == result_set_id,
+                )
+            )
+            .all()
+        )
+
+
+class VerticalDisplacementRepository(BaseRepository[VerticalDisplacement]):
+    """Repository for VerticalDisplacement operations."""
+
+    model = VerticalDisplacement
+
+    def create(
+        self,
+        project_id: int,
+        load_case_id: int,
+        story: str,
+        label: str,
+        unique_name: str,
+        min_displacement: float,
+        result_set_id: Optional[int] = None,
+        result_category_id: Optional[int] = None,
+    ) -> VerticalDisplacement:
+        """Create a new vertical displacement record."""
+        return super().create(
+            project_id=project_id,
+            load_case_id=load_case_id,
+            story=story,
+            label=label,
+            unique_name=unique_name,
+            min_displacement=min_displacement,
+            result_set_id=result_set_id,
+            result_category_id=result_category_id,
+        )
+
+    def get_by_result_set(self, project_id: int, result_set_id: int) -> List[VerticalDisplacement]:
+        """Get all vertical displacements for a result set."""
+        return (
+            self.session.query(VerticalDisplacement)
+            .filter(
+                and_(
+                    VerticalDisplacement.project_id == project_id,
+                    VerticalDisplacement.result_set_id == result_set_id,
+                )
+            )
+            .all()
+        )
+
+
+class JointCacheRepository(BaseRepository[JointResultsCache]):
+    """Repository for joint-level results cache operations."""
+
+    model = JointResultsCache
+
+    def get_cache_entry(
+        self,
+        project_id: int,
+        result_set_id: int,
+        result_type: str,
+        unique_name: str,
+    ) -> Optional[JointResultsCache]:
+        """Get cache entry for a specific foundation element."""
+        return (
+            self.session.query(JointResultsCache)
+            .filter(
+                and_(
+                    JointResultsCache.project_id == project_id,
+                    JointResultsCache.result_set_id == result_set_id,
+                    JointResultsCache.result_type == result_type,
+                    JointResultsCache.unique_name == unique_name,
+                )
+            )
+            .first()
+        )
+
+    def get_all_for_type(
+        self,
+        project_id: int,
+        result_set_id: int,
+        result_type: str,
+    ) -> List[JointResultsCache]:
+        """Get all cache entries for a specific result type."""
+        return (
+            self.session.query(JointResultsCache)
+            .filter(
+                and_(
+                    JointResultsCache.project_id == project_id,
+                    JointResultsCache.result_set_id == result_set_id,
+                    JointResultsCache.result_type == result_type,
+                )
+            )
+            .all()
+        )
+
+    def upsert_cache_entry(
+        self,
+        project_id: int,
+        result_set_id: int,
+        result_type: str,
+        shell_object: str,
+        unique_name: str,
+        results_matrix: dict,
+    ) -> JointResultsCache:
+        """Insert or update a cache entry."""
+        entry = self.get_cache_entry(project_id, result_set_id, result_type, unique_name)
+
+        if entry:
+            entry.results_matrix = results_matrix
+            entry.shell_object = shell_object
+            self.session.commit()
+        else:
+            entry = JointResultsCache(
+                project_id=project_id,
+                result_set_id=result_set_id,
+                result_type=result_type,
+                shell_object=shell_object,
+                unique_name=unique_name,
+                results_matrix=results_matrix,
+            )
+            self.session.add(entry)
+            self.session.commit()
+
+        return entry

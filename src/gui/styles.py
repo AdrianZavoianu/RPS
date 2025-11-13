@@ -17,7 +17,8 @@ COLORS = {
     'danger': '#dc2626',          # Error/danger color (red-600)
     'danger_hover': '#b91c1c',    # Danger hover (red-700)
     'success': '#10b981',         # Success color
-    'warning': '#f59e0b',         # Warning color
+    'warning': '#f59e0b',         # Warning color (amber-500)
+    'warning_bg': '#18130a',      # Warning background (dark amber)
     'red_600': '#dc2626',         # GMP red variants
     'red_700': '#b91c1c',
 }

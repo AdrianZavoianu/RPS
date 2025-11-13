@@ -1,6 +1,6 @@
 """Result data service facade and supporting components."""
 
-from .models import ResultDataset, MaxMinDataset, ResultDatasetMeta
+from .models import ResultDataset, MaxMinDataset, ResultDatasetMeta, ComparisonDataset, ComparisonSeries
 from .service import ResultDataService
 
 __all__ = [
@@ -8,4 +8,6 @@ __all__ = [
     "ResultDataset",
     "MaxMinDataset",
     "ResultDatasetMeta",
+    "ComparisonDataset",
+    "ComparisonSeries",
 ]

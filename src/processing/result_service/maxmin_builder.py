@@ -76,12 +76,14 @@ def build_drift_maxmin_dataset(
         display_name=build_display_label("MaxMinDrifts", None),
     )
 
-    return MaxMinDataset(
+    dataset = MaxMinDataset(
         meta=meta,
         data=df,
         directions=tuple(sorted(directions_seen)) or ("X", "Y"),
         source_type="Drifts",
     )
+
+    return dataset
 
 
 def build_generic_maxmin_dataset(

@@ -2,8 +2,9 @@
 UI Helper functions for applying GMP-style component styling to PyQt6 widgets.
 """
 
-from PyQt6.QtWidgets import QPushButton, QLabel
-from typing import Literal
+from PyQt6.QtWidgets import QPushButton, QLabel, QDialog, QWidget
+from PyQt6.QtCore import QTimer
+from typing import Literal, Optional
 
 ButtonVariant = Literal["primary", "secondary", "danger", "ghost"]
 ButtonSize = Literal["sm", "md", "lg"]
@@ -80,3 +81,37 @@ def create_styled_label(text: str, style: LabelStyle) -> QLabel:
     label = QLabel(text)
     apply_label_style(label, style)
     return label
+
+
+def show_dialog_with_blur(dialog: QDialog, parent: Optional[QWidget] = None) -> int:
+    """
+    Show a modal dialog with blur overlay on parent window.
+
+    Args:
+        dialog: The dialog to show
+        parent: Parent widget to apply blur overlay to
+
+    Returns:
+        Dialog result code
+    """
+    from gui.blur_overlay import BlurOverlay
+
+    overlay = None
+
+    if parent:
+        # Create and show blur overlay
+        overlay = BlurOverlay(parent)
+        overlay.show_animated()
+
+        # Ensure dialog is on top
+        QTimer.singleShot(50, lambda: dialog.raise_())
+
+    # Show dialog
+    result = dialog.exec()
+
+    # Hide overlay
+    if overlay:
+        overlay.hide_animated()
+        QTimer.singleShot(250, overlay.deleteLater)
+
+    return result

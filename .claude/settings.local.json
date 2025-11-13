@@ -42,7 +42,12 @@
       "Bash(git add:*)",
       "Bash(git restore --staged data/projects/**/*.db nul)",
       "Bash(git restore:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(echo:*)",
+      "Bash(\"C:\\SoftDev\\RPS\\src\\gui\\import_dialog.py\")",
+      "Bash(powershell:*)",
+      "Bash(dist/RPS/RPS.exe.sha256)",
+      "Bash(ARCHITECTURE.md)"
     ],
     "deny": [],
     "ask": []

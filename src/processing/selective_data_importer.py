@@ -25,6 +25,7 @@ class SelectiveDataImporter(DataImporter):
         analysis_type: Optional[str] = None,
         result_types: Optional[List[str]] = None,
         session_factory: Optional[Callable[[], Session]] = None,
+        foundation_joints: Optional[List[str]] = None,
     ):
         """
         Initialize selective data importer.
@@ -37,6 +38,7 @@ class SelectiveDataImporter(DataImporter):
             analysis_type: Optional analysis type
             result_types: Optional list of result types to filter
             session_factory: Factory function to create database sessions
+            foundation_joints: Optional list of joint names from Fou sheet (for vertical displacements)
         """
         super().__init__(
             file_path=file_path,
@@ -47,6 +49,7 @@ class SelectiveDataImporter(DataImporter):
             session_factory=session_factory,
         )
         self.allowed_load_cases = allowed_load_cases
+        self.foundation_joints = foundation_joints or []
 
     def _filter_load_cases(self, load_cases: List[str]) -> List[str]:
         """
@@ -59,6 +62,36 @@ class SelectiveDataImporter(DataImporter):
             Filtered list containing only allowed load cases
         """
         return [lc for lc in load_cases if lc in self.allowed_load_cases]
+
+    def import_all(self) -> dict:
+        """
+        Import all available data from Excel file with load case filtering.
+        Overrides parent to handle vertical displacements with shared foundation joints.
+
+        Returns:
+            Dictionary with import statistics
+        """
+        # Call parent import_all first
+        stats = super().import_all()
+
+        # Add vertical displacement import if foundation joints are provided
+        # This allows import even when this file doesn't have a Fou sheet
+        if self.foundation_joints and self._should_import("Vertical Displacements"):
+            if self.parser.validate_sheet_exists("Joint Displacements"):
+                try:
+                    with self.session_scope() as session:
+                        # Get project from stats (already created by parent)
+                        from database.repository import ProjectRepository
+                        project_repo = ProjectRepository(session)
+                        project = project_repo.get_by_name(self.project_name)
+
+                        if project:
+                            vert_disp_stats = self._import_vertical_displacements(session, project.id)
+                            stats["vertical_displacements"] = vert_disp_stats.get("vertical_displacements", 0)
+                except Exception as e:
+                    stats["errors"].append(f"Error importing vertical displacements: {str(e)}")
+
+        return stats
 
     def _import_story_drifts(self, session, project_id: int) -> dict:
         """Import story drifts with load case filtering."""
@@ -688,5 +721,77 @@ class SelectiveDataImporter(DataImporter):
 
         except Exception as e:
             raise ValueError(f"Error importing quad rotations: {e}")
+
+        return stats
+
+    def _import_vertical_displacements(self, session, project_id: int) -> dict:
+        """Import vertical displacements with load case filtering and foundation joints from Fou sheet."""
+        from database.repository import ResultCategoryRepository
+        from database.models import VerticalDisplacement
+        from .import_context import ResultImportHelper
+
+        stats = {"vertical_displacements": 0}
+
+        # Skip if no foundation joints provided
+        if not self.foundation_joints:
+            return stats
+
+        try:
+            # Get vertical displacements filtered by foundation joints
+            df, load_cases, unique_joints = self.parser.get_vertical_displacements(
+                foundation_joints=self.foundation_joints
+            )
+
+            if df.empty:
+                return stats
+
+            # Filter to only allowed load cases
+            filtered_load_cases = self._filter_load_cases(load_cases)
+
+            if not filtered_load_cases:
+                return stats
+
+            df = df[df['Output Case'].isin(filtered_load_cases)].copy()
+
+            helper = ResultImportHelper(session, project_id, [])  # No stories needed for joint results
+
+            # Create or get load cases
+            load_case_map = {}
+            for case_name in filtered_load_cases:
+                load_case = helper.get_load_case(case_name)
+                load_case_map[case_name] = load_case
+
+            # Create result category for Joints
+            category_repo = ResultCategoryRepository(session)
+            result_category = category_repo.get_or_create(
+                result_set_id=self.result_set_id,
+                category_name="Envelopes",
+                category_type="Joints",
+            )
+
+            vert_disp_objects = []
+
+            for _, row in df.iterrows():
+                load_case = load_case_map[row["Output Case"]]
+
+                vert_disp = VerticalDisplacement(
+                    project_id=project_id,
+                    result_set_id=self.result_set_id,
+                    result_category_id=result_category.id,
+                    load_case_id=load_case.id,
+                    story=row["Story"],
+                    label=row["Label"],
+                    unique_name=row["Unique Name"],
+                    min_displacement=row["Min Uz"],
+                )
+                vert_disp_objects.append(vert_disp)
+
+            # Bulk insert
+            session.bulk_save_objects(vert_disp_objects)
+            session.commit()
+            stats["vertical_displacements"] += len(vert_disp_objects)
+
+        except Exception as e:
+            raise ValueError(f"Error importing vertical displacements: {e}")
 
         return stats

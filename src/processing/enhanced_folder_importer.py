@@ -67,13 +67,14 @@ class EnhancedFolderImporter(BaseFolderImporter):
         self.parent_widget = parent_widget
         self.selected_load_cases = selected_load_cases
         self.conflict_resolution = conflict_resolution or {}
+        self.foundation_joints = []  # Will be populated during pre-scan
 
     @staticmethod
     def prescan_folder_for_load_cases(
         folder_path: Path,
         result_types: Optional[Set[str]] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None
-    ) -> Dict[str, Dict[str, List[str]]]:
+    ) -> Tuple[Dict[str, Dict[str, List[str]]], List[str]]:
         """
         Static method to pre-scan a folder for load cases.
         Can be called from main thread before creating worker.
@@ -84,7 +85,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
             progress_callback: Optional progress callback
 
         Returns:
-            Dict of file → sheet → load_cases
+            Tuple of (file_load_cases, foundation_joints)
+            - file_load_cases: Dict of file → sheet → load_cases
+            - foundation_joints: List of unique joint names from all Fou sheets
         """
         files: List[Path] = []
         for pattern in ("*.xlsx", "*.xls"):
@@ -92,6 +95,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         excel_files = sorted(f for f in files if not f.name.startswith("~$"))
 
         file_load_cases = {}
+        foundation_joints = []  # Collect from all files with Fou sheet
 
         for idx, file_path in enumerate(excel_files):
             if progress_callback:
@@ -133,6 +137,27 @@ class EnhancedFolderImporter(BaseFolderImporter):
                         sheets_errored.append(f"{sheet_name}: {str(e)[:30]}")
                         continue
 
+                # Special case: Collect foundation joints from Fou sheet
+                if parser.validate_sheet_exists("Fou"):
+                    try:
+                        joints = parser.get_foundation_joints()
+                        if joints and not foundation_joints:  # Take from first file with Fou
+                            foundation_joints = joints
+                    except Exception:
+                        pass  # Skip if error
+
+                # Special case: Check for Vertical Displacements (only needs Joint Displacements)
+                # Foundation joints will be shared across all files during import
+                if parser.validate_sheet_exists("Joint Displacements"):
+                    if result_types is None or "vertical displacements" in result_types:
+                        try:
+                            _, load_cases, _ = parser.get_joint_displacements()
+                            if load_cases:
+                                load_cases_by_sheet["Vertical Displacements"] = load_cases
+                                sheets_found.append(f"Vertical Displacements({len(load_cases)})")
+                        except Exception:
+                            pass  # Skip if error
+
                 # Log what was found/errored for this file
                 if progress_callback and (sheets_found or sheets_errored):
                     if sheets_found:
@@ -155,7 +180,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 # Skip problematic files
                 continue
 
-        return file_load_cases
+        return file_load_cases, foundation_joints
 
     @staticmethod
     def _extract_load_cases_from_sheet_static(
@@ -171,7 +196,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         elif sheet_name == "Story Forces":
             _, load_cases, _ = parser.get_story_forces()
             return load_cases
-        elif sheet_name == "Joint DisplacementsG":
+        elif sheet_name == "Joint Displacements":
             _, load_cases, _ = parser.get_joint_displacements()
             return load_cases
         elif sheet_name == "Pier Forces":
@@ -189,6 +214,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
         elif sheet_name == "Quad Strain Gauge - Rotation":
             _, load_cases, _, _ = parser.get_quad_rotations()
             return load_cases
+        elif sheet_name == "Soil Pressures":
+            _, load_cases, _ = parser.get_soil_pressures()
+            return load_cases
         else:
             return []
 
@@ -202,9 +230,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
         if not self.excel_files:
             raise ValueError(f"No Excel files found in folder: {self.folder_path}")
 
-        # Phase 1: Pre-scan all files for load cases
+        # Phase 1: Pre-scan all files for load cases and foundation joints
         self._report_progress("Scanning files for load cases...", 0, len(self.excel_files))
-        file_load_cases = self._prescan_load_cases()
+        file_load_cases, self.foundation_joints = self._prescan_load_cases()
 
         if not file_load_cases:
             return {
@@ -230,12 +258,13 @@ class EnhancedFolderImporter(BaseFolderImporter):
             file_load_cases, selected_load_cases, self.conflict_resolution
         )
 
-    def _prescan_load_cases(self) -> Dict[str, Dict[str, List[str]]]:
+    def _prescan_load_cases(self) -> Tuple[Dict[str, Dict[str, List[str]]], List[str]]:
         """
-        Pre-scan all files to collect load cases.
+        Pre-scan all files to collect load cases and foundation joints.
 
         Returns:
-            {
+            Tuple of (file_load_cases, foundation_joints)
+            file_load_cases = {
                 "file1.xlsx": {
                     "Story Drifts": ["DES_X", "DES_Y", "MCE_X"],
                     "Story Forces": ["DES_X", "DES_Y", "MCE_X"],
@@ -244,8 +273,10 @@ class EnhancedFolderImporter(BaseFolderImporter):
                     "Story Drifts": ["SLE_X", "SLE_Y"],
                 }
             }
+            foundation_joints = ["J1", "J2", ...] from Fou sheet
         """
         file_load_cases = {}
+        foundation_joints = []  # Collect from all files with Fou sheet
 
         for idx, file_path in enumerate(self.excel_files):
             self._report_progress(
@@ -285,6 +316,26 @@ class EnhancedFolderImporter(BaseFolderImporter):
                         sheets_errored.append(f"{sheet_name}: {str(e)[:30]}")
                         continue
 
+                # Special case: Collect foundation joints from Fou sheet
+                if parser.validate_sheet_exists("Fou"):
+                    try:
+                        joints = parser.get_foundation_joints()
+                        if joints and not foundation_joints:  # Take from first file with Fou
+                            foundation_joints = joints
+                    except Exception:
+                        pass  # Skip if error
+
+                # Special case: Check for Vertical Displacements (only needs Joint Displacements)
+                # Foundation joints will be shared across all files during import
+                if parser.validate_sheet_exists("Joint Displacements"):
+                    try:
+                        _, load_cases, _ = parser.get_joint_displacements()
+                        if load_cases:
+                            load_cases_by_sheet["Vertical Displacements"] = load_cases
+                            sheets_found.append(f"Vertical Displacements({len(load_cases)})")
+                    except Exception:
+                        pass  # Skip if error
+
                 # Log what was found/errored for this file
                 if sheets_found:
                     self._report_progress(
@@ -306,7 +357,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 # Skip problematic files
                 continue
 
-        return file_load_cases
+        return file_load_cases, foundation_joints
 
     def _extract_load_cases_from_sheet(
         self, parser: ExcelParser, sheet_name: str
@@ -321,7 +372,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         elif sheet_name == "Story Forces":
             _, load_cases, _ = parser.get_story_forces()
             return load_cases
-        elif sheet_name == "Joint DisplacementsG":
+        elif sheet_name == "Joint Displacements":
             _, load_cases, _ = parser.get_joint_displacements()
             return load_cases
         elif sheet_name == "Pier Forces":
@@ -338,6 +389,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
             return load_cases
         elif sheet_name == "Quad Strain Gauge - Rotation":
             _, load_cases, _, _ = parser.get_quad_rotations()
+            return load_cases
+        elif sheet_name == "Soil Pressures":
+            _, load_cases, _ = parser.get_soil_pressures()
             return load_cases
         else:
             return []
@@ -484,6 +538,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
             "displacements": 0,
             "pier_forces": 0,
             "column_forces": 0,
+            "vertical_displacements": 0,
             "errors": [],
         }
 
@@ -542,6 +597,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
                     allowed_load_cases=allowed_load_cases,
                     result_types=result_types_list,  # Pass result types filter
                     session_factory=self._session_factory,
+                    foundation_joints=self.foundation_joints,  # Pass foundation joints from Fou sheet
                 )
                 file_stats = importer.import_all()
 
@@ -554,6 +610,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 stats["displacements"] += file_stats.get("displacements", 0)
                 stats["pier_forces"] += file_stats.get("pier_forces", 0)
                 stats["column_forces"] += file_stats.get("column_forces", 0)
+                stats["vertical_displacements"] += file_stats.get("vertical_displacements", 0)
 
                 # Track imported load cases per sheet
                 for sheet_name in file_load_cases[file_name].keys():

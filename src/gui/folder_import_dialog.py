@@ -92,13 +92,14 @@ class LoadCaseScanWorker(QThread):
             if self.result_types:
                 result_types_set = {rt.strip().lower() for rt in self.result_types}
 
-            # Prescan folder for load cases
-            file_load_cases = EnhancedFolderImporter.prescan_folder_for_load_cases(
+            # Prescan folder for load cases and foundation joints
+            file_load_cases, foundation_joints = EnhancedFolderImporter.prescan_folder_for_load_cases(
                 self.folder_path,
                 result_types_set,
                 self._on_progress
             )
 
+            # For now, we only emit file_load_cases (foundation_joints are handled internally)
             self.finished.emit(file_load_cases)
         except Exception as exc:  # pragma: no cover - UI feedback
             self.error.emit(str(exc))
