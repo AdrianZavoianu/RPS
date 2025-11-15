@@ -8,8 +8,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from gui.design_tokens import FormStyles
 from gui.ui_helpers import create_styled_button, create_styled_label
-from gui.styles import COLORS
 
 
 class ImportDialog(QDialog):
@@ -24,7 +24,7 @@ class ImportDialog(QDialog):
         self.resize(500, 300)
 
         self._setup_ui()
-        self._apply_styles()
+        self.setStyleSheet(FormStyles.dialog())
 
     def _setup_ui(self):
         """Create dialog layout."""
@@ -95,57 +95,6 @@ class ImportDialog(QDialog):
         button_layout.addWidget(import_btn)
 
         layout.addLayout(button_layout)
-
-    def _apply_styles(self):
-        """Apply GMP design system styles."""
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-            }}
-
-            QLabel {{
-                color: {COLORS['text_primary']};
-                font-size: 14px;
-            }}
-
-            QLineEdit {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                padding: 8px;
-                color: {COLORS['text_primary']};
-                font-size: 14px;
-            }}
-
-            QLineEdit:focus {{
-                border-color: {COLORS['accent']};
-            }}
-
-            QComboBox {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                padding: 8px;
-                color: {COLORS['text_primary']};
-                font-size: 14px;
-            }}
-
-            QComboBox:focus {{
-                border-color: {COLORS['accent']};
-            }}
-
-            QComboBox::drop-down {{
-                border: none;
-            }}
-
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 6px solid {COLORS['text_secondary']};
-                margin-right: 8px;
-            }}
-        """)
 
     def _browse_file(self):
         """Open file browser to select Excel file."""

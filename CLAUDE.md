@@ -145,14 +145,31 @@ Follow DESIGN.md:
 
 **Data Access:**
 - `database/models.py` - All 24 ORM models (includes SoilPressure, VerticalDisplacement)
-- `database/repository.py` - Data access (all extend BaseRepository, includes JointCacheRepository)
-- `services/result_service/` - Data retrieval (6 focused modules)
+- `database/repository.py` - Domain-specific repositories (all extend BaseRepository)
+- `database/base_repository.py` - Generic CRUD operations
+- `database/element_result_repository.py` - Element result queries (max/min aggregation)
+- `processing/result_service/` - Data retrieval layer (7 focused modules)
+  - `service.py` - Main facade with provider-based architecture
+  - `providers.py` - Dataset providers (Standard, Element, Joint) with caching
+  - `cache_builder.py` - Dataset construction from cache
+  - `comparison_builder.py` - Multi-set comparison logic
+  - `maxmin_builder.py` - Max/min envelope calculations
+  - `metadata.py` - Display label generation
+  - `story_loader.py` - Story data caching
+  - `models.py` - ResultDataset, ComparisonDataset, MaxMinDataset
 
-**Processing:**
-- `processing/result_transformers.py` - Pluggable transformers
-- `processing/enhanced_folder_importer.py` - Import with conflict resolution
-- `processing/excel_parser.py` - Excel parsing
-- `processing/result_service/comparison_builder.py` - Multi-set comparison logic
+**Import System:**
+- `services/import_preparation.py` - Headless prescan service (file discovery, load case extraction)
+  - `ImportPreparationService` - Folder/file scanning with parallel execution
+  - `PrescanResult` / `FilePrescanSummary` - Prescan data models
+  - `detect_conflicts()` - Conflict detection logic
+  - `determine_allowed_load_cases()` - Load case filtering
+- `processing/enhanced_folder_importer.py` - Enhanced import with conflict resolution
+- `processing/folder_importer.py` - Basic folder import
+- `processing/data_importer.py` - Single-file import
+- `processing/selective_data_importer.py` - Load case filtering
+- `processing/excel_parser.py` - Excel sheet parsing
+- `processing/result_transformers.py` - Data transformation (Excel → ORM)
 
 **UI:**
 - `gui/project_detail_window.py` - Main 3-panel view (browser | content)
@@ -189,6 +206,23 @@ Follow DESIGN.md:
 ---
 
 ## Recent Changes (November 2024)
+
+### v2.8 - Import System Refactor (Nov 15)
+- **Service Layer Extraction**: Import prescan logic moved to `services/import_preparation.py`
+  - Headless `ImportPreparationService` for reusable prescan operations
+  - Parallel file scanning with `ThreadPoolExecutor` (6 workers)
+  - `PrescanResult` and `FilePrescanSummary` data models
+  - Pure functions for conflict detection and load case filtering
+- **Provider Pattern**: Data retrieval refactored with dedicated providers
+  - `StandardDatasetProvider` (global/story-based results)
+  - `ElementDatasetProvider` (element-specific results)
+  - `JointDatasetProvider` (foundation/joint results)
+  - Each provider handles caching and invalidation independently
+- **Repository Separation**: Element query logic extracted to `element_result_repository.py`
+  - `ElementResultQueryRepository` - Encapsulates ORM queries for max/min datasets
+  - Model registry pattern for different element types (Walls, Columns, Beams, Quads)
+  - Cleaner separation between CRUD (BaseRepository) and complex queries
+- **Improved Modularity**: Better separation of concerns across import/export pipeline
 
 ### v2.7 - Multi-Set Export & UI Enhancements (Nov 13)
 - **Multi-Result-Set Export**: Select multiple result sets to export simultaneously
@@ -253,5 +287,5 @@ Follow DESIGN.md:
 
 ---
 
-**Last Updated**: 2024-11-13
-**Version**: 2.7
+**Last Updated**: 2024-11-15
+**Version**: 2.8

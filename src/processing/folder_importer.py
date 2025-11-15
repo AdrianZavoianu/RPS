@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database.repository import ProjectRepository, LoadCaseRepository, StoryRepository
 
+from services.import_preparation import FilePrescanSummary
 from .excel_parser import ExcelParser
 from .data_importer import DataImporter
 from .base_importer import BaseFolderImporter
@@ -40,6 +41,7 @@ class FolderImporter(BaseFolderImporter):
         result_types: Optional[List[str]] = None,
         session_factory: Optional[Callable[[], Session]] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        file_summaries: Optional[Dict[str, FilePrescanSummary]] = None,
     ):
         super().__init__(
             folder_path=folder_path,
@@ -50,6 +52,7 @@ class FolderImporter(BaseFolderImporter):
         self.project_name = project_name
         self.result_set_name = result_set_name
         self._session_factory = session_factory
+        self._file_summaries = file_summaries or {}
 
     def import_all(self) -> Dict[str, Any]:
         """Import data from all Excel files in the folder."""
@@ -80,7 +83,11 @@ class FolderImporter(BaseFolderImporter):
                 )
 
                 parser = ExcelParser(str(excel_file))
-                available = set(parser.get_available_sheets())
+                summary = self._file_summaries.get(excel_file.name)
+                if summary:
+                    available = summary.available_sheets
+                else:
+                    available = set(parser.get_available_sheets())
 
                 matched_labels = []
                 for sheet, labels in TARGET_SHEETS.items():
@@ -105,6 +112,7 @@ class FolderImporter(BaseFolderImporter):
                     result_set_name=self.result_set_name,
                     result_types=matched_labels,
                     session_factory=self._session_factory,
+                    file_summary=summary,
                 )
                 file_stats = importer.import_all()
 

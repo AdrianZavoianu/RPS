@@ -27,12 +27,14 @@ from PyQt6.QtWidgets import (
 
 from .styles import COLORS
 from .ui_helpers import create_styled_button, create_styled_label
+from services.import_preparation import ImportPreparationService, PrescanResult
 from services.project_service import (
     ProjectContext,
     ensure_project_context,
     get_project_context,
     result_set_exists,
 )
+from processing.folder_importer import TARGET_SHEETS
 
 
 EXCEL_PATTERNS: Sequence[str] = ("*.xlsx", "*.xls")
@@ -70,7 +72,7 @@ class LoadCaseScanWorker(QThread):
     """Worker thread for scanning files for load cases."""
 
     progress = pyqtSignal(str, int, int)  # message, current, total
-    finished = pyqtSignal(dict)  # file_load_cases
+    finished = pyqtSignal(object)  # PrescanResult
     error = pyqtSignal(str)  # error message
 
     def __init__(
@@ -85,22 +87,17 @@ class LoadCaseScanWorker(QThread):
     def run(self) -> None:  # pragma: no cover - executes in worker thread
         """Scan files for load cases in background thread."""
         try:
-            from processing.enhanced_folder_importer import EnhancedFolderImporter
-
-            # Convert result_types to set if present
             result_types_set = None
             if self.result_types:
                 result_types_set = {rt.strip().lower() for rt in self.result_types}
 
-            # Prescan folder for load cases and foundation joints
-            file_load_cases, foundation_joints = EnhancedFolderImporter.prescan_folder_for_load_cases(
+            service = ImportPreparationService(TARGET_SHEETS)
+            prescan = service.prescan_folder(
                 self.folder_path,
                 result_types_set,
-                self._on_progress
+                self._on_progress,
             )
-
-            # For now, we only emit file_load_cases (foundation_joints are handled internally)
-            self.finished.emit(file_load_cases)
+            self.finished.emit(prescan)
         except Exception as exc:  # pragma: no cover - UI feedback
             self.error.emit(str(exc))
 
@@ -126,6 +123,7 @@ class FolderImportWorker(QThread):
         parent_widget: Optional[QWidget] = None,
         selected_load_cases: Optional[Set[str]] = None,
         conflict_resolution: Optional[Dict[str, Dict[str, Optional[str]]]] = None,
+        prescan_result: Optional[PrescanResult] = None,
     ) -> None:
         super().__init__()
         self.context = context
@@ -136,6 +134,7 @@ class FolderImportWorker(QThread):
         self.parent_widget = parent_widget
         self.selected_load_cases = selected_load_cases
         self.conflict_resolution = conflict_resolution
+        self.prescan_result = prescan_result
         self._session_factory = context.session_factory()
 
     def run(self) -> None:  # pragma: no cover - executes in worker thread
@@ -154,6 +153,7 @@ class FolderImportWorker(QThread):
                     parent_widget=self.parent_widget,
                     selected_load_cases=self.selected_load_cases,
                     conflict_resolution=self.conflict_resolution,
+                    prescan_result=self.prescan_result,
                 )
                 stats = importer.import_all()
                 self.finished.emit(stats)
@@ -167,6 +167,7 @@ class FolderImportWorker(QThread):
                     result_types=self.result_types,
                     session_factory=self._session_factory,
                     progress_callback=self._on_progress,
+                    file_summaries=self.prescan_result.file_summaries if self.prescan_result else None,
                 )
                 stats = importer.import_all()
                 self.finished.emit(stats)
@@ -202,6 +203,7 @@ class FolderImportDialog(QDialog):
         self.import_stats: Optional[dict] = None
         self._excel_files: List[Path] = []
         self._lock_project_name = context is not None
+        self._prescan_result: Optional[PrescanResult] = None
 
         self.scan_worker: Optional[LoadCaseScanWorker] = None
         self.import_worker: Optional[FolderImportWorker] = None
@@ -537,6 +539,7 @@ class FolderImportDialog(QDialog):
         """Populate preview list with Excel files and scan for load cases."""
         self.file_list.clear()
         self._excel_files = []
+        self._prescan_result = None
 
         if not self.folder_path:
             return
@@ -562,6 +565,7 @@ class FolderImportDialog(QDialog):
         """Scan Excel files for load cases in background thread."""
         # Clear previous load cases
         self._clear_load_case_list()
+        self._prescan_result = None
 
         if not self.folder_path or not self._excel_files:
             return
@@ -581,6 +585,9 @@ class FolderImportDialog(QDialog):
         self.scan_worker.error.connect(self._on_scan_error)
         self.scan_worker.start()
 
+        # Update button state (will be disabled during scan)
+        self.update_import_button()
+
     def _on_scan_progress(self, message: str, current: int, total: int) -> None:
         """Update UI with scan progress."""
         self.progress_label.setText(message)
@@ -590,15 +597,27 @@ class FolderImportDialog(QDialog):
         # Also log scan progress to output
         self.log_output.append(f"  {message} ({current}/{total})")
 
-    def _on_scan_finished(self, file_load_cases: Dict) -> None:
+    def _on_scan_finished(self, prescan: PrescanResult) -> None:
         """Handle scan completion."""
         self.scan_worker = None
         self.progress_label.setText("Ready to import")
         self.progress_bar.setValue(0)
+        self._prescan_result = prescan
+
+        file_load_cases = prescan.file_load_cases
+        errors = prescan.errors
+
+        if errors:
+            self.log_output.append("- Scan completed with warnings:")
+            for message in errors[:5]:
+                self.log_output.append(f"  • {message}")
+            if len(errors) > 5:
+                self.log_output.append(f"  • ...and {len(errors) - 5} more")
 
         if not file_load_cases:
             self.log_output.append("- No load cases found")
             self._set_scan_controls_enabled(True)
+            self.update_import_button()  # Re-enable button now that scan is complete
             return
 
         # Collect all unique load cases
@@ -631,6 +650,7 @@ class FolderImportDialog(QDialog):
 
         self.log_output.append(f"- Found {len(all_load_cases)} unique load case(s)")
         self._set_scan_controls_enabled(True)
+        self.update_import_button()  # Re-enable button now that scan is complete
 
     def _on_scan_error(self, error_message: str) -> None:
         """Handle scan error."""
@@ -639,6 +659,7 @@ class FolderImportDialog(QDialog):
         self.progress_bar.setValue(0)
         self.log_output.append(f"- Error scanning load cases: {error_message}")
         self._set_scan_controls_enabled(True)
+        self.update_import_button()  # Re-enable button even after error
 
     def _set_scan_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable controls during scan."""
@@ -775,6 +796,7 @@ class FolderImportDialog(QDialog):
         has_files = bool(self._excel_files)
         has_project = bool(project_name)
         has_result_set = bool(result_set_name)
+        scan_complete = self.scan_worker is None  # Scanning is not in progress
 
         validation_message = ""
         is_valid = True
@@ -786,7 +808,7 @@ class FolderImportDialog(QDialog):
                 is_valid = False
 
         self.import_btn.setEnabled(
-            has_folder and has_files and has_project and has_result_set and is_valid
+            has_folder and has_files and has_project and has_result_set and is_valid and scan_complete
         )
 
     def _get_validation_context(self, project_name: str) -> Optional[ProjectContext]:
@@ -880,6 +902,10 @@ class FolderImportDialog(QDialog):
             selected_load_cases = None
             conflict_resolution = None
 
+        prescan_result = self._prescan_result
+        if use_enhanced and prescan_result is None:
+            self.log_output.append("- Load case scan missing; importer will perform a fresh prescan.")
+
         self.import_worker = FolderImportWorker(
             context=context,
             folder_path=self.folder_path,
@@ -889,6 +915,7 @@ class FolderImportDialog(QDialog):
             parent_widget=self,
             selected_load_cases=selected_load_cases,
             conflict_resolution=conflict_resolution,
+            prescan_result=prescan_result,
         )
         self.import_worker.progress.connect(self.on_progress)
         self.import_worker.finished.connect(self.on_finished)
@@ -983,6 +1010,7 @@ class FolderImportDialog(QDialog):
         self.log_output.append(f"  Accelerations: {stats.get('accelerations', 0)}")
         self.log_output.append(f"  Forces: {stats.get('forces', 0)}")
         self.log_output.append(f"  Displacements: {stats.get('displacements', 0)}")
+        self._log_phase_timings(stats)
 
         errors = stats.get("errors") or []
         if errors:
@@ -1022,4 +1050,38 @@ class FolderImportDialog(QDialog):
         """Return the statistics from the most recent import."""
         return self.import_stats
 
+    # ------------------------------------------------------------------ #
+    # Diagnostics
+    # ------------------------------------------------------------------ #
 
+    def _log_phase_timings(self, stats: dict) -> None:
+        """Emit the slowest sheet/file phases for troubleshooting."""
+        timings = stats.get("phase_timings") or []
+        if not timings:
+            return
+
+        # Aggregate per phase
+        phase_totals: Dict[str, float] = {}
+        for entry in timings:
+            phase = entry.get("phase", "unknown")
+            phase_totals[phase] = phase_totals.get(phase, 0.0) + float(entry.get("duration", 0.0))
+
+        top_phases = sorted(phase_totals.items(), key=lambda item: item[1], reverse=True)[:3]
+        top_runs = sorted(timings, key=lambda entry: entry.get("duration", 0.0), reverse=True)[:5]
+
+        self.log_output.append("- Slowest phases (aggregate):")
+        for phase, total in top_phases:
+            self.log_output.append(f"    • {phase}: {total:.2f}s total")
+
+        self.log_output.append("- Slowest sheets/files:")
+        for entry in top_runs:
+            phase = entry.get("phase", "unknown")
+            file_name = entry.get("file", "?")
+            duration = entry.get("duration", 0.0)
+            extra_bits = []
+            if entry.get("source"):
+                extra_bits.append(entry["source"])
+            if entry.get("sheet"):
+                extra_bits.append(entry["sheet"])
+            extra = f" ({', '.join(extra_bits)})" if extra_bits else ""
+            self.log_output.append(f"    • {file_name}: {phase} {duration:.2f}s{extra}")

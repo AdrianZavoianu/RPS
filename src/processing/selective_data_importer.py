@@ -1,6 +1,8 @@
 """Data importer with load case filtering support."""
 
-from typing import Optional, List, Callable, Set
+from __future__ import annotations
+
+from typing import Optional, List, Callable, Set, TYPE_CHECKING
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -14,6 +16,9 @@ from database.repository import (
 
 from .data_importer import DataImporter
 
+if TYPE_CHECKING:
+    from services.import_preparation import FilePrescanSummary
+
 
 class SelectiveDataImporter(DataImporter):
     def __init__(
@@ -26,6 +31,8 @@ class SelectiveDataImporter(DataImporter):
         result_types: Optional[List[str]] = None,
         session_factory: Optional[Callable[[], Session]] = None,
         foundation_joints: Optional[List[str]] = None,
+        file_summary: Optional["FilePrescanSummary"] = None,
+        generate_cache: bool = True,
     ):
         """
         Initialize selective data importer.
@@ -47,6 +54,8 @@ class SelectiveDataImporter(DataImporter):
             analysis_type=analysis_type,
             result_types=result_types,
             session_factory=session_factory,
+            file_summary=file_summary,
+            generate_cache=generate_cache,
         )
         self.allowed_load_cases = allowed_load_cases
         self.foundation_joints = foundation_joints or []
@@ -63,6 +72,19 @@ class SelectiveDataImporter(DataImporter):
         """
         return [lc for lc in load_cases if lc in self.allowed_load_cases]
 
+    def _sheet_has_allowed_load_cases(self, summary_key: str) -> bool:
+        """
+        Determine if a sheet contains any allowed load cases based on prescan data.
+        """
+        if not self.allowed_load_cases or not self.file_summary:
+            return True
+
+        sheet_cases = self.file_summary.load_cases_by_sheet.get(summary_key)
+        if sheet_cases is None:
+            return True  # Fallback to parser if sheet wasn't scanned
+
+        return any(lc in self.allowed_load_cases for lc in sheet_cases)
+
     def import_all(self) -> dict:
         """
         Import all available data from Excel file with load case filtering.
@@ -77,17 +99,22 @@ class SelectiveDataImporter(DataImporter):
         # Add vertical displacement import if foundation joints are provided
         # This allows import even when this file doesn't have a Fou sheet
         if self.foundation_joints and self._should_import("Vertical Displacements"):
-            if self.parser.validate_sheet_exists("Joint Displacements"):
+            if self._sheet_available("Joint Displacements"):
                 try:
-                    with self.session_scope() as session:
-                        # Get project from stats (already created by parent)
-                        from database.repository import ProjectRepository
-                        project_repo = ProjectRepository(session)
-                        project = project_repo.get_by_name(self.project_name)
+                    with self._phase_timer.measure(
+                        "vertical_displacements",
+                        {"source": "shared_foundation"},
+                    ):
+                        with self.session_scope() as session:
+                            # Get project from stats (already created by parent)
+                            from database.repository import ProjectRepository
 
-                        if project:
-                            vert_disp_stats = self._import_vertical_displacements(session, project.id)
-                            stats["vertical_displacements"] = vert_disp_stats.get("vertical_displacements", 0)
+                            project_repo = ProjectRepository(session)
+                            project = project_repo.get_by_name(self.project_name)
+
+                            if project:
+                                vert_disp_stats = self._import_vertical_displacements(session, project.id)
+                                stats["vertical_displacements"] = vert_disp_stats.get("vertical_displacements", 0)
                 except Exception as e:
                     stats["errors"].append(f"Error importing vertical displacements: {str(e)}")
 
@@ -100,6 +127,9 @@ class SelectiveDataImporter(DataImporter):
         from .import_context import ResultImportHelper
 
         stats = {"load_cases": 0, "stories": 0, "drifts": 0}
+
+        if not self._sheet_has_allowed_load_cases("Story Drifts"):
+            return stats
 
         try:
             df, load_cases, stories = self.parser.get_story_drifts()
@@ -159,6 +189,9 @@ class SelectiveDataImporter(DataImporter):
 
         stats = {"accelerations": 0}
 
+        if not self._sheet_has_allowed_load_cases("Diaphragm Accelerations"):
+            return stats
+
         try:
             df, load_cases, stories = self.parser.get_story_accelerations()
 
@@ -211,6 +244,9 @@ class SelectiveDataImporter(DataImporter):
         from .import_context import ResultImportHelper
 
         stats = {"forces": 0}
+
+        if not self._sheet_has_allowed_load_cases("Story Forces"):
+            return stats
 
         try:
             df, load_cases, stories = self.parser.get_story_forces()
@@ -265,8 +301,12 @@ class SelectiveDataImporter(DataImporter):
 
         stats = {"displacements": 0}
 
+        if not self._sheet_has_allowed_load_cases("Joint Displacements"):
+            return stats
+
         try:
-            df, load_cases, stories = self.parser.get_joint_displacements()
+            with self._phase_timer.measure("floor_displacements_parse"):
+                df, load_cases, stories = self.parser.get_joint_displacements()
 
             # Filter to only allowed load cases
             filtered_load_cases = self._filter_load_cases(load_cases)
@@ -280,9 +320,10 @@ class SelectiveDataImporter(DataImporter):
             disp_repo = StoryDisplacementDataRepository(session)
 
             for direction, column_name in [("UX", "Ux"), ("UY", "Uy")]:
-                processed = ResultProcessor.process_joint_displacements(
-                    df, filtered_load_cases, stories, column_name
-                )
+                with self._phase_timer.measure("floor_displacements_process"):
+                    processed = ResultProcessor.process_joint_displacements(
+                        df, filtered_load_cases, stories, column_name
+                    )
 
                 disp_objects = []
 
@@ -302,7 +343,8 @@ class SelectiveDataImporter(DataImporter):
                     )
                     disp_objects.append(disp)
 
-                disp_repo.bulk_create(disp_objects)
+                with self._phase_timer.measure("floor_displacements_db"):
+                    disp_repo.bulk_create(disp_objects)
                 stats["displacements"] += len(disp_objects)
 
         except Exception as e:
@@ -318,6 +360,9 @@ class SelectiveDataImporter(DataImporter):
         from .import_context import ResultImportHelper
 
         stats = {"pier_forces": 0, "piers": 0}
+
+        if not self._sheet_has_allowed_load_cases("Pier Forces"):
+            return stats
 
         try:
             df, load_cases, stories, piers = self.parser.get_pier_forces()
@@ -388,6 +433,9 @@ class SelectiveDataImporter(DataImporter):
         from .import_context import ResultImportHelper
 
         stats = {"column_forces": 0, "columns": 0}
+
+        if not self._sheet_has_allowed_load_cases("Element Forces - Columns"):
+            return stats
 
         try:
             df, load_cases, stories, columns = self.parser.get_column_forces()
@@ -460,6 +508,9 @@ class SelectiveDataImporter(DataImporter):
 
         stats = {"column_axials": 0}
 
+        if not self._sheet_has_allowed_load_cases("Element Forces - Columns"):
+            return stats
+
         try:
             df, load_cases, stories, columns = self.parser.get_column_forces()
 
@@ -524,6 +575,9 @@ class SelectiveDataImporter(DataImporter):
         from .import_context import ResultImportHelper
 
         stats = {"column_rotations": 0}
+
+        if not self._sheet_has_allowed_load_cases("Fiber Hinge States"):
+            return stats
 
         try:
             df, load_cases, stories, columns = self.parser.get_fiber_hinge_states()
@@ -592,6 +646,9 @@ class SelectiveDataImporter(DataImporter):
         from .import_context import ResultImportHelper
 
         stats = {"beam_rotations": 0, "beams": 0}
+
+        if not self._sheet_has_allowed_load_cases("Hinge States"):
+            return stats
 
         try:
             df, load_cases, stories, beams = self.parser.get_hinge_states()
@@ -664,8 +721,12 @@ class SelectiveDataImporter(DataImporter):
 
         stats = {"quad_rotations": 0}
 
+        if not self._sheet_has_allowed_load_cases("Quad Strain Gauge - Rotation"):
+            return stats
+
         try:
-            df, load_cases, stories, piers = self.parser.get_quad_rotations()
+            with self._phase_timer.measure("quad_rotations_parse"):
+                df, load_cases, stories, piers = self.parser.get_quad_rotations()
 
             # Filter to only allowed load cases
             filtered_load_cases = self._filter_load_cases(load_cases)
@@ -689,9 +750,10 @@ class SelectiveDataImporter(DataImporter):
                 )
                 pier_elements[pier_name] = element
 
-            processed = ResultProcessor.process_quad_rotations(
-                df, filtered_load_cases, stories, piers
-            )
+            with self._phase_timer.measure("quad_rotations_process"):
+                processed = ResultProcessor.process_quad_rotations(
+                    df, filtered_load_cases, stories, piers
+                )
 
             rotation_objects = []
 
@@ -715,8 +777,9 @@ class SelectiveDataImporter(DataImporter):
                 )
                 rotation_objects.append(rotation)
 
-            session.bulk_save_objects(rotation_objects)
-            session.commit()
+            with self._phase_timer.measure("quad_rotations_db"):
+                session.bulk_save_objects(rotation_objects)
+                session.commit()
             stats["quad_rotations"] += len(rotation_objects)
 
         except Exception as e:
@@ -732,15 +795,18 @@ class SelectiveDataImporter(DataImporter):
 
         stats = {"vertical_displacements": 0}
 
+        if not self._sheet_has_allowed_load_cases("Vertical Displacements"):
+            return stats
+
         # Skip if no foundation joints provided
         if not self.foundation_joints:
             return stats
 
         try:
-            # Get vertical displacements filtered by foundation joints
-            df, load_cases, unique_joints = self.parser.get_vertical_displacements(
-                foundation_joints=self.foundation_joints
-            )
+            with self._phase_timer.measure("vertical_displacements_parse"):
+                df, load_cases, unique_joints = self.parser.get_vertical_displacements(
+                    foundation_joints=self.foundation_joints
+                )
 
             if df.empty:
                 return stats
@@ -771,24 +837,26 @@ class SelectiveDataImporter(DataImporter):
 
             vert_disp_objects = []
 
-            for _, row in df.iterrows():
-                load_case = load_case_map[row["Output Case"]]
+            with self._phase_timer.measure("vertical_displacements_process"):
+                for _, row in df.iterrows():
+                    load_case = load_case_map[row["Output Case"]]
 
-                vert_disp = VerticalDisplacement(
-                    project_id=project_id,
-                    result_set_id=self.result_set_id,
-                    result_category_id=result_category.id,
-                    load_case_id=load_case.id,
-                    story=row["Story"],
-                    label=row["Label"],
-                    unique_name=row["Unique Name"],
-                    min_displacement=row["Min Uz"],
-                )
-                vert_disp_objects.append(vert_disp)
+                    vert_disp = VerticalDisplacement(
+                        project_id=project_id,
+                        result_set_id=self.result_set_id,
+                        result_category_id=result_category.id,
+                        load_case_id=load_case.id,
+                        story=row["Story"],
+                        label=row["Label"],
+                        unique_name=row["Unique Name"],
+                        min_displacement=row["Min Uz"],
+                    )
+                    vert_disp_objects.append(vert_disp)
 
             # Bulk insert
-            session.bulk_save_objects(vert_disp_objects)
-            session.commit()
+            with self._phase_timer.measure("vertical_displacements_db"):
+                session.bulk_save_objects(vert_disp_objects)
+                session.commit()
             stats["vertical_displacements"] += len(vert_disp_objects)
 
         except Exception as e:

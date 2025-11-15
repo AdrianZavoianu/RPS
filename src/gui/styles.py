@@ -3,23 +3,27 @@ Modern dark bluish theme stylesheet for RPS application.
 Inspired by modern web applications with Tailwind-style design.
 """
 
-# Color palette exactly matching GMP project
+from gui.design_tokens import PALETTE
+
+# Legacy color mapping for existing widgets
 COLORS = {
-    'background': '#0a0c10',      # Main background (var(--color-background))
-    'card': '#161b22',            # Card/panel background (var(--color-card))
-    'border': '#2c313a',          # Borders (var(--color-border))
-    'text': '#d1d5db',            # Primary text (var(--color-text))
-    'muted': '#7f8b9a',           # Muted/secondary text (var(--color-muted))
-    'accent': '#4a7d89',          # Accent color (var(--color-accent))
-    'accent_hover': '#3f6b73',    # Accent hover (accent/90)
-    'hover': '#1c2128',           # Hover background
-    'selected': '#1f2937',        # Selected item background
-    'danger': '#dc2626',          # Error/danger color (red-600)
-    'danger_hover': '#b91c1c',    # Danger hover (red-700)
-    'success': '#10b981',         # Success color
-    'warning': '#f59e0b',         # Warning color (amber-500)
-    'warning_bg': '#18130a',      # Warning background (dark amber)
-    'red_600': '#dc2626',         # GMP red variants
+    'background': PALETTE['bg_primary'],
+    'card': PALETTE['bg_secondary'],
+    'border': PALETTE['border_default'],
+    'text': PALETTE['text_primary'],
+    'text_primary': PALETTE['text_primary'],
+    'text_secondary': PALETTE['text_secondary'],
+    'muted': PALETTE['text_muted'],
+    'accent': PALETTE['accent_primary'],
+    'accent_hover': PALETTE['accent_hover'],
+    'hover': PALETTE['bg_hover'],
+    'selected': PALETTE['accent_selected'],
+    'danger': PALETTE['error'],
+    'danger_hover': '#b91c1c',
+    'success': PALETTE['success'],
+    'warning': PALETTE['warning'],
+    'warning_bg': '#18130a',
+    'red_600': PALETTE['error'],
     'red_700': '#b91c1c',
 }
 
@@ -53,28 +57,27 @@ QMainWindow {{
     background-color: transparent;
     color: {COLORS['muted']};
     border: none;
-    padding: 12px 20px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 16px;
-    min-width: 80px;
-    max-height: 48px;
+    padding: 8px 24px;
+    border-radius: 0px;
+    font-weight: 500;
+    font-size: 22px;
+    min-width: 100px;
 }}
 
 #navButton:hover {{
     color: {COLORS['text']};
-    background-color: {COLORS['hover']};
+    background-color: transparent;
 }}
 
 #navButton:checked {{
-    color: {COLORS['accent']};
+    color: {COLORS['text']};
     background-color: transparent;
-    border-bottom: 2px solid {COLORS['accent']};
+    font-weight: 600;
 }}
 
 #navButton:checked:hover {{
-    color: {COLORS['accent']};
-    background-color: {COLORS['hover']};
+    color: {COLORS['text']};
+    background-color: transparent;
 }}
 
 /* ==================== PAGE TYPOGRAPHY ==================== */

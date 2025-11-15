@@ -1,6 +1,6 @@
 # RPS Architecture (Condensed)
 
-**Version**: 2.7 | **Date**: 2024-11-13
+**Version**: 2.8 | **Date**: 2024-11-15
 
 > **Full details in code comments and docstrings. This doc covers key patterns only.**
 
@@ -14,7 +14,7 @@
 
 **Architecture**: Layered (UI → Service → Repository → Database)
 
-**New in v2.7**: Multi-result-set export system with joint results support. Export multiple result sets (DES, MCE, SLE) simultaneously with single timestamp. Redesigned export and comparison dialogs with wide layout and filtered result type selection. Joint comparison scatter plots for soil pressures and vertical displacements. Blur overlay effects for modal dialogs.
+**New in v2.8**: Import system refactored with service layer extraction, provider pattern for data retrieval, and repository separation for cleaner architecture. Import prescan logic moved to dedicated service with parallel execution. Data providers handle caching independently. Element queries extracted to specialized repository.
 
 ---
 
@@ -128,8 +128,9 @@ RESULT_CONFIGS = {
 
 ## 4. Key Patterns
 
-### Repository Pattern
-**All repos extend `BaseRepository[Model]`**:
+### Repository Pattern (v2.8 Refactor)
+
+**Base Repository** (`database/base_repository.py`):
 ```python
 class BaseRepository(Generic[ModelT]):
     model: Type[ModelT]
@@ -146,7 +147,7 @@ class BaseRepository(Generic[ModelT]):
     # delete(), list_all() also provided
 ```
 
-**Usage**:
+**Domain Repositories** (`database/repository.py`):
 ```python
 class StoryRepository(BaseRepository[Story]):
     model = Story
@@ -154,6 +155,18 @@ class StoryRepository(BaseRepository[Story]):
     def get_by_name(self, name: str) -> Optional[Story]:
         return self.session.query(self.model).filter(...).first()
 ```
+
+**Specialized Query Repositories** (`database/element_result_repository.py`):
+- `ElementResultQueryRepository` - Complex queries for element max/min datasets
+  - Model registry pattern: Maps result type to (model, max_attr, min_attr, direction_attr, multiplier)
+  - Supports: WallShears, ColumnShears, ColumnRotations, BeamRotations, QuadRotations
+  - `fetch_records()` - Joins with LoadCase and Story, filters by element_id
+  - Returns model info for dynamic attribute access
+
+**Separation of Concerns**:
+- `BaseRepository` - Generic CRUD operations
+- Domain repositories (e.g., `StoryRepository`) - Domain-specific queries
+- Specialized repositories (e.g., `ElementResultQueryRepository`) - Complex aggregation queries
 
 ### Transformer Pattern
 **Converts Excel data → Database models**:
@@ -167,24 +180,34 @@ class DriftTransformer(BaseTransformer):
 **Registration**: `TRANSFORMERS['Drifts_X'] = DriftTransformer()`
 
 ### Service Layer
-**`ResultDataService`** - Main data retrieval (cached):
+**`ResultDataService`** - Main data retrieval facade (cached):
 - `get_standard_dataset()` - Global results (table + plot data)
 - `get_element_dataset()` - Element results
+- `get_joint_dataset()` - Foundation/joint results
 - `get_maxmin_dataset()` - Max/Min envelopes
-- `get_comparison_dataset()` - Comparison results (global or element)
+- `get_comparison_dataset()` - Comparison results (global, element, or joint)
 
-**Modular structure** (7 files):
-- `service.py` - Facade
-- `cache_builder.py` - Dataset builders
-- `maxmin_builder.py` - Max/Min logic
-- `comparison_builder.py` - Comparison logic (global & element)
+**Provider Pattern** (`providers.py`):
+- `StandardDatasetProvider` - Global/story-based results with per-dataset caching
+- `ElementDatasetProvider` - Element-specific results with per-dataset caching
+- `JointDatasetProvider` - Foundation/joint results with per-dataset caching
+- Each provider manages its own cache dictionary and invalidation
+- Providers instantiated once per `ResultDataService` instance
+
+**Modular structure** (7 files in `processing/result_service/`):
+- `service.py` - Facade with provider-based architecture
+- `providers.py` - Dataset providers (Standard, Element, Joint)
+- `cache_builder.py` - Dataset construction logic
+- `maxmin_builder.py` - Max/Min envelope calculations
+- `comparison_builder.py` - Comparison logic (global, element & joint)
 - `models.py` - ResultDataset, MaxMinDataset, ComparisonDataset
-- `metadata.py` - Display labels
-- `story_loader.py` - Story caching
+- `metadata.py` - Display label generation
+- `story_loader.py` - Story data caching
 
 **Comparison Builder**:
 - `build_global_comparison()` - Compare global results across result sets
 - `build_element_comparison()` - Compare specific element across result sets
+- `build_joint_comparison()` - Compare foundation results across result sets
 - Aggregates averaged data from multiple result sets
 - Calculates ratio columns (last/first result set)
 
@@ -220,11 +243,33 @@ class DriftTransformer(BaseTransformer):
 - Joint results stored in `JointResultsCache` (not story-based cache)
 - Summary columns (Avg/Max/Min) calculated during dataset retrieval
 
-### Key Components
-- `ExcelParser` - Reads sheets, extracts columns, supports `get_vertical_displacements()` and `get_soil_pressures()`
-- `SelectiveDataImporter` - Filters load cases before import, accepts `foundation_joints` parameter
+### Import Service Architecture (v2.8 Refactor)
+
+**Prescan Service** (`services/import_preparation.py`):
+- `ImportPreparationService` - Headless service for folder/file scanning
+  - `prescan_folder()` - Scan all Excel files in folder with parallel execution
+  - `prescan_files()` - Scan specific list of files
+  - `_extract_load_cases_from_sheet()` - Per-sheet load case extraction
+  - Uses `ThreadPoolExecutor` with 6 workers for concurrent file scanning
+- `PrescanResult` - Aggregated scan results (file_load_cases, foundation_joints, errors)
+- `FilePrescanSummary` - Per-file summary (load_cases_by_sheet, available_sheets, foundation_joints)
+- `detect_conflicts()` - Pure function for identifying conflicting load cases
+- `determine_allowed_load_cases()` - Pure function for filtering based on resolution
+
+**Import Hierarchy**:
 - `BaseFolderImporter` - Session management + progress callbacks
-- `EnhancedFolderImporter.prescan_folder_for_load_cases()` - Returns `(file_load_cases, foundation_joints)`
+- `EnhancedFolderImporter` - Enhanced import with conflict resolution
+  - Accepts `prescan_result` parameter to avoid re-scanning
+  - Uses `ImportPreparationService` internally
+  - Delegates to `SelectiveDataImporter` for actual import
+- `DataImporter` - Single-file import with cache building
+- `SelectiveDataImporter` - Filtered import with load case selection
+
+**Key Components**:
+- `ExcelParser` - Sheet parsing (supports all result types including foundation)
+- `ResultTransformers` - Excel → ORM model conversion
+- `PhaseTimer` - Import phase instrumentation for performance monitoring
+- `ResultProcessor` - Vectorized groupby/pivot for expensive transforms
 
 ---
 

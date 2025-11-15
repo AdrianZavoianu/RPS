@@ -20,6 +20,7 @@ class ExcelParser:
         self.file_path = Path(file_path)
         if not self.file_path.exists():
             raise FileNotFoundError(f"Excel file not found: {file_path}")
+        self._joint_displacements_df: Optional[pd.DataFrame] = None
 
     def read_sheet(
         self,
@@ -187,16 +188,8 @@ class ExcelParser:
         if not self.validate_sheet_exists(sheet):
             return pd.DataFrame(), [], []
 
-        # Columns: Story, Label, Unique Name, Output Case, Case Type, Step Type, Ux, Uy, Uz, Rx, Ry, Rz
-        df = self.read_sheet(sheet, columns=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11], skiprows=[0, 2])
-        df = df.rename(columns=lambda c: str(c).strip())
-
-        expected_columns = {"Story", "Output Case", "Ux", "Uy"}
-        missing = expected_columns - set(df.columns)
-        if missing:
-            raise ValueError(f"Missing expected columns in 'Joint Displacements': {missing}")
-
-        df = df[["Story", "Output Case", "Ux", "Uy"]].dropna(subset=["Story", "Output Case"])
+        df_full = self._load_joint_displacements_full()
+        df = df_full[["Story", "Output Case", "Ux", "Uy"]].dropna(subset=["Story", "Output Case"])
 
         load_cases = df["Output Case"].unique().tolist()
         stories = df["Story"].unique().tolist()
@@ -226,6 +219,26 @@ class ExcelParser:
         """
         available_sheets = self.get_available_sheets()
         return sheet_name in available_sheets
+
+    def _load_joint_displacements_full(self) -> pd.DataFrame:
+        """Load the Joint Displacements sheet (all needed columns) with simple caching."""
+        if self._joint_displacements_df is None:
+            sheet = "Joint Displacements"
+            # Only pull columns we actually use (Story, Label, Unique Name, Output Case, Step Type, Ux, Uy, Uz)
+            columns = [0, 1, 2, 3, 5, 6, 7, 8]
+            df = self.read_sheet(sheet, columns, skiprows=[0, 2])
+            df.columns = [
+                "Story",
+                "Label",
+                "Unique Name",
+                "Output Case",
+                "Step Type",
+                "Ux",
+                "Uy",
+                "Uz",
+            ]
+            self._joint_displacements_df = df
+        return self._joint_displacements_df.copy()
 
     def get_column_forces(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
         """Parse column force data from Excel file.
@@ -432,17 +445,7 @@ class ExcelParser:
         if not foundation_joints:
             return pd.DataFrame(), [], []
 
-        # Columns: Story, Label, Unique Name, Output Case, Case Type, Step Type, Ux, Uy, Uz, Rx, Ry, Rz
-        # Indices:   0      1         2             3           4           5        6   7   8   9   10  11
-        columns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-
-        df = self.read_sheet(sheet, columns, skiprows=[0, 2])  # Skip unit rows
-
-        # Ensure expected column labels
-        df.columns = [
-            "Story", "Label", "Unique Name", "Output Case", "Case Type", "Step Type",
-            "Ux", "Uy", "Uz", "Rx", "Ry", "Rz",
-        ]
+        df = self._load_joint_displacements_full()
 
         # Convert Unique Name to string and filter to foundation joints only
         df['Unique Name'] = df['Unique Name'].astype(str)

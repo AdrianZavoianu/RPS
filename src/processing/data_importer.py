@@ -1,9 +1,10 @@
 """Import data from Excel files into database."""
 
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, TYPE_CHECKING, Set, Dict, Any
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+from time import perf_counter
 from database.repository import (
     ProjectRepository,
     StoryRepository,
@@ -28,6 +29,43 @@ from .result_processor import ResultProcessor
 from .import_context import ResultImportHelper
 from .base_importer import BaseImporter
 
+if TYPE_CHECKING:
+    from services.import_preparation import FilePrescanSummary
+
+
+class PhaseTimer:
+    """Collects simple duration metrics for import phases."""
+
+    def __init__(self, base_context: Optional[Dict[str, Any]] = None) -> None:
+        self._base_context = base_context or {}
+        self._entries: List[Dict[str, Any]] = []
+
+    def as_list(self) -> List[Dict[str, Any]]:
+        return list(self._entries)
+
+    def measure(self, phase: str, extra: Optional[Dict[str, Any]] = None):
+        """Context manager recording elapsed wall time for a phase."""
+        class _TimerCtx:
+            def __init__(self, outer: "PhaseTimer") -> None:
+                self.outer = outer
+                self.phase = phase
+                self.extra = extra or {}
+                self.start = perf_counter()
+
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                duration = perf_counter() - self.start
+                entry: Dict[str, Any] = {"phase": self.phase, "duration": duration}
+                entry.update(self.outer._base_context)
+                if self.extra:
+                    entry.update(self.extra)
+                self.outer._entries.append(entry)
+                return False
+
+        return _TimerCtx(self)
+
 
 class DataImporter(BaseImporter):
     """Import structural analysis results from Excel into database."""
@@ -40,6 +78,8 @@ class DataImporter(BaseImporter):
         analysis_type: Optional[str] = None,
         result_types: Optional[List[str]] = None,
         session_factory: Optional[Callable[[], Session]] = None,
+        file_summary: Optional["FilePrescanSummary"] = None,
+        generate_cache: bool = True,
     ):
         """Initialize importer.
 
@@ -55,6 +95,20 @@ class DataImporter(BaseImporter):
         self.result_set_name = result_set_name
         self.analysis_type = analysis_type or "General"
         self.parser = ExcelParser(file_path)
+        self.file_summary = file_summary
+        self._available_sheets_hint: Optional[Set[str]] = (
+            set(file_summary.available_sheets) if file_summary else None
+        )
+        self._phase_timer = PhaseTimer({"file": self.file_path.name})
+        self._generate_cache_after_import = generate_cache
+        self._cache_generated = False
+        self._project_id: Optional[int] = None
+
+    def _sheet_available(self, sheet_name: str) -> bool:
+        """Check sheet availability using prescan data when available."""
+        if self._available_sheets_hint is not None:
+            return sheet_name in self._available_sheets_hint
+        return self.parser.validate_sheet_exists(sheet_name)
 
     def import_all(self) -> dict:
         """Import all available data from Excel file.
@@ -64,6 +118,8 @@ class DataImporter(BaseImporter):
         """
         stats = {
             "project": None,
+            "project_id": None,
+            "result_set_id": None,
             "load_cases": 0,
             "stories": 0,
             "drifts": 0,
@@ -94,6 +150,8 @@ class DataImporter(BaseImporter):
                         description=f"Imported from {self.file_path.name}",
                     )
                 stats["project"] = project.name
+                stats["project_id"] = project.id
+                self._project_id = project.id
 
                 # Create or get result set
                 result_set_repo = ResultSetRepository(session)
@@ -101,6 +159,7 @@ class DataImporter(BaseImporter):
                     project_id=project.id,
                     name=self.result_set_name,
                 )
+                stats["result_set_id"] = result_set.id
 
                 # Create result category (Envelopes → Global)
                 category_repo = ResultCategoryRepository(session)
@@ -115,80 +174,99 @@ class DataImporter(BaseImporter):
                 self.result_set_id = result_set.id
 
                 # Import story drifts if available
-                if self._should_import("Story Drifts") and self.parser.validate_sheet_exists("Story Drifts"):
-                    drift_stats = self._import_story_drifts(session, project.id)
+                if self._should_import("Story Drifts") and self._sheet_available("Story Drifts"):
+                    with self._phase_timer.measure("story_drifts"):
+                        drift_stats = self._import_story_drifts(session, project.id)
                     stats["load_cases"] += drift_stats.get("load_cases", 0)
                     stats["stories"] += drift_stats.get("stories", 0)
                     stats["drifts"] += drift_stats.get("drifts", 0)
 
                 # Import story accelerations if available (from Diaphragm Accelerations sheet)
-                if self._should_import("Story Accelerations") and self.parser.validate_sheet_exists("Diaphragm Accelerations"):
-                    accel_stats = self._import_story_accelerations(session, project.id)
+                if self._should_import("Story Accelerations") and self._sheet_available("Diaphragm Accelerations"):
+                    with self._phase_timer.measure("story_accelerations"):
+                        accel_stats = self._import_story_accelerations(session, project.id)
                     stats["accelerations"] += accel_stats.get("accelerations", 0)
 
                 # Import story forces if available
-                if self._should_import("Story Forces") and self.parser.validate_sheet_exists("Story Forces"):
-                    force_stats = self._import_story_forces(session, project.id)
+                if self._should_import("Story Forces") and self._sheet_available("Story Forces"):
+                    with self._phase_timer.measure("story_forces"):
+                        force_stats = self._import_story_forces(session, project.id)
                     stats["forces"] += force_stats.get("forces", 0)
                 # Import floor displacements if available (uses Joint Displacements sheet)
-                if self._should_import("Floors Displacements") and self.parser.validate_sheet_exists("Joint Displacements"):
-                    disp_stats = self._import_joint_displacements(session, project.id)
+                if self._should_import("Floors Displacements") and self._sheet_available("Joint Displacements"):
+                    with self._phase_timer.measure("floor_displacements"):
+                        disp_stats = self._import_joint_displacements(session, project.id)
                     stats["displacements"] += disp_stats.get("displacements", 0)
 
                 # Import pier forces if available
-                if self._should_import("Pier Forces") and self.parser.validate_sheet_exists("Pier Forces"):
-                    pier_stats = self._import_pier_forces(session, project.id)
+                if self._should_import("Pier Forces") and self._sheet_available("Pier Forces"):
+                    with self._phase_timer.measure("pier_forces"):
+                        pier_stats = self._import_pier_forces(session, project.id)
                     stats["pier_forces"] += pier_stats.get("pier_forces", 0)
                     stats["piers"] += pier_stats.get("piers", 0)
 
                 # Import column forces if available
-                if self._should_import("Column Forces") and self.parser.validate_sheet_exists("Element Forces - Columns"):
-                    column_stats = self._import_column_forces(session, project.id)
+                if self._should_import("Column Forces") and self._sheet_available("Element Forces - Columns"):
+                    with self._phase_timer.measure("column_forces"):
+                        column_stats = self._import_column_forces(session, project.id)
                     stats["column_forces"] += column_stats.get("column_forces", 0)
                     stats["columns"] += column_stats.get("columns", 0)
 
                 # Import column axials if available (same sheet as column forces)
-                if self._should_import("Column Axials") and self.parser.validate_sheet_exists("Element Forces - Columns"):
-                    axial_stats = self._import_column_axials(session, project.id)
+                if self._should_import("Column Axials") and self._sheet_available("Element Forces - Columns"):
+                    with self._phase_timer.measure("column_axials"):
+                        axial_stats = self._import_column_axials(session, project.id)
                     stats["column_axials"] += axial_stats.get("column_axials", 0)
                     # Columns already counted from column forces
 
                 # Import column rotations if available (from Fiber Hinge States sheet)
-                if self._should_import("Column Rotations") and self.parser.validate_sheet_exists("Fiber Hinge States"):
-                    rotation_stats = self._import_column_rotations(session, project.id)
+                if self._should_import("Column Rotations") and self._sheet_available("Fiber Hinge States"):
+                    with self._phase_timer.measure("column_rotations"):
+                        rotation_stats = self._import_column_rotations(session, project.id)
                     stats["column_rotations"] += rotation_stats.get("column_rotations", 0)
                     # Columns already counted
 
                 # Import beam rotations if available (from Hinge States sheet)
-                if self._should_import("Beam Rotations") and self.parser.validate_sheet_exists("Hinge States"):
-                    beam_stats = self._import_beam_rotations(session, project.id)
+                if self._should_import("Beam Rotations") and self._sheet_available("Hinge States"):
+                    with self._phase_timer.measure("beam_rotations"):
+                        beam_stats = self._import_beam_rotations(session, project.id)
                     stats["beam_rotations"] += beam_stats.get("beam_rotations", 0)
                     stats["beams"] += beam_stats.get("beams", 0)
 
                 # Import quad rotations if available
-                if self._should_import("Quad Rotations") and self.parser.validate_sheet_exists("Quad Strain Gauge - Rotation"):
-                    quad_stats = self._import_quad_rotations(session, project.id)
+                if self._should_import("Quad Rotations") and self._sheet_available("Quad Strain Gauge - Rotation"):
+                    with self._phase_timer.measure("quad_rotations"):
+                        quad_stats = self._import_quad_rotations(session, project.id)
                     stats["quad_rotations"] = quad_stats.get("quad_rotations", 0)
                     # Piers already counted from pier forces if both exist
 
                 # Import soil pressures if available
-                if self._should_import("Soil Pressures") and self.parser.validate_sheet_exists("Soil Pressures"):
-                    soil_stats = self._import_soil_pressures(session, project.id)
+                if self._should_import("Soil Pressures") and self._sheet_available("Soil Pressures"):
+                    with self._phase_timer.measure("soil_pressures"):
+                        soil_stats = self._import_soil_pressures(session, project.id)
                     stats["soil_pressures"] = soil_stats.get("soil_pressures", 0)
 
                 # Import vertical displacements if available (requires both Joint Displacements and Fou sheets)
-                if (self._should_import("Vertical Displacements") and
-                    self.parser.validate_sheet_exists("Joint Displacements") and
-                    self.parser.validate_sheet_exists("Fou")):
-                    vert_disp_stats = self._import_vertical_displacements(session, project.id)
+                if (
+                    self._should_import("Vertical Displacements")
+                    and self._sheet_available("Joint Displacements")
+                    and self._sheet_available("Fou")
+                ):
+                    with self._phase_timer.measure("vertical_displacements"):
+                        vert_disp_stats = self._import_vertical_displacements(session, project.id)
                     stats["vertical_displacements"] = vert_disp_stats.get("vertical_displacements", 0)
 
-                # Generate cache for fast display after all imports
-                self._generate_cache(session, project.id, self.result_set_id)
+                # Generate cache for fast display after all imports (optional)
+                if self._generate_cache_after_import:
+                    with self._phase_timer.measure("cache_generation"):
+                        self._generate_cache(session, project.id, self.result_set_id)
+                        self._cache_generated = True
 
         except Exception as e:
             stats["errors"].append(str(e))
             raise
+        finally:
+            stats["phase_timings"] = self._phase_timer.as_list()
 
         return stats
 
@@ -845,6 +923,14 @@ class DataImporter(BaseImporter):
         self._cache_vertical_displacements(session, project_id, result_set_id)
         self._calculate_absolute_maxmin(session, project_id, result_set_id, abs_repo)
 
+    def generate_cache_if_needed(self) -> None:
+        """Run cache generation once if deferred."""
+        if self._cache_generated or self._project_id is None or self.result_set_id is None:
+            return
+        with self.session_scope() as session:
+            self._generate_cache(session, self._project_id, self.result_set_id)
+            self._cache_generated = True
+
     def _cache_drifts(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
         """Generate cache for story drifts."""
         from sqlalchemy import and_
@@ -1270,32 +1356,40 @@ class DataImporter(BaseImporter):
         if not drifts:
             return
 
-        records = []
+        aggregates: Dict[Tuple[int, int, str], Dict[str, Any]] = {}
+
         for drift, load_case, story in drifts:
+            key = (story.id, load_case.id, drift.direction)
             max_val = drift.max_drift if drift.max_drift is not None else drift.drift
             min_val = drift.min_drift if drift.min_drift is not None else drift.drift
 
             if abs(max_val) >= abs(min_val):
                 abs_val = abs(max_val)
                 sign = "positive" if max_val >= 0 else "negative"
+                source_max = max_val
+                source_min = min_val
             else:
                 abs_val = abs(min_val)
                 sign = "positive" if min_val >= 0 else "negative"
+                source_max = max_val
+                source_min = min_val
 
-            records.append({
-                "project_id": project_id,
-                "result_set_id": result_set_id,
-                "story_id": story.id,
-                "load_case_id": load_case.id,
-                "direction": drift.direction,
-                "absolute_max_drift": abs_val,
-                "sign": sign,
-                "original_max": max_val,
-                "original_min": min_val,
-            })
+            current = aggregates.get(key)
+            if not current or abs_val > current["absolute_max_drift"]:
+                aggregates[key] = {
+                    "project_id": project_id,
+                    "result_set_id": result_set_id,
+                    "story_id": story.id,
+                    "load_case_id": load_case.id,
+                    "direction": drift.direction,
+                    "absolute_max_drift": abs_val,
+                    "sign": sign,
+                    "original_max": source_max,
+                    "original_min": source_min,
+                }
 
-        if records:
-            abs_repo.bulk_create(records)
+        if aggregates:
+            abs_repo.bulk_create(list(aggregates.values()))
 
     def _cache_displacements(self, session, project_id: int, result_set_id: int, stories, cache_repo, result_repo):
         """Generate cache for joint displacements (global)."""

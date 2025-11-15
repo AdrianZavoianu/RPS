@@ -1,14 +1,20 @@
 """Enhanced folder importer with load case selection and conflict resolution."""
 
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtWidgets import QWidget
 from sqlalchemy.orm import Session
 
 from database.repository import ProjectRepository, LoadCaseRepository, StoryRepository
-
-from .excel_parser import ExcelParser
+from services.import_preparation import (
+    FilePrescanSummary,
+    ImportPreparationService,
+    PrescanResult,
+    detect_conflicts,
+    determine_allowed_load_cases,
+)
 from .data_importer import DataImporter
 from .selective_data_importer import SelectiveDataImporter
 from .folder_importer import TARGET_SHEETS
@@ -41,6 +47,8 @@ class EnhancedFolderImporter(BaseFolderImporter):
         parent_widget: Optional[QWidget] = None,
         selected_load_cases: Optional[Set[str]] = None,
         conflict_resolution: Optional[Dict[str, Dict[str, Optional[str]]]] = None,
+        preparation_service: Optional[ImportPreparationService] = None,
+        prescan_result: Optional[PrescanResult] = None,
     ):
         """
         Initialize enhanced folder importer.
@@ -68,6 +76,12 @@ class EnhancedFolderImporter(BaseFolderImporter):
         self.selected_load_cases = selected_load_cases
         self.conflict_resolution = conflict_resolution or {}
         self.foundation_joints = []  # Will be populated during pre-scan
+        self.preparation_service = preparation_service or ImportPreparationService(TARGET_SHEETS)
+        self.prescan_result = prescan_result
+        self._file_summaries: Dict[str, FilePrescanSummary] = (
+            prescan_result.file_summaries if prescan_result else {}
+        )
+        self._cache_builder: Optional[SelectiveDataImporter] = None
 
     @staticmethod
     def prescan_folder_for_load_cases(
@@ -89,136 +103,10 @@ class EnhancedFolderImporter(BaseFolderImporter):
             - file_load_cases: Dict of file → sheet → load_cases
             - foundation_joints: List of unique joint names from all Fou sheets
         """
-        files: List[Path] = []
-        for pattern in ("*.xlsx", "*.xls"):
-            files.extend(folder_path.glob(pattern))
-        excel_files = sorted(f for f in files if not f.name.startswith("~$"))
+        service = ImportPreparationService(TARGET_SHEETS)
+        result = service.prescan_folder(folder_path, result_types, progress_callback)
+        return result.file_load_cases, result.foundation_joints
 
-        file_load_cases = {}
-        foundation_joints = []  # Collect from all files with Fou sheet
-
-        for idx, file_path in enumerate(excel_files):
-            if progress_callback:
-                progress_callback(
-                    f"Scanning {file_path.name}...",
-                    idx,
-                    len(excel_files)
-                )
-
-            try:
-                parser = ExcelParser(str(file_path))
-                load_cases_by_sheet = {}
-
-                # Scan each result type
-                sheets_found = []
-                sheets_errored = []
-                for sheet_name, result_labels in TARGET_SHEETS.items():
-                    # Check if we should import this result type
-                    if result_types is not None:
-                        should_import_any = any(
-                            label.strip().lower() in result_types for label in result_labels
-                        )
-                        if not should_import_any:
-                            continue
-
-                    if not parser.validate_sheet_exists(sheet_name):
-                        continue
-
-                    # Get load cases from this sheet
-                    try:
-                        load_cases = EnhancedFolderImporter._extract_load_cases_from_sheet_static(
-                            parser, sheet_name
-                        )
-                        if load_cases:
-                            load_cases_by_sheet[sheet_name] = load_cases
-                            sheets_found.append(f"{sheet_name}({len(load_cases)})")
-                    except Exception as e:
-                        # Log error and skip problematic sheets
-                        sheets_errored.append(f"{sheet_name}: {str(e)[:30]}")
-                        continue
-
-                # Special case: Collect foundation joints from Fou sheet
-                if parser.validate_sheet_exists("Fou"):
-                    try:
-                        joints = parser.get_foundation_joints()
-                        if joints and not foundation_joints:  # Take from first file with Fou
-                            foundation_joints = joints
-                    except Exception:
-                        pass  # Skip if error
-
-                # Special case: Check for Vertical Displacements (only needs Joint Displacements)
-                # Foundation joints will be shared across all files during import
-                if parser.validate_sheet_exists("Joint Displacements"):
-                    if result_types is None or "vertical displacements" in result_types:
-                        try:
-                            _, load_cases, _ = parser.get_joint_displacements()
-                            if load_cases:
-                                load_cases_by_sheet["Vertical Displacements"] = load_cases
-                                sheets_found.append(f"Vertical Displacements({len(load_cases)})")
-                        except Exception:
-                            pass  # Skip if error
-
-                # Log what was found/errored for this file
-                if progress_callback and (sheets_found or sheets_errored):
-                    if sheets_found:
-                        progress_callback(
-                            f"  ✓ {', '.join(sheets_found[:3])}{'...' if len(sheets_found) > 3 else ''}",
-                            idx,
-                            len(excel_files)
-                        )
-                    if sheets_errored:
-                        progress_callback(
-                            f"  ✗ {sheets_errored[0]}",
-                            idx,
-                            len(excel_files)
-                        )
-
-                if load_cases_by_sheet:
-                    file_load_cases[file_path.name] = load_cases_by_sheet
-
-            except Exception:
-                # Skip problematic files
-                continue
-
-        return file_load_cases, foundation_joints
-
-    @staticmethod
-    def _extract_load_cases_from_sheet_static(
-        parser: ExcelParser, sheet_name: str
-    ) -> List[str]:
-        """Static version of _extract_load_cases_from_sheet."""
-        if sheet_name == "Story Drifts":
-            _, load_cases, _ = parser.get_story_drifts()
-            return load_cases
-        elif sheet_name == "Diaphragm Accelerations":
-            _, load_cases, _ = parser.get_story_accelerations()
-            return load_cases
-        elif sheet_name == "Story Forces":
-            _, load_cases, _ = parser.get_story_forces()
-            return load_cases
-        elif sheet_name == "Joint Displacements":
-            _, load_cases, _ = parser.get_joint_displacements()
-            return load_cases
-        elif sheet_name == "Pier Forces":
-            _, load_cases, _, _ = parser.get_pier_forces()
-            return load_cases
-        elif sheet_name == "Element Forces - Columns":
-            _, load_cases, _, _ = parser.get_column_forces()
-            return load_cases
-        elif sheet_name == "Fiber Hinge States":
-            _, load_cases, _, _ = parser.get_fiber_hinge_states()
-            return load_cases
-        elif sheet_name == "Hinge States":
-            _, load_cases, _, _ = parser.get_hinge_states()
-            return load_cases
-        elif sheet_name == "Quad Strain Gauge - Rotation":
-            _, load_cases, _, _ = parser.get_quad_rotations()
-            return load_cases
-        elif sheet_name == "Soil Pressures":
-            _, load_cases, _ = parser.get_soil_pressures()
-            return load_cases
-        else:
-            return []
 
     def import_all(self) -> Dict[str, Any]:
         """
@@ -232,7 +120,12 @@ class EnhancedFolderImporter(BaseFolderImporter):
 
         # Phase 1: Pre-scan all files for load cases and foundation joints
         self._report_progress("Scanning files for load cases...", 0, len(self.excel_files))
-        file_load_cases, self.foundation_joints = self._prescan_load_cases()
+        if self.prescan_result:
+            file_load_cases = self.prescan_result.file_load_cases
+            self.foundation_joints = list(self.prescan_result.foundation_joints)
+            self._file_summaries = self.prescan_result.file_summaries
+        else:
+            file_load_cases, self.foundation_joints = self._prescan_load_cases()
 
         if not file_load_cases:
             return {
@@ -275,126 +168,32 @@ class EnhancedFolderImporter(BaseFolderImporter):
             }
             foundation_joints = ["J1", "J2", ...] from Fou sheet
         """
-        file_load_cases = {}
-        foundation_joints = []  # Collect from all files with Fou sheet
+        result = self.preparation_service.prescan_files(
+            self.excel_files,
+            self.result_types,
+            self._report_progress,
+        )
+        self._file_summaries = result.file_summaries
+        return result.file_load_cases, result.foundation_joints
 
-        for idx, file_path in enumerate(self.excel_files):
-            self._report_progress(
-                f"Scanning {file_path.name}...",
-                idx,
-                len(self.excel_files)
-            )
+    def _finalize_cache_generation(self, stats: Dict[str, Any]) -> None:
+        """Run a single cache build after all selective imports finish."""
+        if not self._cache_builder:
+            return
 
-            try:
-                parser = ExcelParser(str(file_path))
-                load_cases_by_sheet = {}
+        self._report_progress("Building result caches...", len(self.excel_files), len(self.excel_files))
+        start = perf_counter()
+        self._cache_builder.generate_cache_if_needed()
+        duration = perf_counter() - start
+        stats["phase_timings"].append(
+            {
+                "phase": "cache_generation",
+                "file": "ALL_FILES",
+                "duration": duration,
+                "source": "finalize",
+            }
+        )
 
-                # Scan each result type
-                sheets_found = []
-                sheets_errored = []
-                for sheet_name, result_labels in TARGET_SHEETS.items():
-                    # Check if we should import this result type
-                    should_import_any = any(
-                        self._should_import(label) for label in result_labels
-                    )
-                    if not should_import_any:
-                        continue
-
-                    if not parser.validate_sheet_exists(sheet_name):
-                        continue
-
-                    # Get load cases from this sheet
-                    try:
-                        load_cases = self._extract_load_cases_from_sheet(
-                            parser, sheet_name
-                        )
-                        if load_cases:
-                            load_cases_by_sheet[sheet_name] = load_cases
-                            sheets_found.append(f"{sheet_name}({len(load_cases)})")
-                    except Exception as e:
-                        # Log error and skip problematic sheets
-                        sheets_errored.append(f"{sheet_name}: {str(e)[:30]}")
-                        continue
-
-                # Special case: Collect foundation joints from Fou sheet
-                if parser.validate_sheet_exists("Fou"):
-                    try:
-                        joints = parser.get_foundation_joints()
-                        if joints and not foundation_joints:  # Take from first file with Fou
-                            foundation_joints = joints
-                    except Exception:
-                        pass  # Skip if error
-
-                # Special case: Check for Vertical Displacements (only needs Joint Displacements)
-                # Foundation joints will be shared across all files during import
-                if parser.validate_sheet_exists("Joint Displacements"):
-                    try:
-                        _, load_cases, _ = parser.get_joint_displacements()
-                        if load_cases:
-                            load_cases_by_sheet["Vertical Displacements"] = load_cases
-                            sheets_found.append(f"Vertical Displacements({len(load_cases)})")
-                    except Exception:
-                        pass  # Skip if error
-
-                # Log what was found/errored for this file
-                if sheets_found:
-                    self._report_progress(
-                        f"  ✓ {', '.join(sheets_found[:3])}{'...' if len(sheets_found) > 3 else ''}",
-                        idx,
-                        len(self.excel_files)
-                    )
-                if sheets_errored:
-                    self._report_progress(
-                        f"  ✗ {sheets_errored[0]}",
-                        idx,
-                        len(self.excel_files)
-                    )
-
-                if load_cases_by_sheet:
-                    file_load_cases[file_path.name] = load_cases_by_sheet
-
-            except Exception:
-                # Skip problematic files
-                continue
-
-        return file_load_cases, foundation_joints
-
-    def _extract_load_cases_from_sheet(
-        self, parser: ExcelParser, sheet_name: str
-    ) -> List[str]:
-        """Extract load case names from a sheet (fast scan without full data)."""
-        if sheet_name == "Story Drifts":
-            _, load_cases, _ = parser.get_story_drifts()
-            return load_cases
-        elif sheet_name == "Diaphragm Accelerations":
-            _, load_cases, _ = parser.get_story_accelerations()
-            return load_cases
-        elif sheet_name == "Story Forces":
-            _, load_cases, _ = parser.get_story_forces()
-            return load_cases
-        elif sheet_name == "Joint Displacements":
-            _, load_cases, _ = parser.get_joint_displacements()
-            return load_cases
-        elif sheet_name == "Pier Forces":
-            _, load_cases, _, _ = parser.get_pier_forces()
-            return load_cases
-        elif sheet_name == "Element Forces - Columns":
-            _, load_cases, _, _ = parser.get_column_forces()
-            return load_cases
-        elif sheet_name == "Fiber Hinge States":
-            _, load_cases, _, _ = parser.get_fiber_hinge_states()
-            return load_cases
-        elif sheet_name == "Hinge States":
-            _, load_cases, _, _ = parser.get_hinge_states()
-            return load_cases
-        elif sheet_name == "Quad Strain Gauge - Rotation":
-            _, load_cases, _, _ = parser.get_quad_rotations()
-            return load_cases
-        elif sheet_name == "Soil Pressures":
-            _, load_cases, _ = parser.get_soil_pressures()
-            return load_cases
-        else:
-            return []
 
     def _select_load_cases_interactive(
         self,
@@ -448,37 +247,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 }
             }
         """
-        conflicts = {}
-
-        # Group by sheet type
-        sheet_types = set()
-        for file_data in file_load_cases.values():
-            sheet_types.update(file_data.keys())
-
-        for sheet_name in sheet_types:
-            lc_files = {}  # load_case → list of files
-
-            for file_name, sheets in file_load_cases.items():
-                if sheet_name not in sheets:
-                    continue
-
-                for load_case in sheets[sheet_name]:
-                    # Only check selected load cases
-                    if load_case not in selected_load_cases:
-                        continue
-
-                    if load_case not in lc_files:
-                        lc_files[load_case] = []
-                    lc_files[load_case].append(file_name)
-
-            # Find duplicates
-            for load_case, files in lc_files.items():
-                if len(files) > 1:
-                    if load_case not in conflicts:
-                        conflicts[load_case] = {}
-                    conflicts[load_case][sheet_name] = files
-
-        return conflicts
+        return detect_conflicts(file_load_cases, selected_load_cases)
 
     def _detect_conflicts_in_selection(
         self,
@@ -540,16 +309,14 @@ class EnhancedFolderImporter(BaseFolderImporter):
             "column_forces": 0,
             "vertical_displacements": 0,
             "errors": [],
+            "phase_timings": [],
         }
 
         # Track which load cases have been imported per sheet
         imported_load_cases_by_sheet = {}  # {sheet: {load_cases}}
 
-        # Import each file
         for idx, file_path in enumerate(self.excel_files):
             file_name = file_path.name
-
-            # Skip if file has no load cases in our scan
             if file_name not in file_load_cases:
                 continue
 
@@ -559,7 +326,6 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 len(self.excel_files)
             )
 
-            # Determine which load cases to import from this file
             allowed_load_cases = self._get_allowed_load_cases(
                 file_name,
                 file_load_cases[file_name],
@@ -569,7 +335,6 @@ class EnhancedFolderImporter(BaseFolderImporter):
             )
 
             if not allowed_load_cases:
-                # No load cases to import from this file
                 self._report_progress(
                     f"  Skipping {file_name} (no allowed load cases)",
                     idx,
@@ -577,31 +342,29 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 )
                 continue
 
-            # Debug: Log what we're importing from this file
             self._report_progress(
                 f"  Importing {len(allowed_load_cases)} load case(s): {', '.join(sorted(allowed_load_cases)[:3])}{'...' if len(allowed_load_cases) > 3 else ''}",
                 idx,
                 len(self.excel_files)
             )
 
-            # Import file with load case filtering
             try:
-                # Use SelectiveDataImporter to only import allowed load cases
-                # Convert result_types set back to list for DataImporter
                 result_types_list = list(self.result_types) if self.result_types else None
-
                 importer = SelectiveDataImporter(
                     file_path=str(file_path),
                     project_name=self.project_name,
                     result_set_name=self.result_set_name,
                     allowed_load_cases=allowed_load_cases,
-                    result_types=result_types_list,  # Pass result types filter
+                    result_types=result_types_list,
                     session_factory=self._session_factory,
-                    foundation_joints=self.foundation_joints,  # Pass foundation joints from Fou sheet
+                    foundation_joints=self.foundation_joints,
+                    file_summary=self._file_summaries.get(file_name),
+                    generate_cache=False,
                 )
+                if self._cache_builder is None:
+                    self._cache_builder = importer
                 file_stats = importer.import_all()
 
-                # Aggregate stats
                 stats["project"] = file_stats.get("project", stats["project"])
                 stats["files_processed"] += 1
                 stats["drifts"] += file_stats.get("drifts", 0)
@@ -611,12 +374,10 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 stats["pier_forces"] += file_stats.get("pier_forces", 0)
                 stats["column_forces"] += file_stats.get("column_forces", 0)
                 stats["vertical_displacements"] += file_stats.get("vertical_displacements", 0)
+                stats["phase_timings"].extend(file_stats.get("phase_timings") or [])
 
-                # Track imported load cases per sheet
                 for sheet_name in file_load_cases[file_name].keys():
-                    if sheet_name not in imported_load_cases_by_sheet:
-                        imported_load_cases_by_sheet[sheet_name] = set()
-                    # Add load cases from this sheet that were allowed
+                    imported_load_cases_by_sheet.setdefault(sheet_name, set())
                     sheet_load_cases = set(file_load_cases[file_name][sheet_name])
                     imported_load_cases_by_sheet[sheet_name].update(
                         allowed_load_cases & sheet_load_cases
@@ -639,6 +400,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
             finally:
                 session.close()
 
+        self._finalize_cache_generation(stats)
         self._report_progress("Import complete", len(self.excel_files), len(self.excel_files))
         return stats
 
@@ -663,53 +425,21 @@ class EnhancedFolderImporter(BaseFolderImporter):
         Returns:
             Set of load case names to import from this file
         """
-        allowed = set()
-        skipped_by_sheet = {}  # Track what was skipped for debugging
+        allowed, skipped_by_sheet = determine_allowed_load_cases(
+            file_name=file_name,
+            file_sheets=file_sheets,
+            selected_load_cases=selected_load_cases,
+            resolution=resolution,
+            already_imported=already_imported,
+        )
 
-        # Process sheet by sheet to handle per-sheet conflicts
-        for sheet_name, load_cases_in_sheet in file_sheets.items():
-            for load_case in load_cases_in_sheet:
-                # Skip if not selected by user
-                if load_case not in selected_load_cases:
-                    continue
-
-                # Check if this sheet has conflict resolution for this load case
-                if sheet_name in resolution and load_case in resolution[sheet_name]:
-                    chosen_file = resolution[sheet_name][load_case]
-
-                    if chosen_file is None:
-                        # User chose to skip this load case for this sheet
-                        if sheet_name not in skipped_by_sheet:
-                            skipped_by_sheet[sheet_name] = []
-                        skipped_by_sheet[sheet_name].append(f"{load_case} (user skipped)")
-                        continue
-                    elif chosen_file == file_name:
-                        # User chose this file for this load case on this sheet
-                        allowed.add(load_case)
-                    else:
-                        # User chose a different file
-                        if sheet_name not in skipped_by_sheet:
-                            skipped_by_sheet[sheet_name] = []
-                        skipped_by_sheet[sheet_name].append(f"{load_case} (using {chosen_file})")
-
-                else:
-                    # No conflict for this sheet+load_case combo
-                    # Check if already imported from another file FOR THIS SHEET
-                    if sheet_name not in already_imported or load_case not in already_imported[sheet_name]:
-                        # This load case hasn't been imported for this sheet yet
-                        allowed.add(load_case)
-                    else:
-                        # Already imported from another file
-                        if sheet_name not in skipped_by_sheet:
-                            skipped_by_sheet[sheet_name] = []
-                        skipped_by_sheet[sheet_name].append(f"{load_case} (already imported)")
-
-        # Debug logging
         if skipped_by_sheet:
-            for sheet, skipped in list(skipped_by_sheet.items())[:2]:  # Show first 2 sheets
+            for sheet, skipped in list(skipped_by_sheet.items())[:2]:
                 self._report_progress(
-                    f"    [{sheet}] Skipped: {', '.join(skipped[:2])}{'...' if len(skipped) > 2 else ''}",
-                    0, 1
+                    f"    [{sheet}] Skipped: {', '.join(skipped[:2])}"
+                    f"{'...' if len(skipped) > 2 else ''}",
+                    0,
+                    1,
                 )
 
         return allowed

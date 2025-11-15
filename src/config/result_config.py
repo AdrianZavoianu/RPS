@@ -1,9 +1,10 @@
 """Configuration for different result types (Drifts, Accelerations, Forces)."""
 
 from dataclasses import dataclass
+from typing import Optional, Tuple
 
 
-@dataclass
+@dataclass(frozen=True)
 class ResultTypeConfig:
     """Configuration for a result type."""
 
@@ -32,289 +33,295 @@ class ResultTypeConfig:
     """Color scheme identifier for table gradient"""
 
 
-# Configuration registry
-RESULT_CONFIGS = {
-    'Drifts': ResultTypeConfig(
-        name='Drifts',
-        direction_suffix='_X',
-        unit='%',
+@dataclass(frozen=True)
+class ResultTypeVariantSpec:
+    """Variant overrides for a base result type."""
+
+    key_suffix: str
+    direction_suffix: Optional[str] = None
+    unit: Optional[str] = None
+    decimal_places: Optional[int] = None
+    multiplier: Optional[float] = None
+    y_label: Optional[str] = None
+    plot_mode: Optional[str] = None
+    color_scheme: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ResultTypeSpec:
+    """Specification for generating ResultTypeConfig entries."""
+
+    key: str
+    direction_suffix: str
+    unit: str
+    decimal_places: int
+    multiplier: float
+    y_label: str
+    plot_mode: str
+    color_scheme: str
+    variants: Tuple[ResultTypeVariantSpec, ...] = tuple()
+
+
+def _resolve_attr(spec: ResultTypeSpec, variant: Optional[ResultTypeVariantSpec], attr: str):
+    if variant is None:
+        return getattr(spec, attr)
+    value = getattr(variant, attr)
+    return value if value is not None else getattr(spec, attr)
+
+
+def _create_config(
+    spec: ResultTypeSpec,
+    key: str,
+    variant: Optional[ResultTypeVariantSpec] = None,
+) -> ResultTypeConfig:
+    return ResultTypeConfig(
+        name=key,
+        direction_suffix=_resolve_attr(spec, variant, "direction_suffix"),
+        unit=_resolve_attr(spec, variant, "unit"),
+        decimal_places=_resolve_attr(spec, variant, "decimal_places"),
+        multiplier=_resolve_attr(spec, variant, "multiplier"),
+        y_label=_resolve_attr(spec, variant, "y_label"),
+        plot_mode=_resolve_attr(spec, variant, "plot_mode"),
+        color_scheme=_resolve_attr(spec, variant, "color_scheme"),
+    )
+
+
+def _build_configs(specs: Tuple[ResultTypeSpec, ...]) -> dict:
+    configs = {}
+    for spec in specs:
+        configs[spec.key] = _create_config(spec, spec.key)
+        for variant in spec.variants:
+            variant_key = f"{spec.key}_{variant.key_suffix}"
+            configs[variant_key] = _create_config(spec, variant_key, variant)
+    return configs
+
+
+RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
+    ResultTypeSpec(
+        key="Drifts",
+        direction_suffix="_X",
+        unit="%",
         decimal_places=2,
         multiplier=100.0,
-        y_label='Drift (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
+        y_label="Drift (%)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="X",
+                direction_suffix="_X",
+                y_label="Drift X (%)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="Y",
+                direction_suffix="_Y",
+                y_label="Drift Y (%)",
+            ),
+        ),
     ),
-    'Drifts_X': ResultTypeConfig(
-        name='Drifts_X',
-        direction_suffix='_X',
-        unit='%',
-        decimal_places=2,
-        multiplier=100.0,
-        y_label='Drift X (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Drifts_Y': ResultTypeConfig(
-        name='Drifts_Y',
-        direction_suffix='_Y',
-        unit='%',
-        decimal_places=2,
-        multiplier=100.0,
-        y_label='Drift Y (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Accelerations': ResultTypeConfig(
-        name='Accelerations',
-        direction_suffix='_UX',
-        unit='g',
+    ResultTypeSpec(
+        key="Accelerations",
+        direction_suffix="_UX",
+        unit="g",
         decimal_places=2,
         multiplier=1.0,
-        y_label='Acceleration (g)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
+        y_label="Acceleration (g)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="X",
+                direction_suffix="_UX",
+                y_label="Acceleration UX (g)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="Y",
+                direction_suffix="_UY",
+                y_label="Acceleration UY (g)",
+            ),
+        ),
     ),
-    'Accelerations_X': ResultTypeConfig(
-        name='Accelerations_X',
-        direction_suffix='_UX',
-        unit='g',
+    ResultTypeSpec(
+        key="Forces",
+        direction_suffix="_VX",
+        unit="kN",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Story Shear (kN)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="X",
+                direction_suffix="_VX",
+                y_label="Story Shear VX (kN)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="Y",
+                direction_suffix="_VY",
+                y_label="Story Shear VY (kN)",
+            ),
+        ),
+    ),
+    ResultTypeSpec(
+        key="Displacements",
+        direction_suffix="_UX",
+        unit="mm",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Floor Displacement (mm)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="X",
+                direction_suffix="_UX",
+                y_label="Floor Displacement UX (mm)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="Y",
+                direction_suffix="_UY",
+                y_label="Floor Displacement UY (mm)",
+            ),
+        ),
+    ),
+    ResultTypeSpec(
+        key="WallShears",
+        direction_suffix="",
+        unit="kN",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Wall Shear (kN)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="V2",
+                direction_suffix="_V2",
+                y_label="Wall Shear V2 (kN)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="V3",
+                direction_suffix="_V3",
+                y_label="Wall Shear V3 (kN)",
+            ),
+        ),
+    ),
+    ResultTypeSpec(
+        key="QuadRotations",
+        direction_suffix="",
+        unit="%",
         decimal_places=2,
         multiplier=1.0,
-        y_label='Acceleration UX (g)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
+        y_label="Rotation (%)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
     ),
-    'Accelerations_Y': ResultTypeConfig(
-        name='Accelerations_Y',
-        direction_suffix='_UY',
-        unit='g',
+    ResultTypeSpec(
+        key="ColumnShears",
+        direction_suffix="",
+        unit="kN",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Column Shear (kN)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="V2",
+                direction_suffix="_V2",
+                y_label="Column Shear V2 (kN)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="V3",
+                direction_suffix="_V3",
+                y_label="Column Shear V3 (kN)",
+            ),
+        ),
+    ),
+    ResultTypeSpec(
+        key="MinAxial",
+        direction_suffix="",
+        unit="kN",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Min Axial Force (kN)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+    ),
+    ResultTypeSpec(
+        key="ColumnAxials",
+        direction_suffix="",
+        unit="kN",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Column Axial Force (kN)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+    ),
+    ResultTypeSpec(
+        key="ColumnRotations",
+        direction_suffix="",
+        unit="%",
         decimal_places=2,
         multiplier=1.0,
-        y_label='Acceleration UY (g)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
+        y_label="Column Rotation (%)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="R2",
+                direction_suffix="_R2",
+                y_label="Column Rotation R2 (%)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="R3",
+                direction_suffix="_R3",
+                y_label="Column Rotation R3 (%)",
+            ),
+        ),
     ),
-    'Forces': ResultTypeConfig(
-        name='Forces',
-        direction_suffix='_VX',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Story Shear (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Forces_X': ResultTypeConfig(
-        name='Forces_X',
-        direction_suffix='_VX',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Story Shear VX (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Forces_Y': ResultTypeConfig(
-        name='Forces_Y',
-        direction_suffix='_VY',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Story Shear VY (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Displacements': ResultTypeConfig(
-        name='Displacements',
-        direction_suffix='_UX',
-        unit='mm',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Floor Displacement (mm)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Displacements_X': ResultTypeConfig(
-        name='Displacements_X',
-        direction_suffix='_UX',
-        unit='mm',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Floor Displacement UX (mm)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'Displacements_Y': ResultTypeConfig(
-        name='Displacements_Y',
-        direction_suffix='_UY',
-        unit='mm',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Floor Displacement UY (mm)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'WallShears': ResultTypeConfig(
-        name='WallShears',
-        direction_suffix='',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Wall Shear (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'WallShears_V2': ResultTypeConfig(
-        name='WallShears_V2',
-        direction_suffix='_V2',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Wall Shear V2 (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'WallShears_V3': ResultTypeConfig(
-        name='WallShears_V3',
-        direction_suffix='_V3',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Wall Shear V3 (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'QuadRotations': ResultTypeConfig(
-        name='QuadRotations',
-        direction_suffix='',  # No direction suffix for rotations
-        unit='%',
+    ResultTypeSpec(
+        key="BeamRotations",
+        direction_suffix="",
+        unit="%",
         decimal_places=2,
-        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
-        y_label='Rotation (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'ColumnShears': ResultTypeConfig(
-        name='ColumnShears',
-        direction_suffix='',
-        unit='kN',
-        decimal_places=0,
         multiplier=1.0,
-        y_label='Column Shear (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
+        y_label="Beam Rotation (%)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="R3Plastic",
+                direction_suffix="_R3Plastic",
+                y_label="Beam R3 Plastic Rotation (%)",
+            ),
+        ),
     ),
-    'ColumnShears_V2': ResultTypeConfig(
-        name='ColumnShears_V2',
-        direction_suffix='_V2',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Column Shear V2 (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'ColumnShears_V3': ResultTypeConfig(
-        name='ColumnShears_V3',
-        direction_suffix='_V3',
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Column Shear V3 (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'MinAxial': ResultTypeConfig(
-        name='MinAxial',
-        direction_suffix='',  # No direction suffix for axial forces
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Min Axial Force (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'ColumnAxials': ResultTypeConfig(
-        name='ColumnAxials',
-        direction_suffix='',  # No direction suffix for axial forces
-        unit='kN',
-        decimal_places=0,
-        multiplier=1.0,
-        y_label='Column Axial Force (kN)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'ColumnRotations': ResultTypeConfig(
-        name='ColumnRotations',
-        direction_suffix='',
-        unit='%',
-        decimal_places=2,
-        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
-        y_label='Column Rotation (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'ColumnRotations_R2': ResultTypeConfig(
-        name='ColumnRotations_R2',
-        direction_suffix='_R2',
-        unit='%',
-        decimal_places=2,
-        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
-        y_label='Column Rotation R2 (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'ColumnRotations_R3': ResultTypeConfig(
-        name='ColumnRotations_R3',
-        direction_suffix='_R3',
-        unit='%',
-        decimal_places=2,
-        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
-        y_label='Column Rotation R3 (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'BeamRotations': ResultTypeConfig(
-        name='BeamRotations',
-        direction_suffix='',  # No direction suffix for beam rotations
-        unit='%',
-        decimal_places=2,
-        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
-        y_label='Beam Rotation (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'BeamRotations_R3Plastic': ResultTypeConfig(
-        name='BeamRotations_R3Plastic',
-        direction_suffix='_R3Plastic',
-        unit='%',
-        decimal_places=2,
-        multiplier=1.0,  # Already converted to percentage in cache (rad * 100)
-        y_label='Beam R3 Plastic Rotation (%)',
-        plot_mode='building_profile',
-        color_scheme='blue_orange',
-    ),
-    'SoilPressures_Min': ResultTypeConfig(
-        name='SoilPressures_Min',
-        direction_suffix='',  # No direction suffix for soil pressures
-        unit='kN/m²',
+    ResultTypeSpec(
+        key="SoilPressures_Min",
+        direction_suffix="",
+        unit="kN/m²",
         decimal_places=1,
         multiplier=1.0,
-        y_label='Min Soil Pressure (kN/m²)',
-        plot_mode='tabs',  # Use tabs since there's no building profile for foundation elements
-        color_scheme='orange_blue',  # Orange for lower (more negative) values, blue for higher
+        y_label="Min Soil Pressure (kN/m²)",
+        plot_mode="tabs",
+        color_scheme="orange_blue",
     ),
-    'VerticalDisplacements_Min': ResultTypeConfig(
-        name='VerticalDisplacements_Min',
-        direction_suffix='',  # No direction suffix for vertical displacements
-        unit='mm',
+    ResultTypeSpec(
+        key="VerticalDisplacements_Min",
+        direction_suffix="",
+        unit="mm",
         decimal_places=2,
         multiplier=1.0,
-        y_label='Min Vertical Displacement (mm)',
-        plot_mode='tabs',  # Use tabs since there's no building profile for foundation joints
-        color_scheme='orange_blue',  # Orange for lower (more negative) values, blue for higher
+        y_label="Min Vertical Displacement (mm)",
+        plot_mode="tabs",
+        color_scheme="orange_blue",
     ),
-}
+)
+
+
+RESULT_CONFIGS = _build_configs(RESULT_TYPE_SPECS)
 
 
 def get_config(result_type: str) -> ResultTypeConfig:

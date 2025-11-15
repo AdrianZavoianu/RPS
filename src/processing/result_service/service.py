@@ -5,12 +5,18 @@ from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from config.result_config import get_config
+from database.element_result_repository import ElementResultQueryRepository
 
-from .cache_builder import build_element_dataset, build_standard_dataset
 from .comparison_builder import build_element_comparison, build_global_comparison, build_joint_comparison
 from .maxmin_builder import build_drift_maxmin_dataset, build_generic_maxmin_dataset
 from .metadata import build_display_label
 from .models import ComparisonDataset, MaxMinDataset, ResultDataset, ResultDatasetMeta
+from .providers import (
+    ElementDatasetProvider,
+    JointDatasetProvider,
+    ResultCategory,
+    StandardDatasetProvider,
+)
 from .story_loader import StoryProvider
 
 
@@ -39,14 +45,30 @@ class ResultDataService:
         self.joint_cache_repo = joint_cache_repo
         self.session = session
 
-        self._standard_cache: Dict[Tuple[str, str, int], Optional[ResultDataset]] = {}
         self._maxmin_cache: Dict[Tuple[str, int], Optional[MaxMinDataset]] = {}
-        self._element_cache: Dict[Tuple[int, str, str, int], Optional[ResultDataset]] = {}
-        self._joint_cache: Dict[Tuple[str, int], Optional[ResultDataset]] = {}
         self._category_cache: Dict[int, Optional[int]] = {}
         self._comparison_cache: Dict[Tuple, Optional[ComparisonDataset]] = {}
 
         self._stories = StoryProvider(self.story_repo, self.project_id)
+        self._dataset_providers = {
+            ResultCategory.GLOBAL: StandardDatasetProvider(
+                project_id=self.project_id,
+                cache_repo=self.cache_repo,
+                story_provider=self._stories,
+            ),
+            ResultCategory.ELEMENT: ElementDatasetProvider(
+                project_id=self.project_id,
+                element_cache_repo=self.element_cache_repo,
+                story_provider=self._stories,
+            ),
+            ResultCategory.JOINT: JointDatasetProvider(
+                project_id=self.project_id,
+                joint_cache_repo=self.joint_cache_repo,
+            ),
+        }
+        self._element_result_query_repo = (
+            ElementResultQueryRepository(self.session) if self.session else None
+        )
 
     # ------------------------------------------------------------------
     # Standard datasets
@@ -55,37 +77,14 @@ class ResultDataService:
     def get_standard_dataset(
         self, result_type: str, direction: str, result_set_id: int
     ) -> Optional[ResultDataset]:
-        cache_key = (result_type, direction, result_set_id)
-        if cache_key in self._standard_cache:
-            return self._standard_cache[cache_key]
-
-        cache_entries = self.cache_repo.get_cache_for_display(
-            project_id=self.project_id,
-            result_type=result_type,
-            result_set_id=result_set_id,
-        )
-
-        if not cache_entries:
-            self._standard_cache[cache_key] = None
-            return None
-
-        dataset = build_standard_dataset(
-            project_id=self.project_id,
-            result_type=result_type,
-            direction=direction,
-            result_set_id=result_set_id,
-            cache_entries=cache_entries,
-            story_provider=self._stories,
-        )
-
-        self._standard_cache[cache_key] = dataset
-        return dataset
+        provider = self._dataset_providers[ResultCategory.GLOBAL]
+        return provider.get(result_type, direction, result_set_id)
 
     def invalidate_standard_dataset(
         self, result_type: str, direction: str, result_set_id: int
     ) -> None:
-        cache_key = (result_type, direction, result_set_id)
-        self._standard_cache.pop(cache_key, None)
+        provider = self._dataset_providers[ResultCategory.GLOBAL]
+        provider.invalidate(result_type, direction, result_set_id)
 
     # ------------------------------------------------------------------
     # Element datasets
@@ -94,48 +93,14 @@ class ResultDataService:
     def get_element_dataset(
         self, element_id: int, result_type: str, direction: str, result_set_id: int
     ) -> Optional[ResultDataset]:
-        if not self.element_cache_repo:
-            return None
-
-        cache_key = (element_id, result_type, direction, result_set_id)
-        if cache_key in self._element_cache:
-            return self._element_cache[cache_key]
-
-        # Build full result type key (e.g., 'WallShears_V2', or 'QuadRotations' if no direction)
-        if direction:
-            full_result_type = f"{result_type}_{direction}"
-        else:
-            full_result_type = result_type
-
-        cache_entries = self.element_cache_repo.get_cache_for_display(
-            project_id=self.project_id,
-            element_id=element_id,
-            result_type=full_result_type,
-            result_set_id=result_set_id,
-        )
-
-        if not cache_entries:
-            self._element_cache[cache_key] = None
-            return None
-
-        dataset = build_element_dataset(
-            project_id=self.project_id,
-            element_id=element_id,
-            result_type=result_type,
-            direction=direction,
-            result_set_id=result_set_id,
-            cache_entries=cache_entries,
-            story_provider=self._stories,
-        )
-
-        self._element_cache[cache_key] = dataset
-        return dataset
+        provider = self._dataset_providers[ResultCategory.ELEMENT]
+        return provider.get(element_id, result_type, direction, result_set_id)
 
     def invalidate_element_dataset(
         self, element_id: int, result_type: str, direction: str, result_set_id: int
     ) -> None:
-        cache_key = (element_id, result_type, direction, result_set_id)
-        self._element_cache.pop(cache_key, None)
+        provider = self._dataset_providers[ResultCategory.ELEMENT]
+        provider.invalidate(element_id, result_type, direction, result_set_id)
 
     # ------------------------------------------------------------------
     # Joint datasets (for soil pressures and other joint-based results)
@@ -144,83 +109,12 @@ class ResultDataService:
     def get_joint_dataset(
         self, result_type: str, result_set_id: int
     ) -> Optional[ResultDataset]:
-        """Get joint-level dataset (e.g., soil pressures)."""
-        if not self.joint_cache_repo:
-            return None
-
-        cache_key = (result_type, result_set_id)
-        if cache_key in self._joint_cache:
-            return self._joint_cache[cache_key]
-
-        # Get all cache entries for this result type
-        cache_entries = self.joint_cache_repo.get_all_for_type(
-            project_id=self.project_id,
-            result_set_id=result_set_id,
-            result_type=result_type,
-        )
-
-        if not cache_entries:
-            self._joint_cache[cache_key] = None
-            return None
-
-        # Build dataset from cache entries
-        config = get_config(result_type)
-        rows = []
-
-        for entry in cache_entries:
-            row_data = {
-                "Shell Object": entry.shell_object,
-                "Unique Name": entry.unique_name,
-            }
-            row_data.update(entry.results_matrix)
-            rows.append(row_data)
-
-        df = pd.DataFrame(rows)
-
-        # Sort by shell object and unique name for consistent ordering
-        if not df.empty:
-            df = df.sort_values(["Shell Object", "Unique Name"]).reset_index(drop=True)
-
-        # Identify load case columns
-        non_data_cols = ["Shell Object", "Unique Name"]
-        load_case_columns = [col for col in df.columns if col not in non_data_cols]
-
-        # Calculate summary columns (Average, Maximum, Minimum) for joint results
-        summary_columns = []
-        if load_case_columns and not df.empty:
-            # Calculate Average
-            df['Average'] = df[load_case_columns].mean(axis=1)
-            summary_columns.append('Average')
-
-            # Calculate Maximum
-            df['Maximum'] = df[load_case_columns].max(axis=1)
-            summary_columns.append('Maximum')
-
-            # Calculate Minimum
-            df['Minimum'] = df[load_case_columns].min(axis=1)
-            summary_columns.append('Minimum')
-
-        meta = ResultDatasetMeta(
-            result_type=result_type,
-            direction="",  # No direction for soil pressures
-            result_set_id=result_set_id,
-            display_name=build_display_label(result_type, ""),
-        )
-
-        dataset = ResultDataset(
-            meta=meta,
-            data=df,
-            config=config,
-            load_case_columns=load_case_columns,
-            summary_columns=summary_columns,
-        )
-        self._joint_cache[cache_key] = dataset
-        return dataset
+        provider = self._dataset_providers[ResultCategory.JOINT]
+        return provider.get(result_type, result_set_id)
 
     def invalidate_joint_dataset(self, result_type: str, result_set_id: int) -> None:
-        """Invalidate joint dataset cache."""
-        cache_key = (result_type, result_set_id)
-        self._joint_cache.pop(cache_key, None)
+        provider = self._dataset_providers[ResultCategory.JOINT]
+        provider.invalidate(result_type, result_set_id)
 
     # ------------------------------------------------------------------
     # Max/min datasets
@@ -277,67 +171,23 @@ class ResultDataService:
         base_result_type: str = "WallShears",
     ) -> Optional[MaxMinDataset]:
         """Return absolute max/min dataset for element-specific results."""
-        if not self.session or not self.element_repo:
+        if not self.session or not self.element_repo or not self._element_result_query_repo:
             return None
 
         element = self.element_repo.get_by_id(element_id)
         if not element:
             return None
 
-        from database.models import (
-            QuadRotation,
-            WallShear,
-            ColumnShear,
-            ColumnRotation,
-            BeamRotation,
-            LoadCase,
-            Story,
+        query_result = self._element_result_query_repo.fetch_records(
+            base_result_type=base_result_type,
+            project_id=self.project_id,
+            element_id=element_id,
         )
 
-        if base_result_type == "WallShears":
-            model = WallShear
-            max_attr = "max_force"
-            min_attr = "min_force"
-            direction_attr = "direction"
-            multiplier = 1.0
-        elif base_result_type == "ColumnShears":
-            model = ColumnShear
-            max_attr = "max_force"
-            min_attr = "min_force"
-            direction_attr = "direction"
-            multiplier = 1.0
-        elif base_result_type == "ColumnRotations":
-            model = ColumnRotation
-            max_attr = "max_rotation"
-            min_attr = "min_rotation"
-            direction_attr = "direction"  # R2, R3
-            multiplier = 100.0  # radians to %
-        elif base_result_type == "BeamRotations":
-            model = BeamRotation
-            max_attr = "max_r3_plastic"
-            min_attr = "min_r3_plastic"
-            direction_attr = None
-            multiplier = 100.0  # radians to %
-        elif base_result_type == "QuadRotations":
-            model = QuadRotation
-            max_attr = "max_rotation"
-            min_attr = "min_rotation"
-            direction_attr = None
-            multiplier = 100.0  # radians to %
-        else:
+        if not query_result:
             return None
 
-        records = (
-            self.session.query(model, LoadCase, Story)
-            .join(LoadCase, model.load_case_id == LoadCase.id)
-            .join(Story, model.story_id == Story.id)
-            .filter(
-                Story.project_id == self.project_id,
-                model.element_id == element_id,
-            )
-            .all()
-        )
-
+        records, model_info = query_result
         if not records:
             return None
 
@@ -356,16 +206,15 @@ class ResultDataService:
             if story.id not in story_sort_orders:
                 story_sort_orders[story.id] = getattr(record, "story_sort_order", None) or 0
 
-            if direction_attr:
-                direction = getattr(record, direction_attr, "") or ""
+            if model_info.direction_attr:
+                direction = getattr(record, model_info.direction_attr, "") or ""
                 directions_seen.add(direction)
             else:
                 direction = ""
-                if not directions_seen:
-                    directions_seen.add(direction)
+                directions_seen.add(direction)
 
-            max_val = getattr(record, max_attr, None)
-            min_val = getattr(record, min_attr, None)
+            max_val = getattr(record, model_info.max_attr, None)
+            min_val = getattr(record, model_info.min_attr, None)
             if max_val is None and min_val is None:
                 continue
 
@@ -374,10 +223,10 @@ class ResultDataService:
 
             if max_val is not None:
                 key = f"Max_{load_case_name}_{direction}" if direction else f"Max_{load_case_name}"
-                row[key] = abs(max_val) * multiplier
+                row[key] = abs(max_val) * model_info.multiplier
             if min_val is not None:
                 key = f"Min_{load_case_name}_{direction}" if direction else f"Min_{load_case_name}"
-                row[key] = abs(min_val) * multiplier
+                row[key] = abs(min_val) * model_info.multiplier
 
         if not data_by_story:
             return None
@@ -698,9 +547,9 @@ class ResultDataService:
     # ------------------------------------------------------------------
 
     def invalidate_all(self) -> None:
-        self._standard_cache.clear()
+        for provider in self._dataset_providers.values():
+            provider.clear()
         self._maxmin_cache.clear()
-        self._element_cache.clear()
         self._comparison_cache.clear()
 
     # ------------------------------------------------------------------

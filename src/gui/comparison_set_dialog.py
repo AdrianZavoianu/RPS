@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from gui.design_tokens import FormStyles, PALETTE
 from gui.styles import COLORS
 from gui.ui_helpers import create_styled_button, create_styled_label
 
@@ -48,13 +49,7 @@ class ComparisonSetDialog(QDialog):
         self.setMinimumSize(1200, 650)
         self.resize(1400, 700)
 
-        # Set background using palette (more reliable than stylesheet)
-        from PyQt6.QtGui import QPalette, QColor
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(COLORS['background']))
-        self.setPalette(palette)
-        self.setAutoFillBackground(True)
-
+        self.setStyleSheet(FormStyles.dialog())
         self._setup_ui()
 
     def _setup_ui(self):
@@ -124,13 +119,7 @@ class ComparisonSetDialog(QDialog):
         rs_scroll = QScrollArea()
         rs_scroll.setWidgetResizable(True)
         rs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        rs_scroll.setStyleSheet(f"""
-            QScrollArea {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                background-color: {COLORS['background']};
-            }}
-        """)
+        rs_scroll.setStyleSheet(FormStyles.scroll_area())
 
         rs_container = QWidget()
         rs_container_layout = QVBoxLayout(rs_container)
@@ -268,95 +257,27 @@ class ComparisonSetDialog(QDialog):
 
     @staticmethod
     def _groupbox_style() -> str:
-        return f"""
-            QGroupBox {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                margin-top: 6px;
-                padding-top: 12px;
-                color: {COLORS['text']};
-                font-weight: 600;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 4px;
-            }}
-        """
+        return FormStyles.group_box()
 
     @staticmethod
     def _entry_style() -> str:
+        c = PALETTE
         return f"""
             QLineEdit {{
-                background-color: {COLORS['background']};
-                border: 2px solid {COLORS['border']};
-                border-radius: 4px;
-                padding: 6px 10px;
-                color: {COLORS['text']};
+                background-color: {c['bg_tertiary']};
+                border: 1px solid {c['border_default']};
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: {c['text_primary']};
             }}
             QLineEdit:focus {{
-                border-color: {COLORS['accent']};
+                border-color: {c['accent_primary']};
             }}
         """
 
     @staticmethod
     def _checkbox_style(indent: bool = False) -> str:
-        # Create checkmark image and save to temp file (same as folder import)
-        from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen
-        from PyQt6.QtCore import Qt
-        import tempfile
-        import os
-
-        checkmark_pixmap = QPixmap(18, 18)
-        checkmark_pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(checkmark_pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor("#ffffff"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        painter.drawLine(4, 9, 7, 12)
-        painter.drawLine(7, 12, 14, 5)
-        painter.end()
-
-        temp_dir = tempfile.gettempdir()
-        checkmark_path = os.path.join(temp_dir, "rps_checkbox_check.png")
-        checkmark_pixmap.save(checkmark_path, "PNG")
-        checkmark_url = checkmark_path.replace("\\", "/")
-
-        padding_left = "16px" if indent else "8px"
-
-        return f"""
-            QCheckBox {{
-                color: {COLORS['text']};
-                font-size: 13px;
-                padding: 6px {padding_left};
-                spacing: 8px;
-            }}
-            QCheckBox::indicator {{
-                width: 18px;
-                height: 18px;
-                border: 2px solid {COLORS['border']};
-                border-radius: 3px;
-                background-color: {COLORS['background']};
-            }}
-            QCheckBox::indicator:hover {{
-                border-color: {COLORS['accent']};
-                background-color: {COLORS['card']};
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: {COLORS['accent']};
-                border-color: {COLORS['accent']};
-                image: url({checkmark_url});
-            }}
-            QCheckBox::indicator:checked:hover {{
-                background-color: #5a99a8;
-                border-color: #5a99a8;
-                image: url({checkmark_url});
-            }}
-            QCheckBox:hover {{
-                background-color: rgba(255, 255, 255, 0.03);
-                border-radius: 4px;
-            }}
-        """
+        return FormStyles.checkbox(indent=indent)
 
     def _select_all_result_sets(self):
         """Select all result set checkboxes."""

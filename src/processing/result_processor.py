@@ -122,39 +122,42 @@ class ResultProcessor:
         df: pd.DataFrame, load_cases: List[str], stories: List[str], direction_column: str
     ) -> pd.DataFrame:
         """Process joint displacement data for a specific translational direction."""
-        results = []
-
         if direction_column not in df.columns:
-            return pd.DataFrame(results)
+            return pd.DataFrame(columns=[
+                "Story",
+                "LoadCase",
+                "Direction",
+                "Displacement",
+                "MaxDisplacement",
+                "MinDisplacement",
+            ])
 
-        for story in stories:
-            story_df = df[df["Story"] == story]
-            if story_df.empty:
-                continue
+        working = df[["Story", "Output Case", direction_column]].copy()
+        working.rename(columns={"Output Case": "LoadCase", direction_column: "Value"}, inplace=True)
+        working["Value"] = pd.to_numeric(working["Value"], errors="coerce")
+        working = working.dropna(subset=["Value"])
 
-            for case in load_cases:
-                filtered = story_df[story_df["Output Case"] == case]
-                if filtered.empty:
-                    continue
+        if working.empty:
+            return pd.DataFrame(columns=[
+                "Story",
+                "LoadCase",
+                "Direction",
+                "Displacement",
+                "MaxDisplacement",
+                "MinDisplacement",
+            ])
 
-                values = pd.to_numeric(filtered[direction_column], errors="coerce").dropna()
-                if values.empty:
-                    continue
+        grouped = working.groupby(["Story", "LoadCase"])["Value"].agg(["max", "min"])
+        grouped = grouped.reset_index()
+        grouped["Displacement"] = grouped[["max", "min"]].abs().max(axis=1)
+        grouped["Direction"] = direction_column.upper()
+        grouped["MaxDisplacement"] = grouped["max"].round(4)
+        grouped["MinDisplacement"] = grouped["min"].round(4)
+        grouped["Displacement"] = grouped["Displacement"].round(4)
 
-                max_val = values.max()
-                min_val = values.min()
-                abs_max = values.abs().max()
-
-                results.append({
-                    "Story": story,
-                    "LoadCase": case,
-                    "Direction": direction_column.upper(),
-                    "Displacement": round(abs_max, 4),
-                    "MaxDisplacement": round(max_val, 4),
-                    "MinDisplacement": round(min_val, 4),
-                })
-
-        return pd.DataFrame(results)
+        return grouped[
+            ["Story", "LoadCase", "Direction", "Displacement", "MaxDisplacement", "MinDisplacement"]
+        ]
 
     @staticmethod
     def process_story_forces(
@@ -591,44 +594,33 @@ class ResultProcessor:
             Data has Max and Min step types for each load case.
             Rotations are in radians and will be converted to percentage (multiply by 100) later.
         """
-        results = []
+        if df.empty:
+            return pd.DataFrame(columns=["Story", "Pier", "QuadName", "LoadCase", "Rotation", "MaxRotation", "MinRotation"])
 
-        for story in stories:
-            for pier in piers:
-                for case in load_cases:
-                    # Filter data for this story, pier (PropertyName), and case
-                    filtered = df.loc[
-                        (df["Story"] == story)
-                        & (df["PropertyName"] == pier)
-                        & (df["Output Case"] == case)
-                    ]
+        # Only keep Max/Min step types needed for envelopes
+        df_filtered = df[df["StepType"].isin(["Max", "Min"])].copy()
+        if df_filtered.empty:
+            return pd.DataFrame(columns=["Story", "Pier", "QuadName", "LoadCase", "Rotation", "MaxRotation", "MinRotation"])
 
-                    if not filtered.empty:
-                        # Get Max and Min step type rows
-                        max_row = filtered[filtered["StepType"] == "Max"]
-                        min_row = filtered[filtered["StepType"] == "Min"]
+        # Pivot Max/Min into columns to avoid nested loops
+        pivot = (
+            df_filtered.pivot_table(
+                index=["Story", "PropertyName", "Output Case", "Name"],
+                columns="StepType",
+                values="Rotation",
+                aggfunc="first",
+            )
+            .reset_index()
+            .rename(columns={"PropertyName": "Pier", "Output Case": "LoadCase", "Name": "QuadName"})
+        )
 
-                        if not max_row.empty and not min_row.empty:
-                            # Extract rotation values
-                            max_rotation = max_row["Rotation"].values[0]
-                            min_rotation = min_row["Rotation"].values[0]
+        # Drop rows missing either Max or Min
+        pivot = pivot.dropna(subset=["Max", "Min"])
+        if pivot.empty:
+            return pd.DataFrame(columns=["Story", "Pier", "QuadName", "LoadCase", "Rotation", "MaxRotation", "MinRotation"])
 
-                            # Get quad name from Name column
-                            quad_name = max_row["Name"].values[0] if "Name" in max_row.columns else None
+        pivot["MaxRotation"] = pivot["Max"].round(6)
+        pivot["MinRotation"] = pivot["Min"].round(6)
+        pivot["Rotation"] = pivot[["MaxRotation", "MinRotation"]].abs().max(axis=1)
 
-                            # Compute absolute max rotation
-                            abs_max_rotation = max(abs(max_rotation), abs(min_rotation))
-
-                            results.append(
-                                {
-                                    "Story": story,
-                                    "Pier": pier,
-                                    "QuadName": quad_name,
-                                    "LoadCase": case,
-                                    "Rotation": round(abs_max_rotation, 6),  # 6 decimals for radians
-                                    "MaxRotation": round(max_rotation, 6),
-                                    "MinRotation": round(min_rotation, 6),
-                                }
-                            )
-
-        return pd.DataFrame(results)
+        return pivot[["Story", "Pier", "QuadName", "LoadCase", "Rotation", "MaxRotation", "MinRotation"]]

@@ -213,8 +213,9 @@ def delete_project_context(name: str) -> bool:
 
     This will:
     1. Remove the project entry from the catalog database
-    2. Delete the project's database file ({slug}.db)
-    3. Remove the entire project folder (data/projects/{slug}/)
+    2. Dispose of the project's database engine to close all connections
+    3. Delete the project's database file ({slug}.db)
+    4. Remove the entire project folder (data/projects/{slug}/)
 
     Args:
         name: Project name to delete
@@ -222,8 +223,7 @@ def delete_project_context(name: str) -> bool:
     Returns:
         True if project was deleted, False if project not found
     """
-    from sqlalchemy import create_engine
-    from sqlalchemy.pool import NullPool
+    from database.base import dispose_project_engine
     import gc
     import time
 
@@ -243,14 +243,15 @@ def delete_project_context(name: str) -> bool:
     repo.delete(record)
     session.close()
 
-    # Close any lingering connections to the project database
-    # This is important on Windows where locked files cannot be deleted
-    if db_path.exists():
-        # Force garbage collection to close any lingering connections
-        gc.collect()
+    # Dispose of the project's database engine to close all connections
+    # This is critical on Windows where locked files cannot be deleted
+    dispose_project_engine(db_path)
 
-        # Give a brief moment for file handles to be released
-        time.sleep(0.1)
+    # Force garbage collection to close any lingering connections
+    gc.collect()
+
+    # Give a brief moment for file handles to be released
+    time.sleep(0.1)
 
     # Delete the entire project folder (includes database and any other files)
     if project_folder.exists():

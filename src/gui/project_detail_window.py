@@ -1687,6 +1687,11 @@ class ProjectDetailWindow(QMainWindow):
         """Handle window close event."""
         if self.session:
             self.session.close()
+
+        # Dispose of the database engine to fully release connections
+        from database.base import dispose_project_engine
+        dispose_project_engine(self.context.db_path)
+
         event.accept()
 
     @staticmethod

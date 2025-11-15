@@ -2,7 +2,7 @@
 
 import pandas as pd
 from abc import ABC, abstractmethod
-from config.result_config import get_config
+from config.result_config import RESULT_CONFIGS, get_config
 
 
 class ResultTransformer(ABC):
@@ -74,38 +74,6 @@ class GenericResultTransformer(ResultTransformer):
         return df[filtered_columns].copy()  # Copy to avoid SettingWithCopyWarning
 
 
-class DriftTransformer(GenericResultTransformer):
-    """Transformer for drift results."""
-    def __init__(self):
-        super().__init__('Drifts')
-
-
-class AccelerationTransformer(GenericResultTransformer):
-    """Transformer for acceleration results."""
-    def __init__(self):
-        super().__init__('Accelerations')
-
-
-class ForceTransformer(GenericResultTransformer):
-    """Transformer for force results."""
-    def __init__(self):
-        super().__init__('Forces')
-
-
-class WallShearTransformer(GenericResultTransformer):
-    """Transformer for wall shear results."""
-    def __init__(self, direction: str):
-        result_type = f'WallShears_{direction}'
-        super().__init__(result_type)
-
-
-class ColumnShearTransformer(GenericResultTransformer):
-    """Transformer for column shear results."""
-    def __init__(self, direction: str):
-        result_type = f'ColumnShears_{direction}'
-        super().__init__(result_type)
-
-
 class QuadRotationTransformer(GenericResultTransformer):
     """Transformer for quad rotation results (already converted to percentage in cache)."""
     def __init__(self):
@@ -124,13 +92,6 @@ class MinAxialTransformer(GenericResultTransformer):
     def filter_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Keep all columns (no direction filtering needed for axial forces)."""
         return df.copy()
-
-
-class ColumnRotationTransformer(GenericResultTransformer):
-    """Transformer for column rotation results (R2 or R3)."""
-    def __init__(self, direction: str):
-        result_type = f'ColumnRotations_{direction}'
-        super().__init__(result_type)
 
 
 class BeamRotationTransformer(GenericResultTransformer):
@@ -156,30 +117,23 @@ class SoilPressureTransformer(GenericResultTransformer):
 
 
 # Transformer registry
-TRANSFORMERS = {
-    'Drifts': DriftTransformer(),
-    'Drifts_X': GenericResultTransformer('Drifts_X'),
-    'Drifts_Y': GenericResultTransformer('Drifts_Y'),
-    'Accelerations': AccelerationTransformer(),
-    'Accelerations_X': GenericResultTransformer('Accelerations_X'),
-    'Accelerations_Y': GenericResultTransformer('Accelerations_Y'),
-    'Forces': ForceTransformer(),
-    'Forces_X': GenericResultTransformer('Forces_X'),
-    'Forces_Y': GenericResultTransformer('Forces_Y'),
-    'Displacements': GenericResultTransformer('Displacements'),
-    'Displacements_X': GenericResultTransformer('Displacements_X'),
-    'Displacements_Y': GenericResultTransformer('Displacements_Y'),
-    'WallShears_V2': WallShearTransformer('V2'),
-    'WallShears_V3': WallShearTransformer('V3'),
-    'ColumnShears_V2': ColumnShearTransformer('V2'),
-    'ColumnShears_V3': ColumnShearTransformer('V3'),
-    'MinAxial': MinAxialTransformer(),
-    'ColumnRotations_R2': ColumnRotationTransformer('R2'),
-    'ColumnRotations_R3': ColumnRotationTransformer('R3'),
-    'BeamRotations_R3Plastic': BeamRotationTransformer(),
-    'QuadRotations': QuadRotationTransformer(),
-    'SoilPressures_Min': SoilPressureTransformer(),
-}
+def _build_transformer_registry():
+    transformers = {
+        result_type: GenericResultTransformer(result_type)
+        for result_type in RESULT_CONFIGS
+    }
+    transformers.update(
+        {
+            'QuadRotations': QuadRotationTransformer(),
+            'MinAxial': MinAxialTransformer(),
+            'BeamRotations_R3Plastic': BeamRotationTransformer(),
+            'SoilPressures_Min': SoilPressureTransformer(),
+        }
+    )
+    return transformers
+
+
+TRANSFORMERS = _build_transformer_registry()
 
 
 def get_transformer(result_type: str) -> ResultTransformer:

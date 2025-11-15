@@ -1,5 +1,7 @@
 """Main application window."""
 
+from typing import Dict
+
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -58,6 +60,9 @@ class MainWindow(QMainWindow):
 
         # Store current project
         self.current_project = None
+
+        # Track open project detail windows {project_name: window}
+        self._project_windows: Dict[str, ProjectDetailWindow] = {}
 
         # Apply object names for styling
         self.setObjectName("mainWindow")
@@ -388,6 +393,14 @@ class MainWindow(QMainWindow):
 
     def _open_project_detail(self, project_name: str):
         """Open project detail window."""
+        # If window already exists, bring it to front
+        if project_name in self._project_windows:
+            existing_window = self._project_windows[project_name]
+            existing_window.raise_()
+            existing_window.activateWindow()
+            self.statusBar().showMessage(f"Opened project: {project_name}", 3000)
+            return
+
         context = get_project_context(project_name)
         if not context:
             QMessageBox.warning(
@@ -398,6 +411,11 @@ class MainWindow(QMainWindow):
             return
 
         detail_window = ProjectDetailWindow(context, self)
+        self._project_windows[project_name] = detail_window
+
+        # Remove from tracking when window closes
+        detail_window.destroyed.connect(lambda: self._project_windows.pop(project_name, None))
+
         if is_dev_mode():
             detail_window.showMaximized()
         else:
@@ -426,6 +444,13 @@ class MainWindow(QMainWindow):
 
         if reply != QMessageBox.StandardButton.Yes:
             return
+
+        # Close project detail window if open to release database connection
+        if project_name in self._project_windows:
+            detail_window = self._project_windows[project_name]
+            detail_window.close()
+            # Remove from tracking immediately (don't wait for destroyed signal)
+            self._project_windows.pop(project_name, None)
 
         # Delete the project
         try:

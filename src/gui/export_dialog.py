@@ -7,8 +7,8 @@ Provides UI for exporting result data to Excel and CSV formats.
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QRadioButton, QGroupBox, QCheckBox,
-    QFileDialog, QMessageBox, QProgressBar, QTreeWidget,
-    QTreeWidgetItem, QApplication
+    QFileDialog, QMessageBox, QProgressBar, QScrollArea,
+    QWidget, QApplication
 )
 from PyQt6.QtCore import QThread, pyqtSignal, QStandardPaths, Qt
 from pathlib import Path
@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Set
 
 from services.export_service import ExportService, ExportOptions
+from gui.design_tokens import FormStyles, PALETTE
 from gui.ui_helpers import create_styled_button
 from gui.styles import COLORS
 from database.models import GlobalResultsCache, ElementResultsCache, JointResultsCache
@@ -54,8 +55,12 @@ class ComprehensiveExportDialog(QDialog):
         # Available result sets (populated on init)
         self.available_result_sets = []  # List of (id, name) tuples
 
+        self.result_type_checkboxes: Dict[str, QCheckBox] = {}
+        self.result_set_checkboxes: Dict[int, QCheckBox] = {}
+
         self.setWindowTitle("Export Results")
         self.setMinimumSize(750, 400)
+        self.setStyleSheet(FormStyles.dialog())
 
         # Default output folder
         self.output_folder = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation))
@@ -176,23 +181,48 @@ class ComprehensiveExportDialog(QDialog):
         result_types_group = QGroupBox("Result Types to Export")
         result_types_layout = QVBoxLayout()
         result_types_layout.setContentsMargins(8, 8, 8, 8)
-        result_types_layout.setSpacing(4)
+        result_types_layout.setSpacing(6)
 
-        # Quick actions for result types
         rt_actions = QHBoxLayout()
         rt_all_btn = create_styled_button("All", "ghost", "sm")
-        rt_all_btn.clicked.connect(lambda: self._set_all_checked(True))
+        rt_all_btn.clicked.connect(lambda: self._set_result_types_checked(True))
         rt_none_btn = create_styled_button("None", "ghost", "sm")
-        rt_none_btn.clicked.connect(lambda: self._set_all_checked(False))
+        rt_none_btn.clicked.connect(lambda: self._set_result_types_checked(False))
         rt_actions.addWidget(rt_all_btn)
         rt_actions.addWidget(rt_none_btn)
         rt_actions.addStretch()
         result_types_layout.addLayout(rt_actions)
 
-        self.result_tree = QTreeWidget()
-        self.result_tree.setHeaderHidden(True)
-        self._build_result_tree()
-        result_types_layout.addWidget(self.result_tree)
+        types_scroll = QScrollArea()
+        types_scroll.setWidgetResizable(True)
+        types_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        types_scroll.setStyleSheet(FormStyles.scroll_area())
+
+        types_container = QWidget()
+        types_container_layout = QVBoxLayout(types_container)
+        types_container_layout.setContentsMargins(4, 4, 4, 4)
+        types_container_layout.setSpacing(0)
+
+        def add_type_section(title: str, type_list: List[str]) -> None:
+            if not type_list:
+                return
+            label = QLabel(title)
+            label.setStyleSheet("color: {}; font-size: 13px; font-weight: 600; padding: 6px 0;".format(PALETTE['accent_primary']))
+            types_container_layout.addWidget(label)
+            for base_type in type_list:
+                checkbox = QCheckBox(base_type)
+                checkbox.setStyleSheet(FormStyles.checkbox(indent=False))
+                checkbox.setChecked(True)
+                checkbox.stateChanged.connect(lambda _state: None)
+                self.result_type_checkboxes[base_type] = checkbox
+                types_container_layout.addWidget(checkbox)
+
+        add_type_section("Global Results", self.available_types['global'])
+        add_type_section("Element Results", self.available_types['element'])
+        add_type_section("Joint Results", self.available_types['joint'])
+        types_container_layout.addStretch()
+        types_scroll.setWidget(types_container)
+        result_types_layout.addWidget(types_scroll)
 
         result_types_group.setLayout(result_types_layout)
         left_column.addWidget(result_types_group)
@@ -220,11 +250,25 @@ class ComprehensiveExportDialog(QDialog):
         rs_actions.addStretch()
         result_sets_layout.addLayout(rs_actions)
 
-        self.result_sets_tree = QTreeWidget()
-        self.result_sets_tree.setHeaderHidden(True)
-        self.result_sets_tree.setMaximumHeight(150)  # Compact height
-        self._build_result_sets_tree()
-        result_sets_layout.addWidget(self.result_sets_tree)
+        sets_scroll = QScrollArea()
+        sets_scroll.setWidgetResizable(True)
+        sets_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sets_scroll.setStyleSheet(FormStyles.scroll_area())
+
+        sets_container = QWidget()
+        sets_container_layout = QVBoxLayout(sets_container)
+        sets_container_layout.setContentsMargins(4, 4, 4, 4)
+        sets_container_layout.setSpacing(0)
+
+        for rs_id, rs_name in self.available_result_sets:
+            checkbox = QCheckBox(rs_name)
+            checkbox.setStyleSheet(FormStyles.checkbox(indent=False))
+            checkbox.setChecked(True)
+            self.result_set_checkboxes[rs_id] = checkbox
+            sets_container_layout.addWidget(checkbox)
+        sets_container_layout.addStretch()
+        sets_scroll.setWidget(sets_container)
+        result_sets_layout.addWidget(sets_scroll)
 
         result_sets_group.setLayout(result_sets_layout)
         right_column.addWidget(result_sets_group)
@@ -329,100 +373,34 @@ class ComprehensiveExportDialog(QDialog):
 
         layout.addLayout(button_layout)
 
-    def _build_result_sets_tree(self):
-        """Build tree widget with all available result sets (all checked by default)."""
-        for rs_id, rs_name in self.available_result_sets:
-            item = QTreeWidgetItem(self.result_sets_tree, [rs_name])
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(0, Qt.CheckState.Checked)  # All checked by default
-            item.setData(0, Qt.ItemDataRole.UserRole, rs_id)  # Store ID for later retrieval
+    def _set_result_types_checked(self, checked: bool):
+        for checkbox in self.result_type_checkboxes.values():
+            checkbox.setChecked(checked)
 
     def _set_result_sets_checked(self, checked: bool):
-        """Set all result set items to checked or unchecked state."""
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        for i in range(self.result_sets_tree.topLevelItemCount()):
-            item = self.result_sets_tree.topLevelItem(i)
-            item.setCheckState(0, state)
+        for checkbox in self.result_set_checkboxes.values():
+            checkbox.setChecked(checked)
 
     def _get_selected_result_set_ids(self) -> List[int]:
-        """Get list of checked result set IDs."""
-        selected_ids = []
-        for i in range(self.result_sets_tree.topLevelItemCount()):
-            item = self.result_sets_tree.topLevelItem(i)
-            if item.checkState(0) == Qt.CheckState.Checked:
-                rs_id = item.data(0, Qt.ItemDataRole.UserRole)
-                selected_ids.append(rs_id)
-        return selected_ids
-
-    def _build_result_tree(self):
-        """Build tree widget with all available result types."""
-        # Global Results section
-        if self.available_types['global']:
-            global_item = QTreeWidgetItem(self.result_tree, ["Global Results"])
-            global_item.setFlags(global_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            global_item.setCheckState(0, Qt.CheckState.Checked)
-            global_item.setExpanded(True)
-
-            for result_type in self.available_types['global']:
-                child = QTreeWidgetItem(global_item, [result_type])
-                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                child.setCheckState(0, Qt.CheckState.Checked)
-
-        # Element Results section
-        if self.available_types['element']:
-            element_item = QTreeWidgetItem(self.result_tree, ["Element Results"])
-            element_item.setFlags(element_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            element_item.setCheckState(0, Qt.CheckState.Checked)
-            element_item.setExpanded(True)
-
-            for result_type in self.available_types['element']:
-                child = QTreeWidgetItem(element_item, [result_type])
-                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                child.setCheckState(0, Qt.CheckState.Checked)
-
-        # Joint Results section
-        if self.available_types['joint']:
-            joint_item = QTreeWidgetItem(self.result_tree, ["Joint Results"])
-            joint_item.setFlags(joint_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            joint_item.setCheckState(0, Qt.CheckState.Checked)
-            joint_item.setExpanded(True)
-
-            for result_type in self.available_types['joint']:
-                child = QTreeWidgetItem(joint_item, [result_type])
-                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                child.setCheckState(0, Qt.CheckState.Checked)
-
-    def _set_all_checked(self, checked: bool):
-        """Set all tree items to checked or unchecked state."""
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-
-        # Iterate all top-level items
-        for i in range(self.result_tree.topLevelItemCount()):
-            parent = self.result_tree.topLevelItem(i)
-            parent.setCheckState(0, state)
-
-            # Iterate children
-            for j in range(parent.childCount()):
-                child = parent.child(j)
-                child.setCheckState(0, state)
+        return [
+            rs_id
+            for rs_id, checkbox in self.result_set_checkboxes.items()
+            if checkbox.isChecked()
+        ]
 
     def _get_selected_result_types(self) -> List[str]:
-        """Get list of checked result types from tree.
+        """Get list of checked result types from checkbox groups.
 
         Expands base types (e.g., "Drifts") to include all directions
         (e.g., "Drifts_X", "Drifts_Y") for export service.
         """
         from config.result_config import RESULT_CONFIGS
 
-        selected_base_types = []
-
-        for i in range(self.result_tree.topLevelItemCount()):
-            parent = self.result_tree.topLevelItem(i)
-
-            for j in range(parent.childCount()):
-                child = parent.child(j)
-                if child.checkState(0) == Qt.CheckState.Checked:
-                    selected_base_types.append(child.text(0))
+        selected_base_types = [
+            base_type
+            for base_type, checkbox in self.result_type_checkboxes.items()
+            if checkbox.isChecked()
+        ]
 
         # Expand base types to include all directions
         expanded_types = []
@@ -604,10 +582,10 @@ class ComprehensiveExportDialog(QDialog):
         for widget in self.findChildren(QLineEdit):
             widget.setStyleSheet(self._lineedit_style())
 
-        # Apply tree widget styling to both trees
-        tree_style = self._tree_style()
-        self.result_tree.setStyleSheet(tree_style)
-        self.result_sets_tree.setStyleSheet(tree_style)
+        # Apply checkbox styling for standalone options
+        checkbox_style = self._checkbox_style()
+        for widget in self.findChildren(QCheckBox):
+            widget.setStyleSheet(checkbox_style)
 
         # Apply progress bar styling
         self.progress_bar.setStyleSheet(self._progress_style())
@@ -615,111 +593,40 @@ class ComprehensiveExportDialog(QDialog):
     @staticmethod
     def _groupbox_style() -> str:
         """GroupBox style matching folder import dialog."""
-        return f"""
-            QGroupBox {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                margin-top: 6px;
-                padding-top: 12px;
-                color: {COLORS['text']};
-                font-weight: 600;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 4px;
-            }}
+        base = FormStyles.group_box()
+        extras = f"""
             /* Remove black background for Export Options group */
             QGroupBox#exportOptionsGroup {{
                 background-color: transparent;
+                border: none;
             }}
             QGroupBox#exportOptionsGroup QRadioButton,
             QGroupBox#exportOptionsGroup QCheckBox {{
                 background-color: transparent;
             }}
         """
+        return base + extras
 
     @staticmethod
     def _lineedit_style() -> str:
         """LineEdit style matching folder import dialog."""
+        c = PALETTE
         return f"""
             QLineEdit {{
-                background-color: {COLORS['background']};
-                border: 2px solid {COLORS['border']};
-                border-radius: 4px;
-                padding: 6px 10px;
-                color: {COLORS['text']};
+                background-color: {c['bg_tertiary']};
+                border: 1px solid {c['border_default']};
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: {c['text_primary']};
             }}
             QLineEdit:focus {{
-                border-color: {COLORS['accent']};
+                border-color: {c['accent_primary']};
             }}
         """
 
     @staticmethod
-    def _tree_style() -> str:
-        """TreeWidget style matching folder import dialog with custom checkbox indicators."""
-        # Create checkmark image for checkboxes
-        from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen
-        from PyQt6.QtCore import Qt
-        import tempfile
-        import os
-
-        checkmark_pixmap = QPixmap(18, 18)
-        checkmark_pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(checkmark_pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor("#ffffff"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        painter.drawLine(4, 9, 7, 12)
-        painter.drawLine(7, 12, 14, 5)
-        painter.end()
-
-        temp_dir = tempfile.gettempdir()
-        checkmark_path = os.path.join(temp_dir, "rps_export_checkbox_check.png")
-        checkmark_pixmap.save(checkmark_path, "PNG")
-        checkmark_url = checkmark_path.replace("\\", "/")
-
-        return f"""
-            QTreeWidget {{
-                background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                padding: 8px 4px 4px 4px;
-                color: {COLORS['text']};
-            }}
-            QTreeWidget::item {{
-                padding: 4px 8px;
-                border-radius: 2px;
-            }}
-            QTreeWidget::item:hover {{
-                background-color: {COLORS['card']};
-            }}
-            QTreeWidget::item:selected {{
-                background-color: {COLORS['accent']};
-                color: white;
-            }}
-            QTreeWidget::indicator {{
-                width: 18px;
-                height: 18px;
-                border: 2px solid {COLORS['border']};
-                border-radius: 3px;
-                background-color: {COLORS['background']};
-            }}
-            QTreeWidget::indicator:hover {{
-                border-color: {COLORS['accent']};
-                background-color: {COLORS['card']};
-            }}
-            QTreeWidget::indicator:checked {{
-                background-color: {COLORS['accent']};
-                border-color: {COLORS['accent']};
-                image: url({checkmark_url});
-            }}
-            QTreeWidget::indicator:checked:hover {{
-                background-color: #5a99a8;
-                border-color: #5a99a8;
-                image: url({checkmark_url});
-            }}
-        """
+    def _checkbox_style() -> str:
+        return FormStyles.checkbox(indent=False)
 
     @staticmethod
     def _progress_style() -> str:
@@ -740,44 +647,13 @@ class ComprehensiveExportDialog(QDialog):
         """
 
     def _auto_fit_height(self):
-        """Auto-fit dialog height based on tree content."""
-        # Calculate required height based on tree items
-        tree_item_height = 30  # Approximate height per item including padding
-
-        # Count total items (top-level + children)
-        total_items = 0
-        for i in range(self.result_tree.topLevelItemCount()):
-            parent = self.result_tree.topLevelItem(i)
-            total_items += 1  # Count parent
-            if parent.isExpanded():
-                total_items += parent.childCount()  # Count children
-
-        # Calculate tree height (add extra for padding, borders, and buttons)
-        tree_content_height = (total_items * tree_item_height) + 100  # 100px for buttons and padding
-
-        # Add fixed heights for other UI elements
-        header_height = 80  # Header + info label
-        options_height = 150  # Export options group
-        output_height = 150  # Output location group
-        buttons_height = 80  # Bottom buttons
-        padding = 50  # Additional padding
-
-        # Calculate total required height
-        required_height = max(
-            tree_content_height,  # Based on tree content
-            options_height + output_height  # Right column minimum
-        ) + header_height + buttons_height + padding
-
-        # Cap at reasonable maximum (don't exceed screen height)
+        """Set a reasonable default height for the scroll layouts."""
         screen = QApplication.primaryScreen()
+        default_height = 720
         if screen:
-            screen_height = screen.availableGeometry().height()
-            max_height = int(screen_height * 0.85)  # Use 85% of screen height max
-            required_height = min(required_height, max_height)
-
-        # Set the dialog height
-        current_width = self.width()
-        self.resize(current_width, required_height)
+            max_height = int(screen.availableGeometry().height() * 0.85)
+            default_height = min(default_height, max_height)
+        self.resize(self.width(), default_height)
 
 
 class ComprehensiveExportWorker(QThread):
@@ -1076,6 +952,7 @@ class SimpleExportDialog(QDialog):
         self.setWindowTitle("Export Results")
         self.setMinimumWidth(500)
         self.setMinimumHeight(300)
+        self.setStyleSheet(FormStyles.dialog())
 
         self._setup_ui()
         self._apply_styling()
@@ -1376,6 +1253,7 @@ class ExportProjectExcelDialog(QDialog):
 
         self.setWindowTitle("Export Project to Excel")
         self.setMinimumWidth(750)  # Only set width, let height auto-adjust
+        self.setStyleSheet(FormStyles.dialog())
         self._setup_ui()
         self._apply_styling()
 
@@ -1546,49 +1424,49 @@ class ExportProjectExcelDialog(QDialog):
 
         # Apply progress bar styling
         self.progress_bar.setStyleSheet(self._progress_style())
+        for widget in self.findChildren(QCheckBox):
+            widget.setStyleSheet(self._checkbox_style())
 
     @staticmethod
     def _groupbox_style() -> str:
         """GroupBox style matching export results dialog."""
-        return f"""
-            QGroupBox {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                margin-top: 0px;
-                padding-top: 12px;
-                color: {COLORS['text']};
-                font-weight: 600;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 4px;
-            }}
+        base = FormStyles.group_box()
+        extras = """
             /* Remove background for Export Options group */
             QGroupBox#exportOptionsGroup {{
                 background-color: transparent;
+                border: none;
             }}
             QGroupBox#exportOptionsGroup QCheckBox {{
                 background-color: transparent;
             }}
         """
+        return base + extras
 
     @staticmethod
     def _lineedit_style() -> str:
         """LineEdit style matching export results dialog."""
+        c = PALETTE
         return f"""
             QLineEdit {{
-                background-color: {COLORS['background']};
-                border: 2px solid {COLORS['border']};
-                border-radius: 4px;
-                padding: 6px 10px;
-                color: {COLORS['text']};
+                background-color: {c['bg_tertiary']};
+                border: 1px solid {c['border_default']};
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: {c['text_primary']};
             }}
             QLineEdit:focus {{
-                border-color: {COLORS['accent']};
+                border-color: {c['accent_primary']};
             }}
         """
+
+    @staticmethod
+    def _checkbox_style() -> str:
+        return FormStyles.checkbox(indent=False)
+
+    @staticmethod
+    def _checkbox_style() -> str:
+        return FormStyles.checkbox(indent=False)
 
     @staticmethod
     def _progress_style() -> str:
@@ -1644,3 +1522,5 @@ class ExportProjectExcelWorker(QThread):
 
     def _emit_progress(self, message: str, current: int, total: int):
         self.progress.emit(message, current, total)
+    def _checkbox_style(self) -> str:
+        return FormStyles.checkbox(indent=False)
