@@ -24,6 +24,8 @@ from .models import (
     WallShear,
     SoilPressure,
     VerticalDisplacement,
+    PushoverCase,
+    PushoverCurvePoint,
 )
 from .base_repository import BaseRepository
 
@@ -417,6 +419,30 @@ class CacheRepository(BaseRepository[GlobalResultsCache]):
     """Repository for GlobalResultsCache operations - optimized for tabular display."""
 
     model = GlobalResultsCache
+
+    def get_distinct_load_cases(self, project_id: int, result_set_id: int) -> list:
+        """
+        Get all distinct load case names for a result set.
+
+        Extracts load case names from the results_matrix JSON keys.
+        """
+        # Query a single cache entry to get load case names
+        entry = (
+            self.session.query(GlobalResultsCache)
+            .filter(
+                and_(
+                    GlobalResultsCache.project_id == project_id,
+                    GlobalResultsCache.result_set_id == result_set_id
+                )
+            )
+            .first()
+        )
+
+        if entry and entry.results_matrix:
+            # Return the keys (load case names) from the JSON results_matrix
+            return list(entry.results_matrix.keys())
+
+        return []
 
     def upsert_cache_entry(
         self,
@@ -1024,3 +1050,29 @@ class JointCacheRepository(BaseRepository[JointResultsCache]):
             self.session.commit()
 
         return entry
+
+
+class PushoverCaseRepository(BaseRepository[PushoverCase]):
+    """Repository for PushoverCase operations."""
+
+    model = PushoverCase
+
+    def get_by_result_set(self, result_set_id: int) -> List[PushoverCase]:
+        """Get all pushover cases for a result set."""
+        return self.session.query(PushoverCase).filter(
+            PushoverCase.result_set_id == result_set_id
+        ).all()
+
+    def get_by_name(self, project_id: int, result_set_id: int, name: str) -> Optional[PushoverCase]:
+        """Get a specific pushover case by name."""
+        return self.session.query(PushoverCase).filter(
+            PushoverCase.project_id == project_id,
+            PushoverCase.result_set_id == result_set_id,
+            PushoverCase.name == name
+        ).first()
+
+    def get_curve_data(self, pushover_case_id: int) -> List[PushoverCurvePoint]:
+        """Get all curve points for a pushover case, ordered by step."""
+        return self.session.query(PushoverCurvePoint).filter(
+            PushoverCurvePoint.pushover_case_id == pushover_case_id
+        ).order_by(PushoverCurvePoint.step_number).all()

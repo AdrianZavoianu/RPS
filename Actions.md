@@ -1571,3 +1571,6 @@ Now I want to move to implement the export features. The export at the project l
 
 
     Now I will like to add another feature at the project level which will allow me to compare results wise different results set eg. Eg for the drifts all any other global results type I would like to see a comparison plot and tables for the average drifts in X direction. The same for individual results types in elements category. Lets create a plan for this
+
+
+    

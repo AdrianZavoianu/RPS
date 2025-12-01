@@ -33,6 +33,16 @@ class ResultTransformer(ABC):
             load_case_name = parts[-1] if parts else col_without_suffix
             cleaned_columns.append(load_case_name)
 
+        # Check for duplicates and log warning
+        from collections import Counter
+        duplicates = [col for col, count in Counter(cleaned_columns).items() if count > 1]
+        if duplicates:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Duplicate column names after cleaning: {duplicates}")
+            logger.warning(f"Original columns: {list(df.columns)}")
+            logger.warning(f"Cleaned columns: {cleaned_columns}")
+
         df.columns = cleaned_columns
         return df
 

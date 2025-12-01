@@ -42,6 +42,7 @@ class ResultsPlotWidget(QWidget):
         self._highlighted_case = None  # Track currently highlighted load case
         self._current_selection: set[str] = set()
         self._average_plot_item = None
+        self._shorthand_mapping: dict = {}  # Full name -> shorthand for legend display
         self.setup_ui()
 
     def setup_ui(self):
@@ -58,9 +59,8 @@ class ResultsPlotWidget(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #2c313a;
+                border: none;
                 background-color: #0a0c10;
-                border-radius: 6px;
                 margin-top: 0px;
             }
             QTabBar {
@@ -174,8 +174,22 @@ class ResultsPlotWidget(QWidget):
         return container._plot_widget
 
     def _add_legend_item(self, container, color: str, label: str):
-        """Add a legend item to the external legend (grid layout, 4 items per row)."""
-        item_widget = create_static_legend_item(color, label)
+        """Add a legend item to the external legend (grid layout, 2-4 items per row based on mapping)."""
+        # For pushover results with shorthand mapping, show "Px1 = Full Name"
+        if label in self._shorthand_mapping:
+            shorthand = self._shorthand_mapping[label]
+            display_label = f"{shorthand} = {label}"
+            print(f"[DEBUG] [OK] Legend MATCHED: '{label}' -> '{display_label}'")
+        else:
+            display_label = label
+            if self._shorthand_mapping:
+                print(f"[DEBUG] [!!] Legend NOT matched: '{label}' (mapping has {len(self._shorthand_mapping)} entries)")
+                if len(self._shorthand_mapping) > 0:
+                    print(f"[DEBUG]   Available keys: {list(self._shorthand_mapping.keys())[:3]}")
+            else:
+                print(f"[DEBUG] Legend item (no mapping active): '{label}'")
+
+        item_widget = create_static_legend_item(color, display_label)
         # Add to grid layout at current position
         container._legend_layout.addWidget(
             item_widget,
@@ -184,19 +198,38 @@ class ResultsPlotWidget(QWidget):
         )
         container._legend_items.append(item_widget)
 
-        # Move to next position (4 items per row)
+        # Determine columns per row: 2 for mapped labels (longer), 4 for normal labels
+        max_cols = 2 if self._shorthand_mapping else 4
+
+        # Move to next position
         container._legend_col += 1
-        if container._legend_col >= 4:
+        if container._legend_col >= max_cols:
             container._legend_col = 0
             container._legend_row += 1
 
-    def load_dataset(self, dataset: ResultDataset) -> None:
-        """Load data and generate plots from a ResultDataset."""
+    def load_dataset(self, dataset: ResultDataset, shorthand_mapping: dict = None) -> None:
+        """
+        Load data and generate plots from a ResultDataset.
+
+        Args:
+            dataset: The result dataset to display
+            shorthand_mapping: Optional mapping of full names to shorthand for legend display
+        """
         self.current_dataset = dataset
         self._current_selection.clear()
         self._average_plot_item = None
 
+        # Clear plots FIRST, then set mapping (clear_plots() clears mapping too)
         self.clear_plots()
+
+        # Now set the mapping AFTER clearing
+        self._shorthand_mapping = shorthand_mapping if shorthand_mapping is not None else {}
+
+        print(f"[DEBUG] Plot received shorthand_mapping: {shorthand_mapping is not None}, length: {len(self._shorthand_mapping)}")
+        if self._shorthand_mapping:
+            print(f"[DEBUG] Sample mapping: {list(self._shorthand_mapping.items())[:2]}")
+        else:
+            print(f"[DEBUG] Plot has empty or no mapping")
 
         df = dataset.data
         if df.empty:
@@ -389,6 +422,12 @@ class ResultsPlotWidget(QWidget):
         # Use dataset order for plotting (already aligned bottom-to-top)
         numeric_df = df[load_case_columns].apply(pd.to_numeric, errors='coerce')
 
+        # Check for duplicate column names
+        if len(load_case_columns) != len(set(load_case_columns)):
+            from collections import Counter
+            duplicates = [col for col, count in Counter(load_case_columns).items() if count > 1]
+            raise ValueError(f"Duplicate column names found: {duplicates}. This usually means the cache needs to be rebuilt. Please re-import the result set.")
+
         # Plot each load case as a line
         for idx, load_case in enumerate(load_case_columns):
             numeric_values = numeric_df[load_case].fillna(0.0).tolist()
@@ -553,6 +592,7 @@ class ResultsPlotWidget(QWidget):
         self._highlighted_case = None
         self._average_plot_item = None
         self.current_dataset = None
+        self._shorthand_mapping.clear()
 
     def _reset_plot(self, container):
         """Clear plot curves and legend entries."""

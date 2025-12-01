@@ -2,7 +2,7 @@
 
 **RPS (Results Processing System)** - Structural engineering results processor (ETABS/SAP2000)
 **Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
-**Status**: Production-ready (v2.7 - November 2024 - Multi-Set Export & UI Enhancements)
+**Status**: Production-ready (v2.13 - December 2024 - Pushover Joints Support)
 
 ---
 
@@ -83,6 +83,120 @@ class MyRepository(BaseRepository[MyModel]):
 - **Foundation Support**: Vertical displacements use shared foundation joint list from Fou sheet across all files
 - **Soil Pressure Detection**: Automatically detects soil pressure sheets during prescan
 - Location: `gui/folder_import_dialog.py`, `processing/enhanced_folder_importer.py`
+
+### Pushover Analysis System (v2.10)
+
+**Import Workflow (IMPORTANT - Must follow this order):**
+1. **First**: Import Pushover Curves → Create and name result set (e.g., "160Will_Push")
+2. **Second**: Import Global Results → Select existing result set to add data to
+
+#### Pushover Curves
+- **Data Source**: Single Excel file with "Joint Displacements" and "Story Forces" sheets
+- **Visualization**: Table (Step | Base Shear | Displacement) + Plot (displacement X-axis, base shear Y-axis)
+- **Base Story Selection**: Specify base story for shear force extraction (typically foundation or first floor)
+- **Direction Support**: Automatically detects X/Y direction from case names (_X+, _Y+, etc.)
+- **Auto-Sizing**: Table auto-fits to content height, no scrolling or container borders
+- Location: `gui/pushover_import_dialog.py`, `gui/result_views/pushover_curve_view.py`, `processing/pushover_parser.py`
+
+**Parser Features** (`PushoverParser`):
+- Parse displacement data from "Joint Displacements" sheet
+- Parse base shear data from "Story Forces" sheet (filtered by base story + bottom location)
+- Normalize displacements (zero initial value, absolute values)
+- Merge displacement and shear data by matching step numbers
+- Returns `PushoverCurveData` objects with step_numbers, displacements, base_shears
+
+**View Features** (`PushoverCurveView`):
+- Horizontal splitter layout: table left (auto-sized), plot right (remaining space)
+- 3-column table: Step (narrow 50px) | Base Shear (120px) | Displacement (140px)
+- Table auto-calculates exact height after data loads via `setFixedHeight()`
+- Plot range from (0,0) with 5% padding, no mouse interaction
+- Matches NLTHA styling: dark theme, teal accent (#4a7d89), no rounded corners
+- Frame shape set to NoFrame to eliminate double borders (CSS border only)
+
+#### Pushover Global Results
+- **Data Source**: Folder of Excel files with "Story Drifts", "Story Forces", "Joint Displacements" sheets
+- **Result Types**: Story Drifts, Story Forces (shears), Floor Displacements
+- **Directions**: X and Y (separate load case selection for each direction)
+- **Story Ordering**: Preserves Excel sheet order using `.unique()` and Pandas Categorical
+- **Result Set Validation**: Must import curves first - dialog checks for existing pushover result sets
+- **Cache Building**: Uses `session.flush()` before cache to ensure all records are written
+- Location: `gui/pushover_global_import_dialog.py`, `processing/pushover_global_importer.py`, `processing/pushover_global_parser.py`
+
+**Parser Features** (`PushoverGlobalParser`):
+- Filters by pushover direction using regex pattern: `[_/]{direction}[+-]` (matches _X+, _Y-, etc.)
+- Direction column in Excel = component (X/Y drift), NOT pushover direction
+- Pushover direction comes from Output Case NAME (e.g., Push_Mod_**X**+Ecc+)
+- All pushover cases report BOTH X and Y components (primary + cross drifts)
+- Preserves story order from Excel using `.unique()` (first-occurrence order)
+- Uses `groupby(..., sort=False)` to prevent alphabetical sorting
+- Restores order after groupby using Pandas Categorical
+
+**Importer Features** (`PushoverGlobalImporter`):
+- Creates or gets existing result set (selected from combo box)
+- Tracks story order from Excel (`self.story_order` dictionary)
+- Stores `story_sort_order` per record (Excel row index)
+- Builds cache with direction suffixes: _X/_Y for drifts, _VX/_VY for forces, _UX/_UY for displacements
+- Replaces underscores with hyphens in load case names to prevent transformer splitting
+- **CRITICAL**: Calls `session.flush()` before `_build_cache()` to ensure records are queryable
+
+**Dialog Features** (`PushoverGlobalImportDialog`):
+- Checks for existing pushover result sets on init (`_load_existing_result_sets()`)
+- Shows warning and closes if no result sets exist
+- Combo box populated with existing result set names (not text input)
+- Load case selection by direction (X and Y columns)
+- Select All / Select None buttons per direction
+
+#### Pushover Joints (v2.13)
+- **Data Source**: Same Excel files used for global results (with "Soil Pressures", "Fou", "Joint Displacements" sheets)
+- **Result Types**: Soil Pressures, Vertical Displacements, Joint Displacements (Ux, Uy, Uz)
+- **Import Integration**: Automatically imported alongside global results - no separate import step required
+- **Directions**: X and Y (uses same load case selection as global results)
+- **Foundation Joint Detection**: Uses Fou sheet to identify foundation joints for vertical displacements
+- Location: `processing/pushover_soil_pressure_parser.py`, `processing/pushover_vert_displacement_parser.py`
+
+**Soil Pressure Parser** (`PushoverSoilPressureParser`):
+- Parses "Soil Pressures" sheet for minimum soil pressure per foundation element
+- Filters by pushover direction using regex: `{direction}[+-]?` (matches X+, X-, Y+, Y-, X, Y)
+- Groups by Shell Object, Unique Name, Output Case and takes minimum pressure
+- Stores with result_type = "SoilPressures_Min" in JointResultsCache
+- Preserves element order from Excel using `.unique()` and Pandas Categorical
+
+**Vertical Displacement Parser** (`PushoverVertDisplacementParser`):
+- Reads foundation joint list from "Fou" sheet (e.g., joints 181-1133)
+- Parses "Joint Displacements" sheet filtered to foundation joints only
+- Extracts minimum Uz (vertical) displacement per joint/case from Min step type
+- Stores with result_type = "VerticalDisplacements_Min" in JointResultsCache
+- Preserves Story-Label-Unique Name structure for each foundation joint
+
+**Joint Displacement Importer** (`PushoverJointImporter`):
+- Parses "Joint Displacements" sheet for Ux, Uy, Uz displacements
+- Takes absolute maximum across Max/Min step types per joint/case
+- Stores separately as "JointDisplacements_Ux", "JointDisplacements_Uy", "JointDisplacements_Uz"
+- Wide-format table with all joints and load cases
+
+**Tree Browser Structure**:
+```
+└── Pushover Result Set (e.g., "711Vic_Push")
+    ├── Curves
+    ├── Global Results
+    ├── Elements
+    └── ◆ Joints (NEW in v2.13)
+        ├── › Joint Displacements
+        │   ├── Ux (mm)
+        │   ├── Uy (mm)
+        │   └── Uz (mm)
+        ├── › Soil Pressures (Min)
+        │   ├── Plot (Scatter plot of all foundation elements)
+        │   └── Table (Wide-format table)
+        └── › Vertical Displacements (Min)
+            ├── Plot (Scatter plot of all foundation joints)
+            └── Table (Wide-format table)
+```
+
+**CRITICAL**: Result type naming uses `_Min` suffix:
+- Soil pressures stored as `"SoilPressures_Min"` (not `"SoilPressures"`)
+- Vertical displacements stored as `"VerticalDisplacements_Min"` (not `"VerticalDisplacements"`)
+- Views query for `_Min` suffix - mismatch will cause display errors
 
 ### Comparison System
 - **Create Comparison**: Compare multiple result sets (DES vs MCE vs SLE)
@@ -170,12 +284,22 @@ Follow DESIGN.md:
 - `processing/selective_data_importer.py` - Load case filtering
 - `processing/excel_parser.py` - Excel sheet parsing
 - `processing/result_transformers.py` - Data transformation (Excel → ORM)
+- `processing/pushover_parser.py` - Pushover curve Excel parser (v2.10)
+- `processing/pushover_global_parser.py` - Pushover global results parser (v2.11)
+- `processing/pushover_soil_pressure_parser.py` - Pushover soil pressures parser (v2.13)
+- `processing/pushover_vert_displacement_parser.py` - Pushover vertical displacements parser (v2.13)
+- `processing/pushover_joint_parser.py` - Pushover joint displacements parser (v2.13)
+- `processing/pushover_global_importer.py` - Pushover global results importer (v2.11)
+- `processing/pushover_soil_pressure_importer.py` - Pushover soil pressures importer (v2.13)
+- `processing/pushover_vert_displacement_importer.py` - Pushover vertical displacements importer (v2.13)
+- `processing/pushover_joint_importer.py` - Pushover joint displacements importer (v2.13)
 
 **UI:**
 - `gui/project_detail_window.py` - Main 3-panel view (browser | content)
 - `gui/results_tree_browser.py` - Hierarchical browser (includes comparison sets)
 - `gui/result_views/standard_view.py` - Reusable table+plot
 - `gui/result_views/comparison_view.py` - Multi-series comparison view
+- `gui/result_views/pushover_curve_view.py` - Pushover curve visualization (NEW in v2.10)
 - `gui/comparison_set_dialog.py` - Create comparison dialog
 - `gui/maxmin_drifts_widget.py` - Max/Min visualization
 - `gui/export_dialog.py` - Export dialogs
@@ -185,6 +309,7 @@ Follow DESIGN.md:
 - `utils/color_utils.py` - Gradient colors (includes orange_blue reversed scheme)
 - `utils/plot_builder.py` - Declarative plotting
 - `utils/data_utils.py` - Parsing/formatting
+- `utils/pushover_utils.py` - Pushover load case shorthand mapping (Px1, Py1, etc.)
 
 ---
 
@@ -205,7 +330,169 @@ Follow DESIGN.md:
 
 ---
 
-## Recent Changes (November 2024)
+## Recent Changes (November-December 2024)
+
+### v2.13 - Pushover Joints Support (Dec 1)
+- **Pushover Foundation Results**: Complete joints support for pushover analysis
+  - Soil Pressures parser and importer using "Soil Pressures" sheet
+  - Vertical Displacements parser using "Fou" + "Joint Displacements" sheets
+  - Joint Displacements (Ux, Uy, Uz) from "Joint Displacements" sheet
+  - All three types automatically imported with global results (no separate dialog)
+- **Parser Implementation**: Three new parsers following NLTHA pattern
+  - `PushoverSoilPressureParser` - Min soil pressure per foundation element
+  - `PushoverVertDisplacementParser` - Min Uz for foundation joints (filtered by Fou sheet)
+  - `PushoverJointParser` - Already existed, now integrated into global import
+  - Direction filtering using regex: `{direction}[+-]?` for pushover cases
+  - Preserves Excel order using `.unique()` and Pandas Categorical
+- **Importer Integration**: Added to `PushoverGlobalImportDialog` worker thread
+  - Soil pressures: 85-90% of import progress (after global results)
+  - Vertical displacements: 90-95% of import progress
+  - Joint displacements: 85% of import progress (alongside global)
+  - All use same X/Y load case selection as global results
+- **Result Type Naming**: Critical `_Min` suffix for cache storage
+  - `"SoilPressures_Min"` stored in JointResultsCache (not `"SoilPressures"`)
+  - `"VerticalDisplacements_Min"` stored in JointResultsCache (not `"VerticalDisplacements"`)
+  - Mismatch between importer and view will prevent data display
+  - Tree browser checks for `_Min` suffix when showing sections
+- **Tree Browser Updates**: New Joints category at same level as Curves/Global/Elements
+  - `_add_pushover_soil_pressures_section()` - Plot + Table views
+  - `_add_pushover_vertical_displacements_section()` - Plot + Table views
+  - `_add_pushover_joint_displacements_section()` - Ux, Uy, Uz table views (already existed)
+  - Click handlers emit to existing soil pressure/vertical displacement views (reused from NLTHA)
+- **Data Flow**: Foundation joint list from Fou sheet
+  - Vertical displacements filtered to only joints in Fou sheet (e.g., 953 joints)
+  - Soil pressures use all foundation elements (e.g., 720 elements)
+  - Joint displacements include all joints (not filtered by Fou)
+- **View Reuse**: Uses existing NLTHA joint views
+  - `load_all_soil_pressures()` - Scatter plot widget
+  - `load_soil_pressures_table()` - Wide-format table in beam_rotations_table widget
+  - `load_all_vertical_displacements()` - Scatter plot widget
+  - `load_vertical_displacements_table()` - Wide-format table
+  - Load case shorthand mapping applied to all joint result tables
+- **Test Results**: Validated with 711Vic_Push_DES_All.xlsx
+  - Soil Pressures: 720 elements × 2 load cases (Push Modal X, Push Uniform X)
+  - Vertical Displacements: 953 joints × 2 load cases (filtered by Fou sheet)
+  - Joint Displacements: All joints with Ux, Uy, Uz components
+  - All parsers and importers tested successfully
+- **File Locations**:
+  - Parsers: `processing/pushover_soil_pressure_parser.py`, `pushover_vert_displacement_parser.py`
+  - Importers: `processing/pushover_soil_pressure_importer.py`, `pushover_vert_displacement_importer.py`
+  - Dialog: `gui/pushover_global_import_dialog.py` (lines 208-246)
+  - Tree: `gui/results_tree_browser.py` (lines 1717-1737, 2258-2342)
+
+### v2.12 - Pushover Load Case Mapping & UX Improvements (Nov 26)
+- **Load Case Shorthand Mapping**: Automatic shorthand names for pushover load cases
+  - Long names like `Push-Mod-X+Ecc+` displayed as `Px1`, `Py1`, etc. in table headers
+  - Plot legends show full mapping: `"Px1 = Push-Mod-X+Ecc+"`
+  - Reduces visual clutter and improves readability for 16+ load cases
+  - Mapping created once per result set and cached in memory
+  - Location: `utils/pushover_utils.py`, `project_detail_window.py:582-640`
+- **Dual-Format Support**: Handles both hyphen and underscore naming conventions
+  - Global results use hyphens: `Push-Mod-X+Ecc+`
+  - Element results use underscores: `Push_Mod_X+Ecc+`
+  - Regex pattern preserves +/- eccentricity signs: `(?<!Ecc)-(?!Ecc)`
+  - Extended mapping includes both variants (32 entries from 16 base cases)
+- **Automatic Context Switching**: App detects pushover result sets automatically
+  - Checks `ResultSet.analysis_type` attribute when navigating tree
+  - Switches to "Pushover" context for pushover result sets
+  - Switches to "NLTHA" context for non-pushover result sets
+  - No manual tab clicking required
+  - Location: `project_detail_window.py:658-677`
+- **Fixed Column/Beam Click Handlers**: Added missing event handlers for pushover elements
+  - `pushover_column_result` handler for R2/R3 column rotations
+  - `pushover_beam_result` handler for beam rotations
+  - Properly extracts `ColumnRotations` from `ColumnRotations_R2` suffix
+  - Location: `results_tree_browser.py:1557-1575`
+- **Mapping Application**: Shorthand applied to all result sections
+  - Standard view (global results, element results, joint results)
+  - Wide-format tables (beam rotations, soil pressures, vertical displacements)
+  - Comparison views (preserved for future implementation)
+  - Error handling with graceful fallback to original headers
+
+### v2.11 - Pushover Global Results (Nov 23)
+- **Pushover Global Results Import**: Complete story-level results support
+  - `PushoverGlobalImportDialog` with result set selection
+  - Imports Story Drifts, Story Forces, Floor Displacements from folder
+  - X and Y direction load case selection (separate columns)
+  - **Required Workflow**: Must import curves first, then select result set for global results
+  - Validation prevents import if no pushover result sets exist
+- **Result Set Selection**: Combo box populated with existing pushover result sets
+  - Replaces text input that defaulted to "Pushover_Global"
+  - Ensures global results are associated with correct curve result set
+  - Warning dialog if curves haven't been imported yet
+- **Parser Direction Filtering**: Fixed Excel direction column interpretation
+  - Direction column = drift/force COMPONENT (X or Y), not pushover direction
+  - Pushover direction from Output Case NAME using regex: `[_/]{direction}[+-]`
+  - All pushover cases report both X and Y components (primary + cross)
+  - Filters correctly to get only relevant cases per direction
+- **Story Order Preservation**: Matches NLTHA pattern for correct building profile display
+  - Uses `df['Story'].unique().tolist()` to preserve Excel first-occurrence order
+  - `groupby(..., sort=False)` prevents alphabetical sorting
+  - Restores order after groupby using Pandas Categorical
+  - Stores `story_sort_order` per record (0-based Excel row index)
+- **Cache Build Fix**: Added `session.flush()` before cache building
+  - Critical fix: Ensures all imported records are written to database
+  - Cache query was running before records were flushed, causing incomplete cache
+  - Now all stories and directions appear correctly in cache
+- **Tree Browser Structure**: Global Results at same level as Curves
+  ```
+  └── Result Set (e.g., "160Will_Push")
+      ├── Curves
+      │   ├── X Direction
+      │   └── Y Direction
+      └── Global Results
+          ├── Story Drifts (X, Y)
+          ├── Story Forces (X, Y)
+          └── Floor Displacements (X, Y)
+  ```
+- **Load Case Name Handling**: Replaces underscores with hyphens
+  - Prevents transformer from incorrectly splitting on underscores
+  - `Push_Mod_X+Ecc+` becomes `Push-Mod-X+Ecc+` in cache
+  - Direction suffix appended: `Push-Mod-X+Ecc+_X` for X drifts
+
+### v2.10 - Pushover Curve Visualization (Nov 22)
+- **Pushover Curve Visualization**: Complete pushover capacity curve support
+  - `PushoverCurveView` widget with table + plot layout
+  - Horizontal splitter: table (auto-sized) left, plot (stretch) right
+  - 3-column table: Step | Base Shear (kN) | Displacement (mm)
+  - Auto-sizing: Table calculates exact height after data loads
+  - Plot: Displacement X-axis, Base Shear Y-axis, range from (0,0) with 5% padding
+- **Pushover Parser**: Excel file parsing for capacity curves
+  - `PushoverParser` class extracts displacement and shear data
+  - Parses "Joint Displacements" sheet for displacement curves
+  - Parses "Story Forces" sheet for base shear (filtered by base story + bottom location)
+  - Normalizes displacements (zero initial value, absolute values)
+  - Merges data by matching step numbers
+  - Returns `PushoverCurveData` container objects
+- **Table Border Fix**: Eliminated double borders project-wide
+  - Set `QTableWidget.setFrameShape(QFrame.Shape.NoFrame)` on all tables
+  - Native frame disabled, CSS border only (`border: 1px solid #2c313a`)
+  - Applied to `PushoverCurveView` and `ResultsTableWidget`
+  - Clean single border with no layering artifacts
+- **Direction Support**: Automatically detects X/Y direction from case names
+- **Styling Consistency**: Matches NLTHA results (dark theme, teal accent, no rounded corners)
+
+### v2.9 - Database Connection Management & UX Improvements (Nov 15)
+- **Database Connection Fix**: Comprehensive solution for Windows file locking issues
+  - Implemented engine registry with `NullPool` to eliminate connection pooling
+  - `dispose_project_engine()` function explicitly closes all database connections
+  - Project detail windows now dispose engines on close
+  - Delete operation disposes engines before file deletion
+  - Eliminates "process cannot access file" errors on project deletion
+- **Import Dialog Enhancement**: Fixed premature button activation
+  - Start Import button now disabled during file scanning
+  - Button state properly tracked through scan lifecycle
+  - Prevents import attempts before scan completion
+- **Project Window Management**: Single-instance windows with proper tracking
+  - Prevents duplicate project detail windows
+  - Existing windows brought to front when reopened
+  - Automatic cleanup when windows close
+  - Windows explicitly closed before project deletion
+- **Navigation UI Refresh**: Modern web-style header
+  - Increased navigation font size from 16px to 22px
+  - Reduced vertical padding for tighter header (12px → 8px)
+  - Removed underline effects for cleaner look
+  - Bold weight indicates active navigation item
 
 ### v2.8 - Import System Refactor (Nov 15)
 - **Service Layer Extraction**: Import prescan logic moved to `services/import_preparation.py`
@@ -287,5 +574,5 @@ Follow DESIGN.md:
 
 ---
 
-**Last Updated**: 2024-11-15
-**Version**: 2.8
+**Last Updated**: 2024-12-01
+**Version**: 2.13

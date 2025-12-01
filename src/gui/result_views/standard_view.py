@@ -35,10 +35,17 @@ class StandardResultView(QWidget):
             QTimer.singleShot(0, self._apply_splitter_proportions)
             self._initial_sizes_set = True
 
-    def set_dataset(self, dataset: ResultDataset) -> None:
-        """Populate the table and plot with the provided dataset."""
-        self.table.load_dataset(dataset)
-        self.plot.load_dataset(dataset)
+    def set_dataset(self, dataset: ResultDataset, shorthand_mapping: dict = None) -> None:
+        """
+        Populate the table and plot with the provided dataset.
+
+        Args:
+            dataset: The result dataset to display
+            shorthand_mapping: Optional mapping for pushover load case names (full -> shorthand)
+        """
+        self.table.load_dataset(dataset, shorthand_mapping=shorthand_mapping)
+        self.plot.load_dataset(dataset, shorthand_mapping=shorthand_mapping)
+
         # Force splitter proportions after data is loaded
         QTimer.singleShot(100, self._apply_splitter_proportions)
 

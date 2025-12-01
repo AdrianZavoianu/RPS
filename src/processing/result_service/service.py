@@ -321,7 +321,18 @@ class ResultDataService:
 
         data_rows: List[Dict[str, object]] = []
         for rotation, load_case, story, element in records:
-            value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
+            # For pushover data, max_rotation and min_rotation are None, use rotation field
+            # For NLTHA envelope data, use max_rotation or min_rotation
+            if rotation.max_rotation is not None or rotation.min_rotation is not None:
+                # NLTHA envelope data
+                value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
+            else:
+                # Pushover data (or NLTHA single case) - use rotation field
+                # Only include in "Max" call to avoid duplicates
+                if max_min != "Max":
+                    continue
+                value = rotation.rotation
+
             if value is None:
                 continue
 
@@ -366,7 +377,18 @@ class ResultDataService:
 
         data_rows: List[Dict[str, object]] = []
         for rotation, load_case, story, element in records:
-            value = rotation.max_r3_plastic if max_min == "Max" else rotation.min_r3_plastic
+            # For pushover data, max_r3_plastic and min_r3_plastic are None, use r3_plastic field
+            # For NLTHA envelope data, use max_r3_plastic or min_r3_plastic
+            if rotation.max_r3_plastic is not None or rotation.min_r3_plastic is not None:
+                # NLTHA envelope data
+                value = rotation.max_r3_plastic if max_min == "Max" else rotation.min_r3_plastic
+            else:
+                # Pushover data (or NLTHA single case) - use r3_plastic field
+                # Only include in "Max" call to avoid duplicates
+                if max_min != "Max":
+                    continue
+                value = rotation.r3_plastic
+
             if value is None:
                 continue
 

@@ -47,7 +47,12 @@
       "Bash(\"C:\\SoftDev\\RPS\\src\\gui\\import_dialog.py\")",
       "Bash(powershell:*)",
       "Bash(dist/RPS/RPS.exe.sha256)",
-      "Bash(ARCHITECTURE.md)"
+      "Bash(ARCHITECTURE.md)",
+      "Bash(cp:*)",
+      "Bash(src/services/__init__.py)",
+      "Bash(for dir in */)",
+      "Bash(do echo \"=== $dir%/ ===\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

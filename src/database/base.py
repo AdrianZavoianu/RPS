@@ -24,17 +24,28 @@ Base = declarative_base()
 _project_engines: Dict[str, Engine] = {}
 
 
+def _normalize_db_path(db_path: Path) -> str:
+    """Normalize database path for consistent key storage."""
+    # Convert to absolute path and use forward slashes
+    normalized = str(db_path.resolve()).replace('\\', '/')
+    print(f"[DEBUG] Normalized path: {normalized}")
+    return normalized
+
+
 def _get_or_create_engine(db_path: Path) -> Engine:
     """Get or create an engine for the given database path.
 
     Uses NullPool to avoid connection pooling issues on Windows.
     """
-    db_path_str = str(db_path.resolve())
+    # Normalize path with forward slashes for consistency
+    db_path_str = _normalize_db_path(db_path)
 
     if db_path_str in _project_engines:
+        print(f"[DEBUG] Reusing existing engine for: {db_path_str}")
         return _project_engines[db_path_str]
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[DEBUG] Creating new engine for: {db_path_str}")
     engine = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
@@ -45,16 +56,41 @@ def _get_or_create_engine(db_path: Path) -> Engine:
     return engine
 
 
-def dispose_project_engine(db_path: Path) -> None:
+def dispose_project_engine(db_path: Path | str) -> None:
     """Dispose of the engine for a project database.
 
     This should be called before deleting a project to ensure all
     database connections are closed.
+
+    Args:
+        db_path: Path or string path to the project database
     """
-    db_path_str = str(db_path.resolve())
+    # Convert to Path if string
+    if isinstance(db_path, str):
+        db_path = Path(db_path)
+
+    # Normalize path using the same function
+    db_path_str = _normalize_db_path(db_path)
+
+    print(f"[DEBUG] Attempting to dispose engine for: {db_path_str}")
+    print(f"[DEBUG] Current engines in registry: {list(_project_engines.keys())}")
+
     if db_path_str in _project_engines:
         engine = _project_engines.pop(db_path_str)
+        # Force dispose all connections
         engine.dispose()
+        print(f"[DEBUG] Successfully disposed engine for: {db_path_str}")
+    else:
+        print(f"[WARNING] Engine not found in registry for disposal: {db_path_str}")
+        print(f"[WARNING] This might indicate the engine was already disposed or never created")
+
+
+def dispose_all_engines() -> None:
+    """Dispose all project engines (emergency cleanup)."""
+    for db_path, engine in list(_project_engines.items()):
+        engine.dispose()
+        print(f"[DEBUG] Disposed engine: {db_path}")
+    _project_engines.clear()
 
 
 # -----------------------------------------------------------------------------

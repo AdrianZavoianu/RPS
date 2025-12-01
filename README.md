@@ -20,12 +20,18 @@ pipenv run python dev_watch.py
 
 ## Features
 
-✅ **Complete Data Pipeline** - Import, process, and store structural analysis results
-✅ **Folder-Based Import** - Batch process multiple Excel files with progress tracking
-✅ **Interactive Visualization** - PyQtGraph building profile plots with 100k+ data point support
-✅ **Compact Tables** - Auto-fitting tables with color-coded gradients
-✅ **Modern UI** - GMP-exact design system with dark theme
-✅ **Hot-Reload Development** - Web-style auto-restart on save
+✅ **Complete Data Pipeline** – Import, process, and store envelopes, element, and foundation results
+✅ **Folder-Based Import** – Batch process Excel files with prescan, conflict resolution, and consolidated stats
+✅ **Structured Logging & Diagnostics** – JSON logs under `data/logs/` plus an in-app Diagnostics dialog for quick tailing
+✅ **Interactive Visualization** – PyQtGraph building profile plots with comparison sets, scatter plots, and max/min views
+✅ **Modern UI** – GMP-inspired design system with dark theme, responsive layout, and hot reload tooling
+✅ **Configuration-Driven Extensibility** – Result types, transformers, and import tasks are declared in config/processing modules
+
+## Logs & Diagnostics
+
+- All runtime logs are written to `data/logs/rps.log` (JSON lines). Customize the location by calling `setup_logging(log_file=...)` before launching the UI.
+- Use the status bar “Diagnostics” button to open the log viewer dialog (tail, copy path, open folder) without leaving the app.
+- Importers emit `import.start`, `import.phase`, and `import.complete` events, making it easy to correlate folder imports with the UI progress log.
 
 ## Documentation
 
@@ -53,7 +59,15 @@ This project has comprehensive documentation organized into three main files:
 - ✅ Configuration-driven architecture for easy extension
 - ✅ Hybrid normalized + cache data model for performance
 
-**Next Steps**: Add more result types (joint displacements, element forces), time-series visualization, and export functionality.
+**Next Steps**: polish regression tests/UI docs, add analytics/alerting views, and explore time-series visualization + external integrations.
+
+## Testing
+
+```bash
+pipenv run pytest
+```
+
+New tests cover the import task registry, folder import aggregators, project runtime/controller wiring, and logging utilities. Additions should keep parity by extending the relevant suites under `tests/`.
 
 ## Platform Support
 

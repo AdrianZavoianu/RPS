@@ -19,6 +19,7 @@ from .data_importer import DataImporter
 from .selective_data_importer import SelectiveDataImporter
 from .folder_importer import TARGET_SHEETS
 from .base_importer import BaseFolderImporter
+from .import_stats import ImportStatsAggregator
 
 from gui.load_case_selection_dialog import LoadCaseSelectionDialog
 from gui.load_case_conflict_dialog import LoadCaseConflictDialog
@@ -301,16 +302,10 @@ class EnhancedFolderImporter(BaseFolderImporter):
             "load_cases": 0,
             "load_cases_skipped": 0,
             "stories": 0,
-            "drifts": 0,
-            "accelerations": 0,
-            "forces": 0,
-            "displacements": 0,
-            "pier_forces": 0,
-            "column_forces": 0,
-            "vertical_displacements": 0,
             "errors": [],
             "phase_timings": [],
         }
+        aggregator = ImportStatsAggregator()
 
         # Track which load cases have been imported per sheet
         imported_load_cases_by_sheet = {}  # {sheet: {load_cases}}
@@ -367,13 +362,8 @@ class EnhancedFolderImporter(BaseFolderImporter):
 
                 stats["project"] = file_stats.get("project", stats["project"])
                 stats["files_processed"] += 1
-                stats["drifts"] += file_stats.get("drifts", 0)
-                stats["accelerations"] += file_stats.get("accelerations", 0)
-                stats["forces"] += file_stats.get("forces", 0)
-                stats["displacements"] += file_stats.get("displacements", 0)
-                stats["pier_forces"] += file_stats.get("pier_forces", 0)
-                stats["column_forces"] += file_stats.get("column_forces", 0)
-                stats["vertical_displacements"] += file_stats.get("vertical_displacements", 0)
+                aggregator.merge(file_stats)
+                aggregator.extend_errors(file_stats.get("errors") or [])
                 stats["phase_timings"].extend(file_stats.get("phase_timings") or [])
 
                 for sheet_name in file_load_cases[file_name].keys():
@@ -399,6 +389,12 @@ class EnhancedFolderImporter(BaseFolderImporter):
                     stats["stories"] = len(stories)
             finally:
                 session.close()
+
+        agg_data = aggregator.as_dict()
+        agg_errors = agg_data.pop("errors", [])
+        stats.update(agg_data)
+        if agg_errors:
+            stats["errors"].extend(agg_errors)
 
         self._finalize_cache_generation(stats)
         self._report_progress("Import complete", len(self.excel_files), len(self.excel_files))

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from processing.result_service import ResultDataset
 
 
-class ResultsTableWidget(QFrame):
+class ResultsTableWidget(QWidget):
     """Table widget for displaying results in tabular format."""
 
     # Signal emitted when a load case column is clicked (column_name)
@@ -41,8 +41,9 @@ class ResultsTableWidget(QFrame):
         # Set size policy: preferred width (can shrink/grow), expand vertically to match plot height
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
-        # No border on container - table will have its own border
+        # Transparent container; table manages its own border
         self.setObjectName("tableContainer")
+        self.setStyleSheet("background-color: transparent; border: none;")
 
         # Track selected load cases for highlighting
         self._selected_load_cases = set()
@@ -57,6 +58,8 @@ class ResultsTableWidget(QFrame):
         self._column_names: List[str] = []
         self._load_case_columns: List[str] = []
         self._load_case_column_set: Set[str] = set()
+        self._shorthand_mapping: dict = {}  # Full name -> shorthand
+        self._reverse_mapping: dict = {}  # Shorthand -> full name
         self._non_selectable_columns: Set[str] = {"Story"}
 
         self.setup_ui()
@@ -70,6 +73,11 @@ class ResultsTableWidget(QFrame):
         layout.setSpacing(0)
 
         self.table = ClickableTableWidget()
+        # Remove any native frame; rely only on explicit border + gridlines
+        self.table.setFrameShape(QFrame.Shape.NoFrame)
+        self.table.setLineWidth(0)
+        self.table.setMidLineWidth(0)
+        self.table.setShowGrid(True)
 
         # Connect row click signal
         self.table.rowClicked.connect(self._on_row_clicked)
@@ -110,8 +118,8 @@ class ResultsTableWidget(QFrame):
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #0a0c10;
-                border: 1px solid #2c313a;
-                border-radius: 6px;
+                border: none;
+                outline: none;
                 gridline-color: #2c313a;
                 color: #d1d5db;
             }
@@ -119,22 +127,32 @@ class ResultsTableWidget(QFrame):
                 padding: 1px 2px;
                 border: none;
             }
+            QTableWidget QAbstractScrollArea {
+                border: none;
+            }
+            QTableWidget::viewport {
+                border: 1px solid #2c313a;
+            }
+            QTableWidget QTableCornerButton::section {
+                border: 0px;
+                background-color: #161b22;
+            }
             QHeaderView::section {
                 background-color: #161b22;
                 color: #4a7d89;
                 padding: 2px 4px;
                 border: none;
-                border-bottom: 2px solid #2c313a;
+                border-right: 1px solid #2c313a;
+                border-bottom: 1px solid #2c313a;
                 font-weight: 600;
                 text-align: center;
+            }
+            QHeaderView::section:last {
+                border-right: 0px;
             }
             QHeaderView::section:hover {
                 background-color: #1f2937;
                 color: #67e8f9;
-            }
-            QTableWidget QTableCornerButton::section {
-                background-color: #161b22;
-                border: none;
             }
         """)
 
@@ -167,13 +185,35 @@ class ResultsTableWidget(QFrame):
 
         # Connect hover signals from custom header
         if isinstance(header, SelectableHeaderView):
-            header.section_hovered.connect(self.load_case_hovered.emit)
+            # Translate shorthand back to full name before emitting
+            header.section_hovered.connect(self._on_header_hovered)
             header.section_hover_left.connect(self.hover_cleared.emit)
 
         layout.addWidget(self.table)
 
-    def load_dataset(self, dataset: "ResultDataset"):
-        """Load data from a ResultDataset into the table."""
+    def set_shorthand_mapping(self, mapping: dict):
+        """
+        Set shorthand mapping for column headers.
+
+        Args:
+            mapping: Dictionary mapping full names to shorthand (e.g., {"Push-Mod-X+Ecc+" -> "Px1"})
+        """
+        self._shorthand_mapping = mapping
+        self._reverse_mapping = {v: k for k, v in mapping.items()}
+
+    def clear_shorthand_mapping(self):
+        """Clear the shorthand mapping."""
+        self._shorthand_mapping = {}
+        self._reverse_mapping = {}
+
+    def load_dataset(self, dataset: "ResultDataset", shorthand_mapping: dict = None):
+        """
+        Load data from a ResultDataset into the table.
+
+        Args:
+            dataset: The result dataset to display
+            shorthand_mapping: Optional mapping of full names to shorthand for column headers
+        """
         df = dataset.data
 
         self._dataset = dataset
@@ -183,6 +223,16 @@ class ResultsTableWidget(QFrame):
         self._selected_rows.clear()
         self._load_case_columns = list(dataset.load_case_columns)
         self._load_case_column_set = set(self._load_case_columns)
+
+        # Set shorthand mapping if provided (check for None, not just falsy, since {} is valid)
+        if shorthand_mapping is not None:
+            print(f"[DEBUG] Table load_dataset: Received mapping with {len(shorthand_mapping)} entries")
+            if shorthand_mapping:
+                print(f"[DEBUG] Table sample mapping: {list(shorthand_mapping.items())[:2]}")
+            self.set_shorthand_mapping(shorthand_mapping)
+        else:
+            print(f"[DEBUG] Table load_dataset: NO mapping provided (None)")
+            self.clear_shorthand_mapping()
         self._non_selectable_columns = {"Story", *dataset.summary_columns}
         self._story_sort_order = Qt.SortOrder.AscendingOrder
 
@@ -202,7 +252,18 @@ class ResultsTableWidget(QFrame):
 
         self.table.setRowCount(row_count)
         self.table.setColumnCount(column_count)
-        self.table.setHorizontalHeaderLabels(column_names)
+
+        # Apply shorthand mapping to column headers if available
+        if self._shorthand_mapping:
+            display_names = [self._shorthand_mapping.get(name, name) for name in column_names]
+            print(f"[DEBUG] Setting headers WITH mapping")
+            print(f"[DEBUG] Original headers: {column_names[:3]}")
+            print(f"[DEBUG] Mapped headers: {display_names[:3]}")
+            self.table.setHorizontalHeaderLabels(display_names)
+        else:
+            print(f"[DEBUG] Setting headers WITHOUT mapping (using original names)")
+            print(f"[DEBUG] Headers: {column_names[:3]}")
+            self.table.setHorizontalHeaderLabels(column_names)
 
         min_val, max_val = self._compute_value_range(df, self._load_case_columns)
         config = dataset.config
@@ -262,9 +323,9 @@ class ResultsTableWidget(QFrame):
         # This allows table to take just enough space, giving more to the plot
         self.table.setMinimumWidth(total_width)
         self.setMinimumWidth(total_width)
-        # But allow table to grow slightly if space available
-        self.table.setMaximumWidth(total_width + 50)  # Allow up to 50px extra
-        self.setMaximumWidth(total_width + 50)
+        # Lock maximum to content width to avoid empty bordered area
+        self.table.setMaximumWidth(total_width)
+        self.setMaximumWidth(total_width)
 
     def _format_value(self, value, config) -> str:
         """Format numeric table value with unit string."""
@@ -325,6 +386,21 @@ class ResultsTableWidget(QFrame):
 
         # Update row styling
         self._apply_row_style(self.table, row)
+
+    def _on_header_hovered(self, display_name: str):
+        """
+        Handle header hover - translate shorthand to full name before emitting.
+
+        Args:
+            display_name: The displayed header text (might be shorthand like "Px1")
+        """
+        # If we have reverse mapping (shorthand -> full name), use it
+        if self._reverse_mapping and display_name in self._reverse_mapping:
+            full_name = self._reverse_mapping[display_name]
+            self.load_case_hovered.emit(full_name)
+        else:
+            # No mapping or not a shorthand - emit as is
+            self.load_case_hovered.emit(display_name)
 
     def _on_header_clicked(self, logical_index: int):
         """Handle header clicks - toggle selection for load case columns, allow sorting only for Story."""
@@ -453,7 +529,7 @@ class ResultsTableWidget(QFrame):
             header.set_selected_sections(self._selected_load_cases)
 
     def clear_data(self):
-        """Clear table contents."""
+        """Clear table contents but preserve shorthand mapping."""
         self.table.setRowCount(0)
         self.table.setColumnCount(0)
         self._selected_load_cases.clear()
@@ -463,6 +539,8 @@ class ResultsTableWidget(QFrame):
         self._load_case_columns = []
         self._load_case_column_set.clear()
         self._non_selectable_columns = {"Story"}
+        # Note: We intentionally DON'T clear _shorthand_mapping or _reverse_mapping
+        # They should persist until explicitly cleared or replaced
         self.table._hovered_row = -1
         self._current_result_type = None
         self._apply_type_styles("")

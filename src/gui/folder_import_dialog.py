@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set
 
@@ -38,6 +39,9 @@ from processing.folder_importer import TARGET_SHEETS
 
 
 EXCEL_PATTERNS: Sequence[str] = ("*.xlsx", "*.xls")
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_checkbox_icons() -> tuple[QIcon, QIcon]:
@@ -97,8 +101,24 @@ class LoadCaseScanWorker(QThread):
                 result_types_set,
                 self._on_progress,
             )
+            logger.info(
+                "Folder prescan finished",
+                extra={
+                    "event": "prescan.complete",
+                    "folder": str(self.folder_path),
+                    "files": prescan.files_scanned,
+                    "errors": len(prescan.errors),
+                },
+            )
             self.finished.emit(prescan)
         except Exception as exc:  # pragma: no cover - UI feedback
+            logger.exception(
+                "Folder prescan failed",
+                extra={
+                    "event": "prescan.failure",
+                    "folder": str(self.folder_path),
+                },
+            )
             self.error.emit(str(exc))
 
     def _on_progress(self, message: str, current: int, total: int) -> None:
@@ -140,6 +160,16 @@ class FolderImportWorker(QThread):
     def run(self) -> None:  # pragma: no cover - executes in worker thread
         """Run the import in background thread."""
         try:
+            logger.info(
+                "Folder import worker starting",
+                extra={
+                    "event": "import.folder.start",
+                    "project": self.context.name,
+                    "result_set": self.result_set_name,
+                    "folder": str(self.folder_path),
+                    "enhanced": self.use_enhanced,
+                },
+            )
             if self.use_enhanced:
                 from processing.enhanced_folder_importer import EnhancedFolderImporter
 
@@ -171,7 +201,26 @@ class FolderImportWorker(QThread):
                 )
                 stats = importer.import_all()
                 self.finished.emit(stats)
+                logger.info(
+                    "Folder import worker finished",
+                    extra={
+                        "event": "import.folder.complete",
+                        "project": self.context.name,
+                        "result_set": self.result_set_name,
+                        "files_processed": stats.get("files_processed"),
+                        "files_total": stats.get("files_total"),
+                        "errors": len(stats.get("errors") or []),
+                    },
+                )
         except Exception as exc:  # pragma: no cover - UI feedback
+            logger.exception(
+                "Folder import worker failed",
+                extra={
+                    "event": "import.folder.failure",
+                    "project": self.context.name,
+                    "result_set": self.result_set_name,
+                },
+            )
             self.error.emit(str(exc))
 
     def _on_progress(self, message: str, current: int, total: int) -> None:

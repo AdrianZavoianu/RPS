@@ -15,10 +15,14 @@ from gui.window_utils import set_windows_app_id
 from gui.icon_utils import set_app_icons
 from database.base import init_db
 from utils.env import is_dev_mode
+from utils.logging_utils import setup_logging
 
 
 def main():
     """Main application entry point."""
+    # Configure structured logging early so background threads use it
+    log_file = setup_logging()
+
     # Initialize database (create tables if they don't exist)
     init_db()
 
@@ -47,6 +51,7 @@ def main():
 
     # Create and show main window
     window = MainWindow()
+    window.statusBar().showMessage(f"Logs: {log_file}")
     # Launch maximized by default for a full-screen project view
     window.showMaximized()
 

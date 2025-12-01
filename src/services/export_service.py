@@ -1083,3 +1083,91 @@ class ExportService:
             wb["IMPORT_DATA"].sheet_state = "hidden"
 
         wb.save(file_path)
+
+    # ===== PUSHOVER CURVES EXPORT =====
+
+    def export_pushover_curves(
+        self,
+        result_set_id: int,
+        output_path: Path,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None
+    ) -> None:
+        """Export all pushover curves for a result set to Excel.
+
+        Creates Excel file with one sheet per pushover case, matching the format
+        of the old ETPS_Pushover.py script.
+
+        Each sheet contains:
+        - Step Number
+        - Base Shear (kN)
+        - Displacement (mm)
+
+        Args:
+            result_set_id: ID of the result set containing pushover cases
+            output_path: Path to output Excel file
+            progress_callback: Optional callback(message, current, total) for progress updates
+
+        Raises:
+            ValueError: If no pushover cases found for result set
+            IOError: If file cannot be written
+        """
+        from database.repository import PushoverCaseRepository
+
+        # Query all pushover cases for this result set
+        with self.context.session() as session:
+            pushover_repo = PushoverCaseRepository(session)
+            cases = pushover_repo.get_by_result_set(result_set_id)
+
+            if not cases:
+                raise ValueError(f"No pushover cases found for result set ID {result_set_id}")
+
+            # Collect all curve data BEFORE creating Excel file
+            curves_to_export = []
+            total_steps = len(cases)
+
+            for idx, case in enumerate(cases):
+                if progress_callback:
+                    progress_callback(f"Loading {case.name}...", idx + 1, total_steps)
+
+                # Get curve data points for this case
+                curve_points = pushover_repo.get_curve_data(case.id)
+
+                if not curve_points:
+                    continue  # Skip empty curves
+
+                # Build data dictionary
+                data = {
+                    'Step Number': [pt.step_number for pt in curve_points],
+                    'Base Shear (kN)': [pt.base_shear for pt in curve_points],
+                    'Displacement (mm)': [pt.displacement for pt in curve_points]
+                }
+
+                curves_to_export.append({
+                    'case_name': case.name,
+                    'data': data
+                })
+
+            # Check if we have any data to export BEFORE creating the file
+            if not curves_to_export:
+                raise ValueError(
+                    f"No curve data found for any pushover cases in result set ID {result_set_id}. "
+                    "The pushover cases exist but have no data points. "
+                    "Please re-import the pushover curves to ensure data is loaded correctly."
+                )
+
+            # Now create Excel file with all collected data
+            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                for idx, curve_info in enumerate(curves_to_export):
+                    if progress_callback:
+                        progress_callback(f"Writing {curve_info['case_name']}...", idx + 1, len(curves_to_export))
+
+                    df = pd.DataFrame(curve_info['data'])
+
+                    # Use case name as sheet name (truncate to 31 chars for Excel limit)
+                    sheet_name = curve_info['case_name'][:31]
+
+                    # Write to Excel
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            if progress_callback:
+                progress_callback("Export complete!", len(curves_to_export), len(curves_to_export))

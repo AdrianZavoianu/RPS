@@ -33,13 +33,9 @@ from .window_utils import enable_dark_title_bar
 from .project_detail_window import ProjectDetailWindow
 from .project_grid_widget import ProjectGridWidget
 from .styles import COLORS
-from services.project_service import (
-    ensure_project_context,
-    get_project_context,
-    delete_project_context,
-    result_set_exists,
-    list_project_summaries,
-)
+from .diagnostics_dialog import DiagnosticsDialog
+from services.project_service import result_set_exists
+from .controllers.project_controller import ProjectController
 from utils.env import is_dev_mode
 
 
@@ -54,15 +50,18 @@ class MainWindow(QMainWindow):
         # Apply gray background to main window (match group box background)
         self.setStyleSheet(f"QMainWindow {{ background-color: {COLORS['card']}; }}")
 
-        # Initialize UI components
-        self._create_central_widget()
-        self._create_status_bar()
-
         # Store current project
         self.current_project = None
 
         # Track open project detail windows {project_name: window}
         self._project_windows: Dict[str, ProjectDetailWindow] = {}
+
+        # Controller orchestrating project CRUD ops
+        self.project_controller = ProjectController()
+
+        # Initialize UI components
+        self._create_central_widget()
+        self._create_status_bar()
 
         # Apply object names for styling
         self.setObjectName("mainWindow")
@@ -96,14 +95,24 @@ class MainWindow(QMainWindow):
         self.project_label = QLabel("No project loaded")
         self.statusBar().addPermanentWidget(self.project_label)
 
+        diagnostics_btn = QPushButton("Diagnostics")
+        diagnostics_btn.setObjectName("statusDiagnosticsButton")
+        diagnostics_btn.clicked.connect(self._show_diagnostics)
+        self.statusBar().addPermanentWidget(diagnostics_btn)
+
+    def _show_diagnostics(self):
+        """Open diagnostics dialog showing log output."""
+        dialog = DiagnosticsDialog(self)
+        dialog.exec()
+
     def _create_header(self, container_layout: QVBoxLayout):
         """Create top header bar with logo and navigation."""
         header = QFrame()
         header.setObjectName("topHeader")
         header.setFrameShape(QFrame.Shape.NoFrame)
-        header.setFixedHeight(88)  # Taller header for larger logo
+        header.setFixedHeight(110)  # Taller header for larger logo
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 6, 20, 6)
+        header_layout.setContentsMargins(20, 8, 20, 8)
         header_layout.setSpacing(16)
 
         # Branded logo on the left
@@ -363,7 +372,7 @@ class MainWindow(QMainWindow):
         """Load projects from catalog and render cards."""
         project_rows = []
         totals = {"projects": 0, "load_cases": 0, "stories": 0}
-        summaries = list_project_summaries()
+        summaries = self.project_controller.list_summaries()
 
         for summary in summaries:
             context = summary.context
@@ -401,7 +410,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Opened project: {project_name}", 3000)
             return
 
-        context = get_project_context(project_name)
+        context = self.project_controller.get_context(project_name)
         if not context:
             QMessageBox.warning(
                 self,
@@ -410,7 +419,17 @@ class MainWindow(QMainWindow):
             )
             return
 
-        detail_window = ProjectDetailWindow(context, self)
+        try:
+            runtime = self.project_controller.build_runtime(context)
+        except ValueError as exc:
+            QMessageBox.critical(
+                self,
+                "Project Error",
+                str(exc),
+            )
+            return
+
+        detail_window = ProjectDetailWindow(runtime, self)
         self._project_windows[project_name] = detail_window
 
         # Remove from tracking when window closes
@@ -454,7 +473,7 @@ class MainWindow(QMainWindow):
 
         # Delete the project
         try:
-            success = delete_project_context(project_name)
+            success = self.project_controller.delete_project(project_name)
             if success:
                 QMessageBox.information(
                     self,
@@ -500,7 +519,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            context = ensure_project_context(name, description)
+            context = self.project_controller.ensure_context(name, description)
             self.statusBar().showMessage(f"Project ready: {context.name}", 5000)
         except Exception as exc:
             QMessageBox.critical(
@@ -528,7 +547,7 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Importing {file_path}...")
 
                 try:
-                    context = ensure_project_context(project_name)
+                    context = self.project_controller.ensure_context(project_name)
                     if result_set_exists(context, result_set_name):
                         QMessageBox.warning(
                             self,

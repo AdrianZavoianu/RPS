@@ -12,6 +12,7 @@ from services.import_preparation import FilePrescanSummary
 from .excel_parser import ExcelParser
 from .data_importer import DataImporter
 from .base_importer import BaseFolderImporter
+from .import_stats import ImportStatsAggregator
 
 TARGET_SHEETS: Dict[str, List[str]] = {
     "Story Drifts": ["Story Drifts"],
@@ -65,12 +66,9 @@ class FolderImporter(BaseFolderImporter):
             "files_total": len(self.excel_files),
             "load_cases": 0,
             "stories": 0,
-            "drifts": 0,
-            "accelerations": 0,
-            "forces": 0,
-            "displacements": 0,
             "errors": [],
         }
+        aggregator = ImportStatsAggregator()
 
         self._report_progress("Processing files...", 0, len(self.excel_files))
 
@@ -118,8 +116,8 @@ class FolderImporter(BaseFolderImporter):
 
                 stats["project"] = file_stats.get("project", stats["project"])
                 stats["files_processed"] += 1
-                for key in ("drifts", "accelerations", "forces", "displacements"):
-                    stats[key] += file_stats.get(key, 0)
+                aggregator.merge(file_stats)
+                aggregator.extend_errors(file_stats.get("errors") or [])
 
             except Exception as exc:  # collect error and continue
                 stats["errors"].append(f"{excel_file.name}: {exc}")
@@ -136,6 +134,13 @@ class FolderImporter(BaseFolderImporter):
                     stats["stories"] = len(stories)
             finally:
                 session.close()
+
+        agg_data = aggregator.as_dict()
+        agg_errors = agg_data.pop("errors", [])
+        stats.update(agg_data)
+        stats.setdefault("errors", [])
+        if agg_errors:
+            stats["errors"].extend(agg_errors)
 
         self._report_progress("Import complete", len(self.excel_files), len(self.excel_files))
         return stats
