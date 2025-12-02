@@ -1,18 +1,28 @@
 """Import service for RPS projects."""
 
-from typing import Optional, Callable
-from pathlib import Path
-from dataclasses import dataclass
-import pandas as pd
 import json
+import logging
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Callable, Optional
+
+import pandas as pd
 
 from services.project_service import ProjectContext, ensure_project_context
 from database.models import ResultSet, LoadCase, Story, Element
 from database.repository import (
-    ProjectRepository, ResultSetRepository, LoadCaseRepository,
-    StoryRepository, ElementRepository, CacheRepository, ElementCacheRepository
+    CacheRepository,
+    ElementCacheRepository,
+    ElementRepository,
+    LoadCaseRepository,
+    ProjectRepository,
+    ResultSetRepository,
+    StoryRepository,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,11 +79,11 @@ class ImportService:
             project_info = import_metadata.get('project', {})
             result_sheets = import_metadata.get('result_sheet_mapping', {})
 
-            print(f"DEBUG PREVIEW: result_sheet_mapping = {result_sheets}")
+            logger.debug("Preview result_sheet_mapping: %s", result_sheets)
 
             # Validate required sheets exist
             xl_file = pd.ExcelFile(excel_path)
-            print(f"DEBUG PREVIEW: Actual Excel sheets = {xl_file.sheet_names}")
+            logger.debug("Preview Excel sheets: %s", xl_file.sheet_names)
             required_sheets = ["README", "Result Sets", "Load Cases", "Stories", "IMPORT_DATA"]
             missing_sheets = [s for s in required_sheets if s not in xl_file.sheet_names]
 
@@ -103,6 +113,7 @@ class ImportService:
             )
 
         except Exception as e:
+            logger.exception("Failed to preview import for %s", excel_path)
             return ImportPreview(
                 project_name="Error",
                 description="",
@@ -200,9 +211,9 @@ class ImportService:
             # Import result sets
             result_set_repo = ResultSetRepository(session)
             result_set_mapping = {}
-            print(f"DEBUG: Importing {len(import_metadata.get('result_sets', []))} result sets")
+            logger.debug("Importing %s result sets", len(import_metadata.get('result_sets', [])))
             for rs_data in import_metadata.get('result_sets', []):
-                print(f"DEBUG: Creating result set: {rs_data['name']}")
+                logger.debug("Creating result set: %s", rs_data['name'])
                 rs = result_set_repo.create(
                     project_id=project.id,
                     name=rs_data['name'],
@@ -303,7 +314,7 @@ class ImportService:
                 progress_callback("Importing story drifts...", 0, 9)
 
             drift_records = normalized_data.get('story_drifts', [])
-            print(f"DEBUG: Found {len(drift_records)} story_drifts records in JSON")
+            logger.debug("Found %s story_drifts records in JSON", len(drift_records))
             drift_count = 0
 
             for drift_data in drift_records:
@@ -322,13 +333,13 @@ class ImportService:
                     session.add(entry)
                     drift_count += 1
 
-            print(f"DEBUG: Imported {drift_count} story_drifts records")
+            logger.debug("Imported %s story_drifts records", drift_count)
 
             if progress_callback:
                 progress_callback("Importing story accelerations...", 1, 9)
 
             accel_records = normalized_data.get('story_accelerations', [])
-            print(f"DEBUG: Found {len(accel_records)} story_accelerations records in JSON")
+            logger.debug("Found %s story_accelerations records in JSON", len(accel_records))
             accel_count = 0
 
             for accel_data in accel_records:
@@ -356,17 +367,17 @@ class ImportService:
                     accel_count += 1
                 else:
                     if not story_id:
-                        print(f"DEBUG: Missing story_id for {accel_data.get('story_name')}")
+                        logger.warning("Missing story_id for %s", accel_data.get('story_name'))
                     if not load_case_id:
-                        print(f"DEBUG: Missing load_case_id for {accel_data.get('load_case_name')}")
+                        logger.warning("Missing load_case_id for %s", accel_data.get('load_case_name'))
 
-            print(f"DEBUG: Imported {accel_count} story_accelerations records")
+            logger.debug("Imported %s story_accelerations records", accel_count)
 
             if progress_callback:
                 progress_callback("Importing story forces...", 2, 6)
 
             force_records = normalized_data.get('story_forces', [])
-            print(f"DEBUG: Found {len(force_records)} story_forces records in JSON")
+            logger.debug("Found %s story_forces records in JSON", len(force_records))
             force_count = 0
 
             for force_data in force_records:
@@ -394,13 +405,13 @@ class ImportService:
                     session.add(entry)
                     force_count += 1
 
-            print(f"DEBUG: Imported {force_count} story_forces records")
+            logger.debug("Imported %s story_forces records", force_count)
 
             if progress_callback:
                 progress_callback("Importing story displacements...", 3, 6)
 
             disp_records = normalized_data.get('story_displacements', [])
-            print(f"DEBUG: Found {len(disp_records)} story_displacements records in JSON")
+            logger.debug("Found %s story_displacements records in JSON", len(disp_records))
             disp_count = 0
 
             for disp_data in disp_records:
@@ -427,14 +438,14 @@ class ImportService:
                     session.add(entry)
                     disp_count += 1
 
-            print(f"DEBUG: Imported {disp_count} story_displacements records")
+            logger.debug("Imported %s story_displacements records", disp_count)
 
             # Import absolute max/min drifts
             if progress_callback:
                 progress_callback("Importing max/min drifts...", 4, 9)
 
             maxmin_records = normalized_data.get('absolute_maxmin_drifts', [])
-            print(f"DEBUG: Found {len(maxmin_records)} absolute_maxmin_drifts records in JSON")
+            logger.debug("Found %s absolute_maxmin_drifts records in JSON", len(maxmin_records))
             imported_count = 0
 
             for maxmin_data in maxmin_records:
@@ -457,14 +468,14 @@ class ImportService:
                     session.add(entry)
                     imported_count += 1
 
-            print(f"DEBUG: Imported {imported_count} absolute_maxmin_drifts records")
+            logger.debug("Imported %s absolute_maxmin_drifts records", imported_count)
 
             # Import quad rotations
             if progress_callback:
                 progress_callback("Importing quad rotations...", 5, 9)
 
             quad_records = normalized_data.get('quad_rotations', [])
-            print(f"DEBUG: Found {len(quad_records)} quad_rotations records in JSON")
+            logger.debug("Found %s quad_rotations records in JSON", len(quad_records))
             quad_count = 0
 
             for quad_data in quad_records:
@@ -484,14 +495,14 @@ class ImportService:
                     session.add(entry)
                     quad_count += 1
 
-            print(f"DEBUG: Imported {quad_count} quad_rotations records")
+            logger.debug("Imported %s quad_rotations records", quad_count)
 
             # Import wall shears
             if progress_callback:
                 progress_callback("Importing wall shears...", 6, 9)
 
             wall_records = normalized_data.get('wall_shears', [])
-            print(f"DEBUG: Found {len(wall_records)} wall_shears records in JSON")
+            logger.debug("Found %s wall_shears records in JSON", len(wall_records))
             wall_count = 0
 
             for wall_data in wall_records:
@@ -513,14 +524,14 @@ class ImportService:
                     session.add(entry)
                     wall_count += 1
 
-            print(f"DEBUG: Imported {wall_count} wall_shears records")
+            logger.debug("Imported %s wall_shears records", wall_count)
 
             # Import cache tables
             if progress_callback:
                 progress_callback("Importing global cache...", 7, 9)
 
             global_cache_records = cache_data.get('global_results_cache', [])
-            print(f"DEBUG: Found {len(global_cache_records)} global_results_cache records in JSON")
+            logger.debug("Found %s global_results_cache records in JSON", len(global_cache_records))
             global_cache_count = 0
 
             for cache_data_row in global_cache_records:
@@ -538,13 +549,13 @@ class ImportService:
                     session.add(entry)
                     global_cache_count += 1
 
-            print(f"DEBUG: Imported {global_cache_count} global_results_cache records")
+            logger.debug("Imported %s global_results_cache records", global_cache_count)
 
             if progress_callback:
                 progress_callback("Importing element cache...", 8, 9)
 
             element_cache_records = cache_data.get('element_results_cache', [])
-            print(f"DEBUG: Found {len(element_cache_records)} element_results_cache records in JSON")
+            logger.debug("Found %s element_results_cache records in JSON", len(element_cache_records))
             element_cache_count = 0
 
             for cache_data_row in element_cache_records:
@@ -564,10 +575,10 @@ class ImportService:
                     session.add(entry)
                     element_cache_count += 1
 
-            print(f"DEBUG: Imported {element_cache_count} element_results_cache records")
+            logger.debug("Imported %s element_results_cache records", element_cache_count)
 
             session.commit()
-            print(f"DEBUG: Database import complete!")
+            logger.info("Database import complete")
 
     def _import_result_data(
         self,
@@ -590,9 +601,9 @@ class ImportService:
         global_types = result_sheets.get('global', [])
         element_types = result_sheets.get('element', [])
 
-        print(f"DEBUG: Importing result data")
-        print(f"DEBUG: Global types: {global_types}")
-        print(f"DEBUG: Element types: {element_types}")
+        logger.debug("Importing result data")
+        logger.debug("Global types: %s", global_types)
+        logger.debug("Element types: %s", element_types)
 
         total = len(global_types) + len(element_types)
         current = 0
@@ -607,9 +618,9 @@ class ImportService:
                     progress_callback(f"Importing {result_type}...", current, total)
 
                 sheet_name = result_type[:31]
-                print(f"DEBUG: Reading sheet '{sheet_name}' for {result_type}")
+                logger.debug("Reading sheet '%s' for %s", sheet_name, result_type)
                 df = pd.read_excel(excel_path, sheet_name=sheet_name)
-                print(f"DEBUG: Sheet has {len(df)} rows, {len(df.columns)} columns")
+                logger.debug("Sheet has %s rows, %s columns", len(df), len(df.columns))
 
                 # Parse DataFrame and write to GlobalResultsCache
                 self._import_global_result(session, cache_repo, result_type, df)
@@ -621,17 +632,17 @@ class ImportService:
                     progress_callback(f"Importing {result_type}...", current, total)
 
                 sheet_name = result_type[:31]
-                print(f"DEBUG: Reading sheet '{sheet_name}' for {result_type}")
+                logger.debug("Reading sheet '%s' for %s", sheet_name, result_type)
                 df = pd.read_excel(excel_path, sheet_name=sheet_name)
-                print(f"DEBUG: Sheet has {len(df)} rows, {len(df.columns)} columns")
+                logger.debug("Sheet has %s rows, %s columns", len(df), len(df.columns))
 
                 # Parse DataFrame and write to ElementResultsCache
                 self._import_element_result(session, element_cache_repo, result_type, df)
                 current += 1
 
-            print(f"DEBUG: Committing session...")
+            logger.debug("Committing session...")
             session.commit()
-            print(f"DEBUG: Import complete!")
+            logger.info("Result data import complete")
 
     def _import_global_result(self, session, cache_repo, result_type: str, df: pd.DataFrame) -> None:
         """Import global result data into GlobalResultsCache.
@@ -653,15 +664,15 @@ class ImportService:
         # Extract base type (e.g., "Drifts_X" -> "Drifts")
         config = RESULT_CONFIGS.get(result_type)
         if not config:
-            print(f"Warning: Unknown result type {result_type}, skipping")
+            logger.warning("Unknown result type %s, skipping", result_type)
             return
 
         base_type = result_type.split('_')[0] if '_' in result_type else result_type
         # Extract direction from result_type (e.g., "Drifts_X" -> "X", "Accelerations_UX" -> "UX")
         direction = result_type.split('_')[1] if '_' in result_type else None
 
-        print(f"DEBUG: Importing {result_type} -> base_type: {base_type}, direction: {direction}")
-        print(f"DEBUG: Story mapping has {len(story_mapping)} stories")
+        logger.debug("Importing %s -> base_type: %s, direction: %s", result_type, base_type, direction)
+        logger.debug("Story mapping has %s stories", len(story_mapping))
 
         # Get load case mapping once
         load_case_mapping = self._import_context['load_case_mapping']
@@ -674,7 +685,7 @@ class ImportService:
             story_id = story_mapping.get(story_name)
 
             if not story_id:
-                print(f"DEBUG: Story '{story_name}' not found in mapping, skipping")
+                logger.warning("Story '%s' not found in mapping, skipping", story_name)
                 continue
 
             # Build results_matrix (load case columns)
@@ -707,9 +718,9 @@ class ImportService:
                                                    story_id, load_case_id, value, story_sort_order=idx)
                     normalized_total += 1
                 except Exception as e:
-                    print(f"DEBUG: Error creating normalized result: {e}")
+                    logger.exception("Error creating normalized result for %s", result_type)
 
-        print(f"DEBUG: Added {entries_added} cache entries and {normalized_total} normalized entries for {result_type}")
+        logger.debug("Added %s cache entries and %s normalized entries for %s", entries_added, normalized_total, result_type)
 
     def _create_normalized_result(self, session, result_type: str, direction: str, project_id: int,
                                    result_set_id: int, story_id: int, load_case_id: int, value: float,
@@ -718,7 +729,7 @@ class ImportService:
         from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
 
         if not direction:
-            print(f"DEBUG: No direction provided for {result_type}, skipping normalized table creation")
+            logger.warning("No direction provided for %s, skipping normalized table creation", result_type)
             return
 
         if result_type == 'Drifts':

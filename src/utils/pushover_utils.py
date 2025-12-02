@@ -1,6 +1,9 @@
 """Utilities for pushover analysis display and formatting."""
 
-from typing import Dict, Tuple
+import logging
+from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 
 def create_pushover_shorthand_mapping(load_case_names: list, direction: str = None) -> Dict[str, str]:
@@ -20,9 +23,9 @@ def create_pushover_shorthand_mapping(load_case_names: list, direction: str = No
     Returns:
         Dictionary mapping full name to shorthand (e.g., "Push-Mod-X+Ecc+" -> "Px1")
     """
-    print(f"[DEBUG] create_pushover_shorthand_mapping called with {len(load_case_names)} load cases")
-    print(f"[DEBUG] Direction: {direction}")
-    print(f"[DEBUG] Sample load cases: {load_case_names[:3] if len(load_case_names) > 3 else load_case_names}")
+    logger.debug("create_pushover_shorthand_mapping called with %s load cases", len(load_case_names))
+    logger.debug("Direction: %s", direction)
+    logger.debug("Sample load cases: %s", load_case_names[:3] if len(load_case_names) > 3 else load_case_names)
 
     mapping = {}
 
@@ -46,7 +49,7 @@ def create_pushover_shorthand_mapping(load_case_names: list, direction: str = No
             elif has_y:
                 y_cases.append(name)
 
-        print(f"[DEBUG] Found {len(x_cases)} X cases, {len(y_cases)} Y cases, {len(xy_cases)} XY cases")
+        logger.debug("Found %s X cases, %s Y cases, %s XY cases", len(x_cases), len(y_cases), len(xy_cases))
 
         # Map X direction cases
         for idx, name in enumerate(sorted(x_cases), start=1):
@@ -65,9 +68,9 @@ def create_pushover_shorthand_mapping(load_case_names: list, direction: str = No
         for idx, name in enumerate(sorted(load_case_names), start=1):
             mapping[name] = f"{prefix}{idx}"
 
-    print(f"[DEBUG] Created mapping with {len(mapping)} entries")
+    logger.debug("Created mapping with %s entries", len(mapping))
     if mapping:
-        print(f"[DEBUG] Sample mapping: {list(mapping.items())[:2]}")
+        logger.debug("Sample mapping: %s", list(mapping.items())[:2])
 
     return mapping
 

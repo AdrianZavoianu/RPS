@@ -1,6 +1,6 @@
 # RPS Architecture (Condensed)
 
-**Version**: 2.13 | **Date**: 2024-12-01
+**Version**: 2.14 | **Date**: 2024-12-02
 
 > **Full details in code comments and docstrings. This doc covers key patterns only.**
 
@@ -13,6 +13,13 @@
 **Stack**: PyQt6 (UI) + PyQtGraph (plots) + SQLite (data) + SQLAlchemy (ORM) + Pandas (processing)
 
 **Architecture**: Layered (UI → Service → Repository → Database)
+
+**New in v2.14**:
+- **Context-Aware Export System**: Export dialog automatically filters result sets and types based on NLTHA/Pushover tab context. NLTHA tab shows only NLTHA result sets (no Curves option), Pushover tab shows only Pushover result sets with Curves + results. Independent selection allows exporting curves only, results only, or both.
+- **Pushover Curve Export**: Integrated curves export into `ComprehensiveExportDialog`. Combined mode exports all curves to single Excel with separate sheets per case. Per-file mode creates one Excel per result set with sheets for each pushover case. CSV not supported for curves.
+- **Result Set Filtering**: `_discover_result_sets()` filters by `analysis_type` attribute. Uses `.in_()` queries to discover result types across ALL result sets of the analysis type (not just current result set).
+- **Smart Context Switching**: `export_nltha_results()` passes `analysis_context='NLTHA'`, `export_pushover_results()` passes `analysis_context='Pushover'`. Dialog title and labels dynamically update based on context.
+- **Error Handling**: Shows warning dialog and rejects immediately if no result sets exist for selected context. Override `exec()` method to prevent showing empty dialog.
 
 **New in v2.13**:
 - **Pushover Joints Support**: Complete foundation results for pushover analysis (soil pressures, vertical displacements, joint displacements). Integrated directly into `PushoverGlobalImportDialog` worker thread - imports automatically with global results using same load case selection.
@@ -484,37 +491,63 @@ class DriftTransformer(BaseTransformer):
 
 ## 7. Export Flow
 
-### Export Results (v2.7 - Multi-Result-Set Support)
-1. User clicks "Export Results" → `ComprehensiveExportDialog`
-2. **Auto-discover**:
-   - Query `GlobalResultsCache`, `ElementResultsCache`, `JointResultsCache`
-   - Query all result sets in project
-   - Show base types only (e.g., "Drifts", "SoilPressures")
-3. **Dialog layout** (wide, 2-column):
+### Export Results (v2.14 - Context-Aware Export)
+1. User clicks "Export Results" button (behavior depends on active tab)
+   - **NLTHA tab** → `export_nltha_results()` → `ComprehensiveExportDialog(analysis_context='NLTHA')`
+   - **Pushover tab** → `export_pushover_results()` → `ComprehensiveExportDialog(analysis_context='Pushover')`
+
+2. **Context-Aware Discovery**:
+   - **Result Sets** (`_discover_result_sets()`):
+     - NLTHA: Filter where `analysis_type != 'Pushover'`
+     - Pushover: Filter where `analysis_type == 'Pushover'`
+   - **Result Types** (`_discover_result_types()`):
+     - Query across ALL result sets matching context (not just current)
+     - NLTHA: Show Drifts, Forces, Elements, Joints (no Curves)
+     - Pushover: Show **Curves** + Drifts, Forces, Elements, Joints
+   - Show base types only (e.g., "Drifts", "SoilPressures", "Curves")
+
+3. **Dialog Layout** (wide, 2-column):
+   - **Header**: "Export NLTHA Results" or "Export Pushover Results"
+   - **Info**: "Found X [context] result set(s) with Y result type(s)"
    - Left (40%): Result Types tree (Global | Element | Joint)
-   - Right (60%): Result Sets selector (all checked) + Export Options + Output
-4. User selects:
-   - Result sets to export (multiple allowed, all selected by default)
+     - Pushover: "Curves" checkbox appears first under Global
+   - Right (60%): Result Sets selector (filtered by context) + Export Options + Output
+
+4. **User Selection**:
+   - Result sets to export (only shows matching context)
    - Result types to export (expand to directions on export)
+   - **Pushover flexibility**: Can select Curves only, Results only, or Both
    - Format (Excel/CSV) + combined/separate mode
-5. **Export process** → `ComprehensiveExportWorker`
+   - Note: CSV not supported for Curves (requires multi-sheet format)
+
+5. **Export Process** → `ComprehensiveExportWorker`
    - Generate **single timestamp** for entire operation
    - Iterate: `for result_set_id in selected_result_set_ids`
    - For each result type:
+     - **Curves** (Pushover only):
+       - Query `PushoverCase` and `PushoverCurvePoint` tables
+       - Export each case as separate sheet: Step | Base Shear | Displacement
+       - Combined mode: All curves in single Excel with sheets like `{ResultSet}_{CaseName}`
+       - Per-file mode: One Excel per result set with sheet per case
      - **Global**: Query with `get_standard_dataset(result_type, direction, result_set_id)`
      - **Element**: Query with `get_element_export_dataframe(result_type, result_set_id)`
      - **Joint**: Query with `get_joint_dataset(result_type + '_Min', result_set_id)`
    - Write files/sheets: `{result_set_name}_{result_type}_{timestamp}.xlsx`
-6. **Type expansion**:
-   - Global: `_get_selected_result_types()` finds all directional variants in RESULT_CONFIGS
-   - Element: Query cache for `{base_type}_V2`, `{base_type}_V3` variants
-   - Joint: Query cache for `{base_type}_Min` variants (then remove `_Min` from display)
+
+6. **Type Expansion** (`_get_selected_result_types()`):
+   - **Curves**: No expansion (used as-is)
+   - **Global**: Find all directional variants in RESULT_CONFIGS (Drifts → Drifts_X, Drifts_Y)
+   - **Element**: Query cache across ALL matching result sets for `{base_type}_V2`, `{base_type}_V3`, `{base_type}_R2`, `{base_type}_R3` variants
+   - **Joint**: Query cache for `{base_type}_Min`, `{base_type}_Ux`, `{base_type}_Uy`, `{base_type}_Uz` variants
 
 **Key Features**:
-- Multiple result sets exported in one operation
-- Single timestamp ensures file grouping
-- Joint results properly handle `_Min` suffix internally
-- Sheet/file names use clean display names (no `_Min`)
+- **Fully independent**: NLTHA and Pushover exports never mix result sets
+- **Context filtering**: Automatic filtering by `analysis_type` attribute
+- **Flexible selection**: Export curves only, results only, or both (Pushover)
+- **Multi-result-set**: Export multiple result sets in one operation
+- **Single timestamp**: All files share timestamp for grouping
+- **Error handling**: Warning dialog if no result sets exist for context
+- **Smart discovery**: Queries across all matching result sets for comprehensive type list
 
 ### Export Project
 1. User clicks "Export Project" → `ExportProjectExcelDialog`
@@ -1155,6 +1188,32 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 - Model registry pattern for element types (Walls, Columns, Beams, Quads)
 - Separation: CRUD (BaseRepository) vs complex queries (specialized repos)
 
+### v2.14 (December 2, 2024) - Context-Aware Export System
+**Export System**:
+- Context-aware filtering: Export dialog filters result sets and types by `analysis_type` attribute
+- NLTHA context: Shows only NLTHA result sets, no Curves option
+- Pushover context: Shows only Pushover result sets with Curves + results
+- Independent selection: Export curves only, results only, or both (Pushover)
+- Pushover curve export: Integrated into `ComprehensiveExportDialog`
+  - Combined mode: All curves in single Excel with sheets per case
+  - Per-file mode: One Excel per result set with sheets per case
+  - CSV not supported for curves (requires multi-sheet format)
+- Smart discovery: Query result types across ALL matching result sets (not just current)
+- Error handling: Warning dialog if no result sets exist for context
+- UI updates: Dialog title/labels dynamically reflect analysis context
+
+**Architecture**:
+- `_discover_result_sets()`: Filter by `analysis_type != 'Pushover'` (NLTHA) or `== 'Pushover'` (Pushover)
+- `_discover_result_types()`: Use `.in_(result_set_ids)` to query across all matching sets
+- `_get_selected_result_types()`: Expand base types using all matching result set IDs
+- `exec()` override: Reject dialog immediately if no data for context
+- Context parameter: Passed from `export_nltha_results()` and `export_pushover_results()`
+
+**Worker Threads**:
+- `ComprehensiveExportWorker._export_combined()`: Handle Curves alongside global/element/joint
+- `ComprehensiveExportWorker._export_per_file()`: Per-file curve export with pandas ExcelWriter
+- Progress tracking: Curves integrated into existing progress system
+
 ### v2.7 (November 13, 2024) - Multi-Set Export & UI Enhancements
 **Export System**:
 - Multi-result-set export (select multiple DES/MCE/SLE simultaneously)
@@ -1222,4 +1281,4 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 ---
 
 **End of Architecture Documentation**
-**Last Updated**: November 22, 2024 | **Version**: 2.10
+**Last Updated**: December 2, 2024 | **Version**: 2.14

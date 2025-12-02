@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -16,8 +17,8 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt
-import pyqtgraph as pg
 import pandas as pd
+import pyqtgraph as pg
 
 from utils.plot_builder import PlotBuilder
 from processing.result_service import ResultDataset
@@ -27,6 +28,8 @@ from config.visual_config import (
     series_color,
 )
 from gui.components.legend import create_static_legend_item
+
+logger = logging.getLogger(__name__)
 
 
 class ResultsPlotWidget(QWidget):
@@ -179,15 +182,15 @@ class ResultsPlotWidget(QWidget):
         if label in self._shorthand_mapping:
             shorthand = self._shorthand_mapping[label]
             display_label = f"{shorthand} = {label}"
-            print(f"[DEBUG] [OK] Legend MATCHED: '{label}' -> '{display_label}'")
+            logger.debug("[OK] Legend matched: '%s' -> '%s'", label, display_label)
         else:
             display_label = label
             if self._shorthand_mapping:
-                print(f"[DEBUG] [!!] Legend NOT matched: '{label}' (mapping has {len(self._shorthand_mapping)} entries)")
+                logger.debug("[!!] Legend not matched: '%s' (mapping has %s entries)", label, len(self._shorthand_mapping))
                 if len(self._shorthand_mapping) > 0:
-                    print(f"[DEBUG]   Available keys: {list(self._shorthand_mapping.keys())[:3]}")
+                    logger.debug("Available mapping keys: %s", list(self._shorthand_mapping.keys())[:3])
             else:
-                print(f"[DEBUG] Legend item (no mapping active): '{label}'")
+                logger.debug("Legend item (no mapping active): '%s'", label)
 
         item_widget = create_static_legend_item(color, display_label)
         # Add to grid layout at current position
@@ -225,11 +228,11 @@ class ResultsPlotWidget(QWidget):
         # Now set the mapping AFTER clearing
         self._shorthand_mapping = shorthand_mapping if shorthand_mapping is not None else {}
 
-        print(f"[DEBUG] Plot received shorthand_mapping: {shorthand_mapping is not None}, length: {len(self._shorthand_mapping)}")
+        logger.debug("Plot received shorthand_mapping: %s, length: %s", shorthand_mapping is not None, len(self._shorthand_mapping))
         if self._shorthand_mapping:
-            print(f"[DEBUG] Sample mapping: {list(self._shorthand_mapping.items())[:2]}")
+            logger.debug("Sample mapping: %s", list(self._shorthand_mapping.items())[:2])
         else:
-            print(f"[DEBUG] Plot has empty or no mapping")
+            logger.debug("Plot has empty or no mapping")
 
         df = dataset.data
         if df.empty:

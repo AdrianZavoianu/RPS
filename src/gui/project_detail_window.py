@@ -1,5 +1,7 @@
 """Project detail window - shows results browser and data visualization."""
 
+import logging
+
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -30,6 +32,8 @@ from .styles import COLORS
 from services.project_runtime import ProjectRuntime
 from utils.color_utils import get_gradient_color
 from config.result_config import RESULT_CONFIGS, format_result_type_with_unit
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectDetailWindow(QMainWindow):
@@ -2095,13 +2099,14 @@ class ProjectDetailWindow(QMainWindow):
                 self.statusBar().showMessage("No result sets available in this project", 3000)
                 return
 
-        # Show comprehensive export dialog
+        # Show comprehensive export dialog with NLTHA context
         from gui.ui_helpers import show_dialog_with_blur
         dialog = ComprehensiveExportDialog(
             context=self.context,
             result_service=self.result_service,
             current_result_set_id=result_set_id,
             project_name=self.project_name,
+            analysis_context='NLTHA',
             parent=self
         )
 
@@ -2109,11 +2114,9 @@ class ProjectDetailWindow(QMainWindow):
             self.statusBar().showMessage("Export completed successfully!", 3000)
 
     def export_pushover_results(self):
-        """Export pushover curves to Excel file."""
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from pathlib import Path
-        from services.export_service import ExportService
-        from datetime import datetime
+        """Export pushover results - shows comprehensive export dialog with Pushover context."""
+        from gui.export_dialog import ComprehensiveExportDialog
+        from PyQt6.QtWidgets import QMessageBox
 
         # Get current result set ID
         result_set_id = self.current_result_set_id
@@ -2128,60 +2131,23 @@ class ProjectDetailWindow(QMainWindow):
                     self,
                     "No Pushover Data",
                     "No pushover result sets found in this project.\n\n"
-                    "Please import pushover curves first."
+                    "Please import pushover curves or global results first."
                 )
                 return
 
-        # Get result set name for filename
-        result_set = self.result_set_repo.get_by_id(result_set_id)
-        if not result_set:
-            self.statusBar().showMessage("Result set not found", 3000)
-            return
-
-        # Generate default filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_filename = f"{self.project_name}_Pushover_Curves_{timestamp}.xlsx"
-
-        # Show file dialog
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Pushover Curves",
-            default_filename,
-            "Excel Files (*.xlsx)"
+        # Show comprehensive export dialog with Pushover context
+        from gui.ui_helpers import show_dialog_with_blur
+        dialog = ComprehensiveExportDialog(
+            context=self.context,
+            result_service=self.result_service,
+            current_result_set_id=result_set_id,
+            project_name=self.project_name,
+            analysis_context='Pushover',
+            parent=self
         )
 
-        if not file_path:
-            return  # User cancelled
-
-        # Export using ExportService
-        try:
-            export_service = ExportService(self.context, self.result_service)
-            export_service.export_pushover_curves(
-                result_set_id=result_set_id,
-                output_path=Path(file_path),
-                progress_callback=lambda msg, curr, total: self.statusBar().showMessage(msg, 2000)
-            )
-
-            QMessageBox.information(
-                self,
-                "Export Complete",
-                f"Pushover curves exported successfully!\n\nFile: {file_path}"
-            )
-
-            self.statusBar().showMessage("Pushover curves exported successfully!", 3000)
-
-        except ValueError as e:
-            QMessageBox.warning(
-                self,
-                "Export Failed",
-                f"Could not export pushover curves:\n\n{str(e)}"
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Export Error",
-                f"An error occurred during export:\n\n{str(e)}"
-            )
+        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Export completed successfully!", 3000)
 
     def export_project_excel(self):
         """Export complete project to Excel workbook."""

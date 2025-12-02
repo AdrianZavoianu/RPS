@@ -2,7 +2,7 @@
 
 **RPS (Results Processing System)** - Structural engineering results processor (ETABS/SAP2000)
 **Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
-**Status**: Production-ready (v2.13 - December 2024 - Pushover Joints Support)
+**Status**: Production-ready (v2.14 - December 2024 - Context-Aware Export System)
 
 ---
 
@@ -72,10 +72,32 @@ class MyRepository(BaseRepository[MyModel]):
 
 ## Common Tasks
 
-### Export System
-- **Export Results**: Multi-format (Excel/CSV), auto-discovers types from cache
+### Export System (v2.14 - Context-Aware)
+- **Context-Aware Export**: Automatically filters result sets and types based on NLTHA/Pushover tab
+  - **NLTHA Tab**: Shows only NLTHA result sets and types (no Curves option)
+  - **Pushover Tab**: Shows only Pushover result sets with Curves + global/element/joint results
+  - **Independent Selection**: Export curves only, results only, or both
+- **Multi-Format**: Combined Excel (single file with multiple sheets) or Per-File (separate files)
+- **Multi-Result-Set**: Export from multiple result sets simultaneously with single timestamp
+- **Auto-Discovery**: Queries cache tables across all result sets of the analysis type
 - **Export Project**: Complete project export for re-import (.xlsx)
-- Location: `gui/export_dialog.py`
+- Location: `gui/export_dialog.py`, `services/export_service.py`
+
+**Usage (NLTHA):**
+1. Navigate to NLTHA tab
+2. Click "Export Results" button
+3. Select result sets (DES, MCE, SLE) and result types (Drifts, Forces, Elements, Joints)
+4. Choose format (Excel or CSV) and output location
+5. Export creates files with all selected data
+
+**Usage (Pushover):**
+1. Navigate to Pushover tab
+2. Click "Export Results" button
+3. Select pushover result sets and choose what to export:
+   - ☑ Curves only → Exports capacity curves
+   - ☑ Results only → Exports drifts, forces, elements, joints
+   - ☑ Both → Exports curves + all results
+4. Export creates files with all selected data
 
 ### Import System
 - **Folder Import**: Batch import with load case selection, conflict resolution
@@ -332,6 +354,32 @@ Follow DESIGN.md:
 
 ## Recent Changes (November-December 2024)
 
+### v2.14 - Context-Aware Export System (Dec 2)
+- **Fully Independent Export**: NLTHA and Pushover exports are completely separated
+  - Export dialog filters result sets by `analysis_type` attribute
+  - NLTHA context shows only NLTHA result sets (where `analysis_type != 'Pushover'`)
+  - Pushover context shows only Pushover result sets (where `analysis_type == 'Pushover'`)
+  - Result type discovery queries across ALL result sets of the selected analysis type
+- **Pushover Curve Export**: Integrated curves export into comprehensive export dialog
+  - "Curves" checkbox appears only in Pushover context
+  - Export curves only, results only, or both curves + results
+  - Combined mode: All curves in single Excel file with separate sheets per case
+  - Per-file mode: One Excel file per result set with sheets for each pushover case
+  - CSV not supported for curves (requires multi-sheet format)
+- **Smart Context Switching**: Export button behavior based on active tab
+  - NLTHA tab → `ComprehensiveExportDialog` with `analysis_context='NLTHA'`
+  - Pushover tab → `ComprehensiveExportDialog` with `analysis_context='Pushover'`
+  - Window titles and labels dynamically update based on context
+- **Error Handling**: Shows warning dialog if no result sets exist for selected context
+- **UI Improvements**:
+  - Info label shows: "Found X NLTHA result set(s) with Y result type(s)"
+  - Export workers handle curve export alongside global/element/joint results
+  - Progress tracking for all export types including curves
+- **File Locations**:
+  - Dialog: `gui/export_dialog.py` (lines 25-1001)
+  - Context switching: `gui/project_detail_window.py` (lines 2088-2150)
+  - Worker threads: `gui/export_dialog.py` (lines 720-1001)
+
 ### v2.13 - Pushover Joints Support (Dec 1)
 - **Pushover Foundation Results**: Complete joints support for pushover analysis
   - Soil Pressures parser and importer using "Soil Pressures" sheet
@@ -574,5 +622,5 @@ Follow DESIGN.md:
 
 ---
 
-**Last Updated**: 2024-12-01
-**Version**: 2.13
+**Last Updated**: 2024-12-02
+**Version**: 2.14

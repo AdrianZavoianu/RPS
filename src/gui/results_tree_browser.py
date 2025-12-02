@@ -1,11 +1,15 @@
 """Results tree browser - hierarchical navigation for project results."""
 
+import logging
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
 from .ui_helpers import create_styled_label
+
+logger = logging.getLogger(__name__)
 
 
 class ResultsTreeBrowser(QWidget):
@@ -1564,7 +1568,12 @@ class ResultsTreeBrowser(QWidget):
             # Strip the _R2 or _R3 suffix to get base result type
             result_type = "ColumnRotations"
 
-            print(f"[DEBUG] Browser: pushover_column_result clicked - result_type={result_type}, direction={direction}, element_id={element_id}")
+            logger.debug(
+                "Browser: pushover_column_result clicked - result_type=%s, direction=%s, element_id=%s",
+                result_type,
+                direction,
+                element_id,
+            )
             self.selection_changed.emit(result_set_id, "Pushover", result_type, direction, element_id)
 
         elif item_type == "pushover_column_shear_result":
@@ -1574,7 +1583,12 @@ class ResultsTreeBrowser(QWidget):
             direction = data.get("direction")  # "V2" or "V3"
             element_id = data.get("element_id")
 
-            print(f"[DEBUG] Browser: pushover_column_shear_result clicked - result_type={result_type}, direction={direction}, element_id={element_id}")
+            logger.debug(
+                "Browser: pushover_column_shear_result clicked - result_type=%s, direction=%s, element_id=%s",
+                result_type,
+                direction,
+                element_id,
+            )
             self.selection_changed.emit(result_set_id, "Pushover", result_type, direction, element_id)
 
         elif item_type == "pushover_beam_result":
@@ -1584,7 +1598,11 @@ class ResultsTreeBrowser(QWidget):
             direction = data.get("direction")  # ""
             element_id = data.get("element_id")
 
-            print(f"[DEBUG] Browser: pushover_beam_result clicked - result_type={result_type}, element_id={element_id}")
+            logger.debug(
+                "Browser: pushover_beam_result clicked - result_type=%s, element_id=%s",
+                result_type,
+                element_id,
+            )
             self.selection_changed.emit(result_set_id, "Pushover", result_type, direction, element_id)
 
         elif item_type == "pushover_all_column_rotations":
@@ -1593,7 +1611,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "AllColumnRotations"
 
-            print(f"[DEBUG] Browser: pushover_all_column_rotations clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_all_column_rotations clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -1)  # -1 means all elements
 
         elif item_type == "pushover_beam_rotations_plot":
@@ -1602,7 +1620,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "AllBeamRotations"
 
-            print(f"[DEBUG] Browser: pushover_beam_rotations_plot clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_beam_rotations_plot clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -1)  # -1 means all beams
 
         elif item_type == "pushover_beam_rotations_table":
@@ -1611,7 +1629,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "BeamRotationsTable"
 
-            print(f"[DEBUG] Browser: pushover_beam_rotations_table clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_beam_rotations_table clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -1)  # -1 means all beams
 
         elif item_type == "pushover_joint_displacement_result":
@@ -1620,7 +1638,11 @@ class ResultsTreeBrowser(QWidget):
             result_type = data.get("result_type")  # "JointDisplacements_Ux", "JointDisplacements_Uy", "JointDisplacements_Uz"
             direction = data.get("direction")  # "Ux", "Uy", "Uz"
 
-            print(f"[DEBUG] Browser: pushover_joint_displacement_result clicked - result_type={result_type}, direction={direction}")
+            logger.debug(
+                "Browser: pushover_joint_displacement_result clicked - result_type=%s, direction=%s",
+                result_type,
+                direction,
+            )
             self.selection_changed.emit(result_set_id, "Pushover", result_type, direction, -7)  # -7 means joint displacement table
 
         elif item_type == "pushover_soil_pressure_plot":
@@ -1629,7 +1651,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "AllSoilPressures"  # Special type for scatter plot
 
-            print(f"[DEBUG] Browser: pushover_soil_pressure_plot clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_soil_pressure_plot clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -3)  # -3 means soil pressure plot
 
         elif item_type == "pushover_soil_pressure_table":
@@ -1638,7 +1660,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "SoilPressuresTable"  # Special type for table
 
-            print(f"[DEBUG] Browser: pushover_soil_pressure_table clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_soil_pressure_table clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -4)  # -4 means soil pressure table
 
         elif item_type == "pushover_vertical_displacement_plot":
@@ -1647,7 +1669,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "AllVerticalDisplacements"  # Special type for scatter plot
 
-            print(f"[DEBUG] Browser: pushover_vertical_displacement_plot clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_vertical_displacement_plot clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -5)  # -5 means vertical displacement plot
 
         elif item_type == "pushover_vertical_displacement_table":
@@ -1656,7 +1678,7 @@ class ResultsTreeBrowser(QWidget):
             category = data.get("category")
             result_type = "VerticalDisplacementsTable"  # Special type for table
 
-            print(f"[DEBUG] Browser: pushover_vertical_displacement_table clicked - result_type={result_type}")
+            logger.debug("Browser: pushover_vertical_displacement_table clicked - result_type=%s", result_type)
             self.selection_changed.emit(result_set_id, category, result_type, "", -6)  # -6 means vertical displacement table
 
     def _add_pushover_result_set(self, parent_item: QTreeWidgetItem, result_set):

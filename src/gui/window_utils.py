@@ -2,8 +2,11 @@
 Utility functions for window styling and platform-specific features.
 """
 
+import logging
 import sys
 from PyQt6.QtCore import Qt
+
+logger = logging.getLogger(__name__)
 
 
 def enable_dark_title_bar(window):
@@ -46,7 +49,7 @@ def enable_dark_title_bar(window):
 
         except Exception as e:
             # Silently fail on non-Windows or if API not available
-            print(f"Could not enable dark title bar: {e}")
+            logger.warning("Could not enable dark title bar: %s", e)
             pass
 
 

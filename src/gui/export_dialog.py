@@ -33,17 +33,19 @@ class ComprehensiveExportDialog(QDialog):
         result_service: ResultDataService instance
         current_result_set_id: ID of current result set
         project_name: Project name for filename
+        analysis_context: 'NLTHA' or 'Pushover' - filters what result types to show
         parent: Parent widget
     """
 
     def __init__(self, context, result_service, current_result_set_id,
-                 project_name, parent=None):
+                 project_name, analysis_context='NLTHA', parent=None):
         super().__init__(parent)
 
         self.context = context
         self.result_service = result_service
         self.current_result_set_id = current_result_set_id
         self.project_name = project_name
+        self.analysis_context = analysis_context  # 'NLTHA' or 'Pushover'
 
         # Discovered result types (populated on init)
         self.available_types: Dict[str, List[str]] = {
@@ -58,7 +60,9 @@ class ComprehensiveExportDialog(QDialog):
         self.result_type_checkboxes: Dict[str, QCheckBox] = {}
         self.result_set_checkboxes: Dict[int, QCheckBox] = {}
 
-        self.setWindowTitle("Export Results")
+        # Set window title based on context
+        title = f"Export {self.analysis_context} Results" if self.analysis_context else "Export Results"
+        self.setWindowTitle(title)
         self.setMinimumSize(750, 400)
         self.setStyleSheet(FormStyles.dialog())
 
@@ -69,14 +73,39 @@ class ComprehensiveExportDialog(QDialog):
         self._discover_result_sets()
         self._discover_result_types()
 
+        # Check if we have any result sets for this context
+        if not self.available_result_sets:
+            from PyQt6.QtWidgets import QMessageBox
+            context_name = self.analysis_context if self.analysis_context else "analysis"
+            QMessageBox.warning(
+                parent,
+                f"No {context_name} Data",
+                f"No {context_name} result sets found in this project.\n\n"
+                f"Please import {context_name} data first."
+            )
+            # Set a flag to close immediately
+            self._no_data = True
+        else:
+            self._no_data = False
+
         self._setup_ui()
         self._apply_styling()
 
         # Auto-fit window height to content after UI is built
         self._auto_fit_height()
 
+    def exec(self):
+        """Override exec to reject immediately if no data."""
+        if self._no_data:
+            return QDialog.DialogCode.Rejected
+        return super().exec()
+
     def _discover_result_sets(self):
-        """Query database to find all result sets in the project."""
+        """Query database to find result sets matching the analysis context.
+
+        - NLTHA context: Only shows result sets where analysis_type != 'Pushover'
+        - Pushover context: Only shows result sets where analysis_type == 'Pushover'
+        """
         from database.repository import ResultSetRepository, ProjectRepository
 
         with self.context.session() as session:
@@ -90,42 +119,79 @@ class ComprehensiveExportDialog(QDialog):
 
             # Get all result sets for this project
             result_set_repo = ResultSetRepository(session)
-            result_sets = result_set_repo.get_by_project(project.id)
-            self.available_result_sets = [(rs.id, rs.name) for rs in result_sets]
+            all_result_sets = result_set_repo.get_by_project(project.id)
+
+            # Filter by analysis context
+            if self.analysis_context == 'Pushover':
+                # Only show Pushover result sets
+                filtered_sets = [rs for rs in all_result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
+            else:
+                # Only show NLTHA result sets (where analysis_type is None or 'NLTHA')
+                filtered_sets = [rs for rs in all_result_sets if getattr(rs, 'analysis_type', None) != 'Pushover']
+
+            self.available_result_sets = [(rs.id, rs.name) for rs in filtered_sets]
 
     def _discover_result_types(self):
-        """Query cache to find all result types with data.
+        """Query cache to find all result types with data across ALL result sets of this analysis type.
 
         Note: Cache stores base types (e.g., "Drifts"). We'll show only base types
         in the UI, and export will automatically include all directions for each type.
+
+        Filters result types based on analysis_context:
+        - NLTHA: Shows only cache-based results (Drifts, Forces, etc.) from NLTHA result sets
+        - Pushover: Shows Curves + pushover global/element/joint results from Pushover result sets
         """
         with self.context.session() as session:
-            # Query GlobalResultsCache for base types only
+            from database.models import ResultSet, PushoverCase
+
+            # Initialize empty lists
+            self.available_types['global'] = []
+            self.available_types['element'] = []
+            self.available_types['joint'] = []
+
+            # Get all result set IDs matching this analysis context
+            result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
+
+            if not result_set_ids:
+                return
+
+            # Discover based on analysis context
+            if self.analysis_context == 'Pushover':
+                # For Pushover context, check for curve data across all pushover result sets
+                pushover_cases = session.query(PushoverCase).filter(
+                    PushoverCase.result_set_id.in_(result_set_ids)
+                ).count()
+
+                if pushover_cases > 0:
+                    # Add "Curves" as a special global type
+                    self.available_types['global'].append('Curves')
+
+            # Query GlobalResultsCache for base types across ALL result sets of this type
             global_base_types = session.query(
                 GlobalResultsCache.result_type
             ).filter(
-                GlobalResultsCache.result_set_id == self.current_result_set_id
+                GlobalResultsCache.result_set_id.in_(result_set_ids)
             ).distinct().all()
 
-            # Store base types only (e.g., "Drifts", "Accelerations", "Forces")
-            self.available_types['global'] = sorted([r[0] for r in global_base_types])
+            # Add cache-based global types (e.g., "Drifts", "Accelerations", "Forces")
+            self.available_types['global'].extend(sorted([r[0] for r in global_base_types]))
 
             # Query ElementResultsCache - extract base types by removing direction suffix
             element_results = session.query(
                 ElementResultsCache.result_type
             ).filter(
-                ElementResultsCache.result_set_id == self.current_result_set_id
+                ElementResultsCache.result_set_id.in_(result_set_ids)
             ).distinct().all()
 
             # Extract base types from element results (remove _V2, _V3, etc.)
             element_base_types = set()
             for result_type, in element_results:
                 # Remove direction suffix if present
-                if '_V2' in result_type or '_V3' in result_type:
+                if '_V2' in result_type or '_V3' in result_type or '_R2' in result_type or '_R3' in result_type:
                     base_type = result_type.rsplit('_', 1)[0]
                     element_base_types.add(base_type)
                 else:
-                    # No direction suffix (e.g., QuadRotations)
+                    # No direction suffix (e.g., QuadRotations, BeamRotations)
                     element_base_types.add(result_type)
 
             self.available_types['element'] = sorted(element_base_types)
@@ -134,7 +200,7 @@ class ComprehensiveExportDialog(QDialog):
             joint_results = session.query(
                 JointResultsCache.result_type
             ).filter(
-                JointResultsCache.result_set_id == self.current_result_set_id
+                JointResultsCache.result_set_id.in_(result_set_ids)
             ).distinct().all()
 
             # Extract base types from joint results (remove _Min suffix)
@@ -142,6 +208,10 @@ class ComprehensiveExportDialog(QDialog):
             for result_type, in joint_results:
                 # Remove suffix (e.g., 'SoilPressures_Min' -> 'SoilPressures')
                 if '_Min' in result_type:
+                    base_type = result_type.rsplit('_', 1)[0]
+                    joint_base_types.add(base_type)
+                elif '_Ux' in result_type or '_Uy' in result_type or '_Uz' in result_type:
+                    # JointDisplacements_Ux -> JointDisplacements
                     base_type = result_type.rsplit('_', 1)[0]
                     joint_base_types.add(base_type)
                 else:
@@ -156,15 +226,19 @@ class ComprehensiveExportDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
 
         # Header
-        header = QLabel("Export Results")
+        header_text = f"Export {self.analysis_context} Results" if self.analysis_context else "Export Results"
+        header = QLabel(header_text)
         header.setStyleSheet(f"color: {COLORS['text']}; font-size: 24px; font-weight: 600; margin: 0px; padding: 0px; line-height: 1.0;")
         layout.addWidget(header)
 
         # Info label
         total_types = len(self.available_types['global']) + len(self.available_types['element']) + len(self.available_types['joint'])
+        total_sets = len(self.available_result_sets)
+
+        context_name = self.analysis_context if self.analysis_context else "analysis"
         info_label = QLabel(
-            f"Found {total_types} result types with data. "
-            f"All types selected by default - uncheck to exclude."
+            f"Found {total_sets} {context_name} result set(s) with {total_types} result type(s). "
+            f"All selected by default - uncheck to exclude."
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet(f"color: {COLORS['muted']}; font-size: 13px; margin-bottom: 8px;")
@@ -393,6 +467,8 @@ class ComprehensiveExportDialog(QDialog):
 
         Expands base types (e.g., "Drifts") to include all directions
         (e.g., "Drifts_X", "Drifts_Y") for export service.
+
+        Special handling for "Curves" which doesn't need expansion.
         """
         from config.result_config import RESULT_CONFIGS
 
@@ -405,6 +481,11 @@ class ComprehensiveExportDialog(QDialog):
         # Expand base types to include all directions
         expanded_types = []
         for base_type in selected_base_types:
+            # Special case: "Curves" doesn't need expansion
+            if base_type == "Curves":
+                expanded_types.append(base_type)
+                continue
+
             # Check if this is a global result type that needs direction expansion
             if base_type in self.available_types['global']:
                 # Find all directional variants in RESULT_CONFIGS
@@ -420,12 +501,13 @@ class ComprehensiveExportDialog(QDialog):
                     expanded_types.append(base_type)
             elif base_type in self.available_types['element']:
                 # Element type - need to expand with directions if applicable
-                # Check cache for actual full type names
+                # Check cache for actual full type names across all result sets of this context
                 with self.context.session() as session:
+                    result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
                     element_full_types = session.query(
                         ElementResultsCache.result_type
                     ).filter(
-                        ElementResultsCache.result_set_id == self.current_result_set_id
+                        ElementResultsCache.result_set_id.in_(result_set_ids)
                     ).distinct().all()
 
                     # Find all variants of this base type
@@ -433,13 +515,14 @@ class ComprehensiveExportDialog(QDialog):
                         if full_type.startswith(base_type):
                             expanded_types.append(full_type)
             elif base_type in self.available_types['joint']:
-                # Joint type - need to expand with suffix (_Min)
-                # Check cache for actual full type names
+                # Joint type - need to expand with suffix (_Min, _Ux, _Uy, _Uz)
+                # Check cache for actual full type names across all result sets of this context
                 with self.context.session() as session:
+                    result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
                     joint_full_types = session.query(
                         JointResultsCache.result_type
                     ).filter(
-                        JointResultsCache.result_set_id == self.current_result_set_id
+                        JointResultsCache.result_set_id.in_(result_set_ids)
                     ).distinct().all()
 
                     # Find all variants of this base type
@@ -726,9 +809,39 @@ class ComprehensiveExportWorker(QThread):
                     )
 
                     try:
+                        # Special handling for pushover curves
+                        if result_type == "Curves":
+                            # Export pushover curves to separate sheets (one per case)
+                            from database.repository import PushoverCaseRepository
+
+                            with self.context.session() as session:
+                                pushover_repo = PushoverCaseRepository(session)
+                                cases = pushover_repo.get_by_result_set(result_set_id)
+
+                                for case in cases:
+                                    curve_points = pushover_repo.get_curve_data(case.id)
+
+                                    if not curve_points:
+                                        continue
+
+                                    # Build DataFrame for this curve
+                                    data = {
+                                        'Step Number': [pt.step_number for pt in curve_points],
+                                        'Base Shear (kN)': [pt.base_shear for pt in curve_points],
+                                        'Displacement (mm)': [pt.displacement for pt in curve_points]
+                                    }
+                                    df = pd.DataFrame(data)
+
+                                    # Sheet name: ResultSetName_CaseName (truncate to 31 chars)
+                                    sheet_name = f"{result_set_name}_{case.name}"[:31]
+                                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                    exported_count += 1
+
+                            continue  # Move to next result type
+
                         # Determine if this is a global, element, or joint result
                         is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
-                        is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements'])
+                        is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
 
                         if is_element:
                             # Get combined element data
@@ -803,6 +916,7 @@ class ComprehensiveExportWorker(QThread):
 
     def _export_per_file(self):
         """Export each result type from each result set to separate files."""
+        import pandas as pd
         from database.repository import ResultSetRepository
 
         self.output_folder.mkdir(parents=True, exist_ok=True)
@@ -841,9 +955,60 @@ class ComprehensiveExportWorker(QThread):
                 )
 
                 try:
+                    # Special handling for pushover curves
+                    if result_type == "Curves":
+                        # Export pushover curves to single Excel file
+                        from database.repository import PushoverCaseRepository
+
+                        if self.format_type != "excel":
+                            # Curves can only be exported to Excel (multiple sheets)
+                            skipped.append(f"{result_set_name}_Curves (CSV not supported)")
+                            continue
+
+                        ext = "xlsx"
+                        filename = f"{result_set_name}_Curves_{timestamp}.{ext}"
+                        output_path = self.output_folder / filename
+
+                        with self.context.session() as session:
+                            pushover_repo = PushoverCaseRepository(session)
+                            cases = pushover_repo.get_by_result_set(result_set_id)
+
+                            if not cases:
+                                skipped.append(f"{result_set_name}_Curves")
+                                continue
+
+                            # Use pandas ExcelWriter to create multi-sheet workbook
+                            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                                curve_count = 0
+                                for case in cases:
+                                    curve_points = pushover_repo.get_curve_data(case.id)
+
+                                    if not curve_points:
+                                        continue
+
+                                    # Build DataFrame for this curve
+                                    data = {
+                                        'Step Number': [pt.step_number for pt in curve_points],
+                                        'Base Shear (kN)': [pt.base_shear for pt in curve_points],
+                                        'Displacement (mm)': [pt.displacement for pt in curve_points]
+                                    }
+                                    df = pd.DataFrame(data)
+
+                                    # Sheet name: Case name (truncate to 31 chars)
+                                    sheet_name = case.name[:31]
+                                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                    curve_count += 1
+
+                            if curve_count > 0:
+                                exported_count += 1
+                            else:
+                                skipped.append(f"{result_set_name}_Curves")
+
+                        continue  # Move to next result type
+
                     # Determine if this is a global, element, or joint result
                     is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
-                    is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements'])
+                    is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
 
                     # Build output path with single timestamp (clean display name for joints)
                     display_type = result_type.replace('_Min', '') if is_joint else result_type

@@ -52,7 +52,8 @@
       "Bash(src/services/__init__.py)",
       "Bash(for dir in */)",
       "Bash(do echo \"=== $dir%/ ===\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
