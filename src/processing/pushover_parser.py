@@ -5,6 +5,8 @@ import pandas as pd
 from pathlib import Path
 import re
 
+from utils.pushover_utils import detect_direction
+
 
 class PushoverCurveData:
     """Container for extracted pushover curve data."""
@@ -32,47 +34,6 @@ class PushoverParser:
     def __init__(self, file_path: str | Path):
         self.file_path = Path(file_path)
         self.excel_file = pd.ExcelFile(file_path)
-
-    @staticmethod
-    def _detect_direction(case_name: str) -> str:
-        """
-        Detect pushover direction from load case name.
-
-        Rule: Any case name containing 'X' or 'Y' is recognized
-        - X direction: Contains 'X' (case-insensitive)
-        - Y direction: Contains 'Y' (case-insensitive)
-        - XY bi-directional: Contains both 'X' and 'Y'
-
-        Examples:
-        - "Push Modal X" -> 'X'
-        - "Push Uniform Y" -> 'Y'
-        - "Push_Mod_X+Ecc+" -> 'X'
-        - "Push_XY+" -> 'XY'
-
-        Args:
-            case_name: Load case name
-
-        Returns:
-            Direction string: 'X', 'Y', or 'XY'
-        """
-        case_upper = str(case_name).upper()
-
-        has_x = 'X' in case_upper
-        has_y = 'Y' in case_upper
-
-        # Check for bi-directional first (both X and Y present)
-        if has_x and has_y:
-            return 'XY'
-
-        # Check for X direction
-        if has_x:
-            return 'X'
-
-        # Check for Y direction
-        if has_y:
-            return 'Y'
-
-        return 'Unknown'
 
     def parse_curves(self, base_story: str) -> Dict[str, PushoverCurveData]:
         """
@@ -110,7 +71,7 @@ class PushoverParser:
         # Group by Output Case
         for case_name, group in df.groupby('Output Case'):
             # Determine direction from case name using regex pattern
-            direction = self._detect_direction(case_name)
+            direction = detect_direction(case_name)
 
             if direction == 'Unknown':
                 continue  # Skip if direction unclear
@@ -161,7 +122,7 @@ class PushoverParser:
         # Group by Output Case
         for case_name, group in df.groupby('Output Case'):
             # Determine direction using regex pattern
-            direction = self._detect_direction(case_name)
+            direction = detect_direction(case_name)
 
             if direction == 'Unknown':
                 continue  # Skip if direction unclear

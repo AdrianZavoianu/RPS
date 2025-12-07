@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type
 
 from PyQt6.QtWidgets import QWidget
 from sqlalchemy.orm import Session
@@ -21,8 +21,28 @@ from .folder_importer import TARGET_SHEETS
 from .base_importer import BaseFolderImporter
 from .import_stats import ImportStatsAggregator
 
-from gui.load_case_selection_dialog import LoadCaseSelectionDialog
-from gui.load_case_conflict_dialog import LoadCaseConflictDialog
+# Lazy import to avoid circular dependency (processing -> gui)
+# These are injected via parameters or imported only when needed
+_LoadCaseSelectionDialog: Optional[Type] = None
+_LoadCaseConflictDialog: Optional[Type] = None
+
+
+def _get_selection_dialog():
+    """Lazy import of LoadCaseSelectionDialog to avoid circular dependency."""
+    global _LoadCaseSelectionDialog
+    if _LoadCaseSelectionDialog is None:
+        from gui.load_case_selection_dialog import LoadCaseSelectionDialog
+        _LoadCaseSelectionDialog = LoadCaseSelectionDialog
+    return _LoadCaseSelectionDialog
+
+
+def _get_conflict_dialog():
+    """Lazy import of LoadCaseConflictDialog to avoid circular dependency."""
+    global _LoadCaseConflictDialog
+    if _LoadCaseConflictDialog is None:
+        from gui.load_case_conflict_dialog import LoadCaseConflictDialog
+        _LoadCaseConflictDialog = LoadCaseConflictDialog
+    return _LoadCaseConflictDialog
 
 
 class EnhancedFolderImporter(BaseFolderImporter):
@@ -218,8 +238,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
                         load_case_sources[lc] = []
                     load_case_sources[lc].append((file_name, sheet_name))
 
-        # Show selection dialog
-        dialog = LoadCaseSelectionDialog(
+        # Show selection dialog (lazy import to avoid circular dependency)
+        SelectionDialog = _get_selection_dialog()
+        dialog = SelectionDialog(
             all_load_cases,
             load_case_sources,
             self.result_set_name,
@@ -279,7 +300,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
             Dict mapping load_case → chosen_file (or None to skip),
             or None if cancelled
         """
-        dialog = LoadCaseConflictDialog(conflicts, self.parent_widget)
+        # Lazy import to avoid circular dependency
+        ConflictDialog = _get_conflict_dialog()
+        dialog = ConflictDialog(conflicts, self.parent_widget)
 
         if dialog.exec():
             return dialog.get_resolution()

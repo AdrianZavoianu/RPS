@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TypeVar
 import os
 import logging
 
@@ -16,6 +17,38 @@ from .story_loader import StoryProvider
 CACHE_DEBUG = os.getenv("RPS_CACHE_DEBUG", "").lower() in {"1", "true", "yes"}
 logger = logging.getLogger(__name__)
 
+# Default max cache size per provider (configurable via environment)
+DEFAULT_MAX_CACHE_SIZE = int(os.getenv("RPS_MAX_CACHE_SIZE", "100"))
+
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+class LRUCache(OrderedDict[K, V]):
+    """Simple LRU cache with configurable max size."""
+
+    def __init__(self, max_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
+        super().__init__()
+        self.max_size = max_size
+
+    def get_item(self, key: K) -> Optional[V]:
+        """Get item and move to end (most recently used)."""
+        if key not in self:
+            return None
+        self.move_to_end(key)
+        return self[key]
+
+    def set_item(self, key: K, value: V) -> None:
+        """Set item and evict oldest if over capacity."""
+        if key in self:
+            self.move_to_end(key)
+        self[key] = value
+        while len(self) > self.max_size:
+            oldest_key = next(iter(self))
+            if CACHE_DEBUG:
+                logger.debug("cache_evict", extra={"key": str(oldest_key)})
+            del self[oldest_key]
+
 
 class ResultCategory(str, Enum):
     """Logical grouping for result datasets."""
@@ -28,18 +61,18 @@ class ResultCategory(str, Enum):
 class StandardDatasetProvider:
     """Builds cached datasets for story-based (global) results."""
 
-    def __init__(self, project_id: int, cache_repo, story_provider: StoryProvider) -> None:
+    def __init__(self, project_id: int, cache_repo, story_provider: StoryProvider, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
         self.project_id = project_id
         self.cache_repo = cache_repo
         self.story_provider = story_provider
-        self._cache: Dict[Tuple[str, str, int], Optional[ResultDataset]] = {}
+        self._cache: LRUCache[Tuple[str, str, int], Optional[ResultDataset]] = LRUCache(max_cache_size)
 
     def get(self, result_type: str, direction: str, result_set_id: int) -> Optional[ResultDataset]:
         cache_key = (result_type, direction, result_set_id)
         if cache_key in self._cache:
             if CACHE_DEBUG:
                 logger.debug("cache_hit.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
-            return self._cache[cache_key]
+            return self._cache.get_item(cache_key)
 
         cache_entries = self.cache_repo.get_cache_for_display(
             project_id=self.project_id,
@@ -64,7 +97,7 @@ class StandardDatasetProvider:
 
         if CACHE_DEBUG:
             logger.debug("cache_store.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
-        self._cache[cache_key] = dataset
+        self._cache.set_item(cache_key, dataset)
         return dataset
 
     def invalidate(self, result_type: str, direction: str, result_set_id: int) -> None:
@@ -76,7 +109,7 @@ class StandardDatasetProvider:
 
     def clear_for_result_set(self, result_set_id: int) -> None:
         """Remove cached datasets belonging to a specific result set."""
-        keys_to_delete = [k for k in self._cache if k[2] == result_set_id]
+        keys_to_delete = [k for k in list(self._cache.keys()) if k[2] == result_set_id]
         for key in keys_to_delete:
             self._cache.pop(key, None)
 
@@ -84,11 +117,11 @@ class StandardDatasetProvider:
 class ElementDatasetProvider:
     """Builds cached datasets for element-based results."""
 
-    def __init__(self, project_id: int, element_cache_repo, story_provider: StoryProvider) -> None:
+    def __init__(self, project_id: int, element_cache_repo, story_provider: StoryProvider, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
         self.project_id = project_id
         self.element_cache_repo = element_cache_repo
         self.story_provider = story_provider
-        self._cache: Dict[Tuple[int, str, str, int], Optional[ResultDataset]] = {}
+        self._cache: LRUCache[Tuple[int, str, str, int], Optional[ResultDataset]] = LRUCache(max_cache_size)
 
     def get(
         self,
@@ -104,7 +137,7 @@ class ElementDatasetProvider:
         if cache_key in self._cache:
             if CACHE_DEBUG:
                 logger.debug("cache_hit.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
-            return self._cache[cache_key]
+            return self._cache.get_item(cache_key)
 
         full_result_type = f"{result_type}_{direction}" if direction else result_type
         cache_entries = self.element_cache_repo.get_cache_for_display(
@@ -132,7 +165,7 @@ class ElementDatasetProvider:
 
         if CACHE_DEBUG:
             logger.debug("cache_store.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
-        self._cache[cache_key] = dataset
+        self._cache.set_item(cache_key, dataset)
         return dataset
 
     def invalidate(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
@@ -144,7 +177,7 @@ class ElementDatasetProvider:
 
     def clear_for_result_set(self, result_set_id: int) -> None:
         """Remove cached datasets belonging to a specific result set."""
-        keys_to_delete = [k for k in self._cache if k[3] == result_set_id]
+        keys_to_delete = [k for k in list(self._cache.keys()) if k[3] == result_set_id]
         for key in keys_to_delete:
             self._cache.pop(key, None)
 
@@ -152,10 +185,10 @@ class ElementDatasetProvider:
 class JointDatasetProvider:
     """Builds cached datasets for joint/foundation results."""
 
-    def __init__(self, project_id: int, joint_cache_repo) -> None:
+    def __init__(self, project_id: int, joint_cache_repo, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
         self.project_id = project_id
         self.joint_cache_repo = joint_cache_repo
-        self._cache: Dict[Tuple[str, int], Optional[ResultDataset]] = {}
+        self._cache: LRUCache[Tuple[str, int], Optional[ResultDataset]] = LRUCache(max_cache_size)
 
     def get(self, result_type: str, result_set_id: int) -> Optional[ResultDataset]:
         if not self.joint_cache_repo:
@@ -165,7 +198,7 @@ class JointDatasetProvider:
         if cache_key in self._cache:
             if CACHE_DEBUG:
                 logger.debug("cache_hit.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
-            return self._cache[cache_key]
+            return self._cache.get_item(cache_key)
 
         cache_entries = self.joint_cache_repo.get_all_for_type(
             project_id=self.project_id,
@@ -222,7 +255,7 @@ class JointDatasetProvider:
 
         if CACHE_DEBUG:
             logger.debug("cache_store.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
-        self._cache[cache_key] = dataset
+        self._cache.set_item(cache_key, dataset)
         return dataset
 
     def invalidate(self, result_type: str, result_set_id: int) -> None:
@@ -234,6 +267,6 @@ class JointDatasetProvider:
 
     def clear_for_result_set(self, result_set_id: int) -> None:
         """Remove cached datasets belonging to a specific result set."""
-        keys_to_delete = [k for k in self._cache if k[1] == result_set_id]
+        keys_to_delete = [k for k in list(self._cache.keys()) if k[1] == result_set_id]
         for key in keys_to_delete:
             self._cache.pop(key, None)

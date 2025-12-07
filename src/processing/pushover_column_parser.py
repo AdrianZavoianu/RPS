@@ -11,6 +11,8 @@ from typing import Dict, List, Optional
 from pathlib import Path
 import logging
 
+from utils.pushover_utils import detect_direction
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,47 +43,6 @@ class PushoverColumnParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
-
-    @staticmethod
-    def _detect_direction(case_name: str) -> str:
-        """
-        Detect pushover direction from load case name.
-
-        Rule: Any case name containing 'X' or 'Y' is recognized
-        - X direction: Contains 'X' (case-insensitive)
-        - Y direction: Contains 'Y' (case-insensitive)
-        - XY bi-directional: Contains both 'X' and 'Y'
-
-        Examples:
-        - "Push Modal X" -> 'X'
-        - "Push Uniform Y" -> 'Y'
-        - "Push_Mod_X+Ecc+" -> 'X'
-        - "Push_XY+" -> 'XY'
-
-        Args:
-            case_name: Load case name
-
-        Returns:
-            Direction string: 'X', 'Y', or 'XY'
-        """
-        case_upper = str(case_name).upper()
-
-        has_x = 'X' in case_upper
-        has_y = 'Y' in case_upper
-
-        # Check for bi-directional first (both X and Y present)
-        if has_x and has_y:
-            return 'XY'
-
-        # Check for X direction
-        if has_x:
-            return 'X'
-
-        # Check for Y direction
-        if has_y:
-            return 'Y'
-
-        return 'Unknown'
 
     def parse(self, direction: str) -> PushoverColumnResults:
         """Parse all column hinge results for specified direction.

@@ -1,9 +1,81 @@
 """Utilities for pushover analysis display and formatting."""
 
 import logging
-from typing import Dict
+from typing import Dict, List
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def detect_direction(case_name: str) -> str:
+    """
+    Detect pushover direction from load case name.
+
+    Rule: Any case name containing 'X' or 'Y' is recognized
+    - X direction: Contains 'X' (case-insensitive)
+    - Y direction: Contains 'Y' (case-insensitive)
+    - XY bi-directional: Contains both 'X' and 'Y'
+
+    Examples:
+    - "Push Modal X" -> 'X'
+    - "Push Uniform Y" -> 'Y'
+    - "Push_Mod_X+Ecc+" -> 'X'
+    - "Push_XY+" -> 'XY'
+
+    Args:
+        case_name: Load case name
+
+    Returns:
+        Direction string: 'X', 'Y', 'XY', or 'Unknown'
+    """
+    case_upper = str(case_name).upper()
+
+    has_x = 'X' in case_upper
+    has_y = 'Y' in case_upper
+
+    # Check for bi-directional first (both X and Y present)
+    if has_x and has_y:
+        return 'XY'
+
+    # Check for X direction
+    if has_x:
+        return 'X'
+
+    # Check for Y direction
+    if has_y:
+        return 'Y'
+
+    return 'Unknown'
+
+
+def preserve_order(df: pd.DataFrame, column: str) -> List:
+    """Get unique values from DataFrame column preserving Excel order.
+
+    Args:
+        df: DataFrame to extract values from
+        column: Column name
+
+    Returns:
+        List of unique values in first-occurrence order
+    """
+    return df[column].unique().tolist()
+
+
+def restore_categorical_order(df: pd.DataFrame, column: str, order: List) -> pd.DataFrame:
+    """Restore original order using Pandas Categorical.
+
+    Args:
+        df: DataFrame to sort
+        column: Column to use for ordering
+        order: List of values in desired order
+
+    Returns:
+        DataFrame sorted by the categorical order
+    """
+    df = df.copy()
+    df[column] = pd.Categorical(df[column], categories=order, ordered=True)
+    return df.sort_values(column).reset_index(drop=True)
 
 
 def create_pushover_shorthand_mapping(load_case_names: list, direction: str = None) -> Dict[str, str]:

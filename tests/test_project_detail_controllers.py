@@ -1,6 +1,7 @@
 """Tests for project detail controllers and mapping behavior."""
 
-from gui.controllers.project_detail_controller import ProjectDetailController
+from config.analysis_types import AnalysisType
+from gui.controllers.project_detail_controller import ProjectDetailController, SelectionState
 from gui.controllers.result_view_controller import ResultViewController
 
 
@@ -52,3 +53,102 @@ def test_result_view_controller_only_maps_headers_in_pushover_context():
     controller.set_active_context("Pushover")
     mapped_headers = view_controller.apply_mapping_to_headers(headers, result_set_id=5)
     assert mapped_headers == ["Story", "Px1"]
+
+
+# ---- SelectionState Tests ----
+
+
+def test_selection_state_defaults():
+    """Test that SelectionState has correct default values."""
+    state = SelectionState()
+
+    assert state.result_type is None
+    assert state.result_set_id is None
+    assert state.direction == "X"
+    assert state.element_id == 0
+    assert state.active_context == AnalysisType.NLTHA
+
+
+def test_selection_state_initialization():
+    """Test that SelectionState can be initialized with values."""
+    state = SelectionState(
+        result_type="Drifts",
+        result_set_id=5,
+        direction="Y",
+        element_id=10,
+        active_context=AnalysisType.PUSHOVER,
+    )
+
+    assert state.result_type == "Drifts"
+    assert state.result_set_id == 5
+    assert state.direction == "Y"
+    assert state.element_id == 10
+    assert state.active_context == AnalysisType.PUSHOVER
+
+
+def test_controller_update_selection_partial():
+    """Test that update_selection updates only specified fields."""
+    fake_repo = _FakeCacheRepo([])
+    controller = ProjectDetailController(project_id=1, cache_repo=fake_repo)
+
+    # Initial state
+    assert controller.selection.direction == "X"
+    assert controller.selection.element_id == 0
+
+    # Update only direction
+    controller.update_selection(direction="Y")
+    assert controller.selection.direction == "Y"
+    assert controller.selection.element_id == 0  # Unchanged
+
+    # Update only element_id
+    controller.update_selection(element_id=42)
+    assert controller.selection.direction == "Y"  # Unchanged
+    assert controller.selection.element_id == 42
+
+
+def test_controller_context_switching():
+    """Test context switching between NLTHA and Pushover."""
+    fake_repo = _FakeCacheRepo([])
+    controller = ProjectDetailController(project_id=1, cache_repo=fake_repo)
+
+    # Default is NLTHA
+    assert controller.get_active_context() == AnalysisType.NLTHA
+
+    # Switch to Pushover
+    controller.set_active_context("Pushover")
+    assert controller.get_active_context() == AnalysisType.PUSHOVER
+
+    # Switch back to NLTHA
+    controller.set_active_context(AnalysisType.NLTHA)
+    assert controller.get_active_context() == AnalysisType.NLTHA
+
+
+def test_controller_reset_pushover_mapping_specific():
+    """Test resetting pushover mapping for specific result set."""
+    fake_repo = _FakeCacheRepo(["Push-Mod-X+Ecc+_UX"])
+    controller = ProjectDetailController(project_id=1, cache_repo=fake_repo)
+
+    # Build mappings for two result sets
+    controller.get_pushover_mapping(result_set_id=10)
+    controller._pushover_mappings[20] = {"TestCase": "Tx1"}
+
+    # Reset only result_set_id=10
+    controller.reset_pushover_mapping(result_set_id=10)
+
+    assert 10 not in controller._pushover_mappings
+    assert 20 in controller._pushover_mappings
+
+
+def test_controller_reset_pushover_mapping_all():
+    """Test resetting all pushover mappings."""
+    fake_repo = _FakeCacheRepo(["Push-Mod-X+Ecc+_UX"])
+    controller = ProjectDetailController(project_id=1, cache_repo=fake_repo)
+
+    # Build mappings for two result sets
+    controller.get_pushover_mapping(result_set_id=10)
+    controller._pushover_mappings[20] = {"TestCase": "Tx1"}
+
+    # Reset all
+    controller.reset_pushover_mapping()
+
+    assert len(controller._pushover_mappings) == 0

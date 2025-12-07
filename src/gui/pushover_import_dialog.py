@@ -17,8 +17,8 @@ from processing.pushover_importer import PushoverImporter
 from processing.pushover_parser import PushoverParser
 
 
-class PushoverImportWorker(QThread):
-    """Worker thread for pushover import (non-blocking UI)."""
+class PushoverCurveImportWorker(QThread):
+    """Worker thread for pushover curve import (non-blocking UI)."""
 
     progress = pyqtSignal(str)  # Status message
     finished = pyqtSignal(dict)  # Import statistics
@@ -272,7 +272,7 @@ class PushoverImportDialog(QDialog):
         self._log(f"  Base Story: {base_story}")
 
         # Start worker thread
-        self.worker = PushoverImportWorker(
+        self.worker = PushoverCurveImportWorker(
             session=self.session,
             file_path=self.file_path,
             project_id=self.project_id,

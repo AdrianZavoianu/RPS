@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.pool import NullPool
 
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -28,7 +30,7 @@ def _normalize_db_path(db_path: Path) -> str:
     """Normalize database path for consistent key storage."""
     # Convert to absolute path and use forward slashes
     normalized = str(db_path.resolve()).replace('\\', '/')
-    print(f"[DEBUG] Normalized path: {normalized}")
+    logger.debug(f"Normalized path: {normalized}")
     return normalized
 
 
@@ -41,11 +43,11 @@ def _get_or_create_engine(db_path: Path) -> Engine:
     db_path_str = _normalize_db_path(db_path)
 
     if db_path_str in _project_engines:
-        print(f"[DEBUG] Reusing existing engine for: {db_path_str}")
+        logger.debug(f"Reusing existing engine for: {db_path_str}")
         return _project_engines[db_path_str]
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"[DEBUG] Creating new engine for: {db_path_str}")
+    logger.debug(f"Creating new engine for: {db_path_str}")
     engine = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
@@ -72,24 +74,24 @@ def dispose_project_engine(db_path: Path | str) -> None:
     # Normalize path using the same function
     db_path_str = _normalize_db_path(db_path)
 
-    print(f"[DEBUG] Attempting to dispose engine for: {db_path_str}")
-    print(f"[DEBUG] Current engines in registry: {list(_project_engines.keys())}")
+    logger.debug(f"Attempting to dispose engine for: {db_path_str}")
+    logger.debug(f"Current engines in registry: {list(_project_engines.keys())}")
 
     if db_path_str in _project_engines:
         engine = _project_engines.pop(db_path_str)
         # Force dispose all connections
         engine.dispose()
-        print(f"[DEBUG] Successfully disposed engine for: {db_path_str}")
+        logger.debug(f"Successfully disposed engine for: {db_path_str}")
     else:
-        print(f"[WARNING] Engine not found in registry for disposal: {db_path_str}")
-        print(f"[WARNING] This might indicate the engine was already disposed or never created")
+        logger.warning(f"Engine not found in registry for disposal: {db_path_str}")
+        logger.warning("This might indicate the engine was already disposed or never created")
 
 
 def dispose_all_engines() -> None:
     """Dispose all project engines (emergency cleanup)."""
     for db_path, engine in list(_project_engines.items()):
         engine.dispose()
-        print(f"[DEBUG] Disposed engine: {db_path}")
+        logger.debug(f"Disposed engine: {db_path}")
     _project_engines.clear()
 
 

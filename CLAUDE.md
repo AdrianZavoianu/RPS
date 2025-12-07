@@ -2,7 +2,7 @@
 
 **RPS (Results Processing System)** - Structural engineering results processor (ETABS/SAP2000)
 **Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
-**Status**: Production-ready (v2.14 - December 2024 - Context-Aware Export System)
+**Status**: Production-ready (v2.15 - December 2024 - Architecture Cleanup)
 
 ---
 
@@ -286,7 +286,7 @@ Follow DESIGN.md:
 - `database/element_result_repository.py` - Element result queries (max/min aggregation)
 - `processing/result_service/` - Data retrieval layer (7 focused modules)
   - `service.py` - Main facade with provider-based architecture
-  - `providers.py` - Dataset providers (Standard, Element, Joint) with caching
+  - `providers.py` - Dataset providers (Standard, Element, Joint) with LRU caching
   - `cache_builder.py` - Dataset construction from cache
   - `comparison_builder.py` - Multi-set comparison logic
   - `maxmin_builder.py` - Max/min envelope calculations
@@ -331,7 +331,7 @@ Follow DESIGN.md:
 - `utils/color_utils.py` - Gradient colors (includes orange_blue reversed scheme)
 - `utils/plot_builder.py` - Declarative plotting
 - `utils/data_utils.py` - Parsing/formatting
-- `utils/pushover_utils.py` - Pushover load case shorthand mapping (Px1, Py1, etc.)
+- `utils/pushover_utils.py` - Pushover utilities (shorthand mapping, direction detection)
 
 ---
 
@@ -353,6 +353,35 @@ Follow DESIGN.md:
 ---
 
 ## Recent Changes (November-December 2024)
+
+### v2.15 - Architecture Cleanup (Dec 7)
+- **Code Deduplication**: Consolidated pushover direction detection across 6 parsers
+  - Shared `detect_direction()` function in `utils/pushover_utils.py`
+  - Eliminated ~200 lines of duplicated code
+  - Additional utilities: `preserve_order()`, `restore_categorical_order()`
+- **LRU Cache Eviction**: Added memory management to data providers
+  - `LRUCache` class with configurable max size (default: 100 entries)
+  - Oldest entries automatically evicted when over capacity
+  - Configurable via `RPS_MAX_CACHE_SIZE` environment variable
+  - Applied to all three providers: Standard, Element, Joint
+- **Circular Dependency Fix**: Fixed processing → gui import cycle
+  - `enhanced_folder_importer.py` now uses lazy imports for dialog classes
+  - GUI dialogs imported only when needed, not at module load
+- **Debug Logging**: Replaced print statements with proper logging
+  - 9 debug prints converted to `logger.debug()` in `database/base.py`
+  - Follows Python logging best practices
+- **Dead Code Removal**: Cleaned up unused files
+  - Deleted `gui/main_window.py.bak` (backup file)
+  - Deleted `gui/visualization_widget.py` (placeholder with only TODOs)
+- **Package Organization**: Added missing `__init__.py` files
+  - Created `gui/components/__init__.py` for component exports
+  - Created `gui/tree_browser/__init__.py` for future decomposition
+- **Class Naming**: Fixed duplicate class name collision
+  - Renamed `PushoverImportWorker` → `PushoverCurveImportWorker` in `pushover_import_dialog.py`
+- **Test Coverage**: Added tests for new functionality
+  - `test_lru_cache.py` - LRU cache behavior tests
+  - Extended `test_project_detail_controllers.py` with SelectionState tests
+  - Test count: 63 → 76 tests (all passing)
 
 ### v2.14 - Context-Aware Export System (Dec 2)
 - **Fully Independent Export**: NLTHA and Pushover exports are completely separated
@@ -622,5 +651,5 @@ Follow DESIGN.md:
 
 ---
 
-**Last Updated**: 2024-12-02
-**Version**: 2.14
+**Last Updated**: 2024-12-07
+**Version**: 2.15
