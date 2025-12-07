@@ -53,7 +53,8 @@
       "Bash(for dir in */)",
       "Bash(do echo \"=== $dir%/ ===\")",
       "Bash(done)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

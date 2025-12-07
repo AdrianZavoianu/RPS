@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
+import os
+import logging
 
 import pandas as pd
 
@@ -10,6 +12,9 @@ from .cache_builder import build_element_dataset, build_standard_dataset
 from .metadata import build_display_label
 from .models import ResultDataset, ResultDatasetMeta
 from .story_loader import StoryProvider
+
+CACHE_DEBUG = os.getenv("RPS_CACHE_DEBUG", "").lower() in {"1", "true", "yes"}
+logger = logging.getLogger(__name__)
 
 
 class ResultCategory(str, Enum):
@@ -32,6 +37,8 @@ class StandardDatasetProvider:
     def get(self, result_type: str, direction: str, result_set_id: int) -> Optional[ResultDataset]:
         cache_key = (result_type, direction, result_set_id)
         if cache_key in self._cache:
+            if CACHE_DEBUG:
+                logger.debug("cache_hit.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
             return self._cache[cache_key]
 
         cache_entries = self.cache_repo.get_cache_for_display(
@@ -41,6 +48,8 @@ class StandardDatasetProvider:
         )
 
         if not cache_entries:
+            if CACHE_DEBUG:
+                logger.debug("cache_miss.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
             self._cache[cache_key] = None
             return None
 
@@ -53,6 +62,8 @@ class StandardDatasetProvider:
             story_provider=self.story_provider,
         )
 
+        if CACHE_DEBUG:
+            logger.debug("cache_store.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
         self._cache[cache_key] = dataset
         return dataset
 
@@ -62,6 +73,12 @@ class StandardDatasetProvider:
 
     def clear(self) -> None:
         self._cache.clear()
+
+    def clear_for_result_set(self, result_set_id: int) -> None:
+        """Remove cached datasets belonging to a specific result set."""
+        keys_to_delete = [k for k in self._cache if k[2] == result_set_id]
+        for key in keys_to_delete:
+            self._cache.pop(key, None)
 
 
 class ElementDatasetProvider:
@@ -85,6 +102,8 @@ class ElementDatasetProvider:
 
         cache_key = (element_id, result_type, direction, result_set_id)
         if cache_key in self._cache:
+            if CACHE_DEBUG:
+                logger.debug("cache_hit.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
             return self._cache[cache_key]
 
         full_result_type = f"{result_type}_{direction}" if direction else result_type
@@ -96,6 +115,8 @@ class ElementDatasetProvider:
         )
 
         if not cache_entries:
+            if CACHE_DEBUG:
+                logger.debug("cache_miss.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
             self._cache[cache_key] = None
             return None
 
@@ -109,6 +130,8 @@ class ElementDatasetProvider:
             story_provider=self.story_provider,
         )
 
+        if CACHE_DEBUG:
+            logger.debug("cache_store.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
         self._cache[cache_key] = dataset
         return dataset
 
@@ -118,6 +141,12 @@ class ElementDatasetProvider:
 
     def clear(self) -> None:
         self._cache.clear()
+
+    def clear_for_result_set(self, result_set_id: int) -> None:
+        """Remove cached datasets belonging to a specific result set."""
+        keys_to_delete = [k for k in self._cache if k[3] == result_set_id]
+        for key in keys_to_delete:
+            self._cache.pop(key, None)
 
 
 class JointDatasetProvider:
@@ -134,6 +163,8 @@ class JointDatasetProvider:
 
         cache_key = (result_type, result_set_id)
         if cache_key in self._cache:
+            if CACHE_DEBUG:
+                logger.debug("cache_hit.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
             return self._cache[cache_key]
 
         cache_entries = self.joint_cache_repo.get_all_for_type(
@@ -143,6 +174,8 @@ class JointDatasetProvider:
         )
 
         if not cache_entries:
+            if CACHE_DEBUG:
+                logger.debug("cache_miss.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
             self._cache[cache_key] = None
             return None
 
@@ -187,6 +220,8 @@ class JointDatasetProvider:
             summary_columns=summary_columns,
         )
 
+        if CACHE_DEBUG:
+            logger.debug("cache_store.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
         self._cache[cache_key] = dataset
         return dataset
 
@@ -196,3 +231,9 @@ class JointDatasetProvider:
 
     def clear(self) -> None:
         self._cache.clear()
+
+    def clear_for_result_set(self, result_set_id: int) -> None:
+        """Remove cached datasets belonging to a specific result set."""
+        keys_to_delete = [k for k in self._cache if k[1] == result_set_id]
+        for key in keys_to_delete:
+            self._cache.pop(key, None)

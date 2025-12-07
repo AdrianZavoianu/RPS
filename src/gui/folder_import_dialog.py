@@ -130,7 +130,7 @@ class FolderImportWorker(QThread):
     """Worker thread for folder import to avoid blocking UI."""
 
     progress = pyqtSignal(str, int, int)  # message, current, total
-    finished = pyqtSignal(dict)  # stats
+    finished = pyqtSignal(dict)  # stats (will include result_set_id)
     error = pyqtSignal(str)  # error message
 
     def __init__(
@@ -156,6 +156,8 @@ class FolderImportWorker(QThread):
         self.conflict_resolution = conflict_resolution
         self.prescan_result = prescan_result
         self._session_factory = context.session_factory()
+        self.result_set_id: Optional[int] = None
+        self.result_set_id: Optional[int] = None
 
     def run(self) -> None:  # pragma: no cover - executes in worker thread
         """Run the import in background thread."""
@@ -186,6 +188,9 @@ class FolderImportWorker(QThread):
                     prescan_result=self.prescan_result,
                 )
                 stats = importer.import_all()
+                if hasattr(importer, "result_set_id"):
+                    self.result_set_id = importer.result_set_id
+                    stats["result_set_id"] = importer.result_set_id
                 self.finished.emit(stats)
             else:
                 from processing.folder_importer import FolderImporter
@@ -200,6 +205,9 @@ class FolderImportWorker(QThread):
                     file_summaries=self.prescan_result.file_summaries if self.prescan_result else None,
                 )
                 stats = importer.import_all()
+                if hasattr(importer, "result_set_id"):
+                    self.result_set_id = importer.result_set_id
+                    stats["result_set_id"] = importer.result_set_id
                 self.finished.emit(stats)
                 logger.info(
                     "Folder import worker finished",
@@ -1047,6 +1055,8 @@ class FolderImportDialog(QDialog):
 
     def on_finished(self, stats: dict) -> None:
         """Handle successful import completion."""
+        if self.import_worker and hasattr(self.import_worker, "result_set_id"):
+            self._last_result_set_id = self.import_worker.result_set_id
         self.import_stats = stats
         self.import_worker = None
         self.progress_bar.setValue(100)
@@ -1074,6 +1084,14 @@ class FolderImportDialog(QDialog):
         self.import_btn.clicked.connect(self.accept)
         self.result_set_input.setEnabled(False)
         self.browse_btn.setEnabled(False)
+
+    @property
+    def last_result_set_id(self) -> Optional[int]:
+        return getattr(self, "_last_result_set_id", None)
+
+    @property
+    def last_result_set_id(self) -> Optional[int]:
+        return getattr(self, "_last_result_set_id", None)
 
     def on_error(self, error_message: str) -> None:
         """Handle worker errors."""

@@ -306,6 +306,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
             "phase_timings": [],
         }
         aggregator = ImportStatsAggregator()
+        result_set_id: Optional[int] = None
 
         # Track which load cases have been imported per sheet
         imported_load_cases_by_sheet = {}  # {sheet: {load_cases}}
@@ -359,6 +360,8 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 if self._cache_builder is None:
                     self._cache_builder = importer
                 file_stats = importer.import_all()
+                if result_set_id is None and getattr(importer, "result_set_id", None):
+                    result_set_id = importer.result_set_id
 
                 stats["project"] = file_stats.get("project", stats["project"])
                 stats["files_processed"] += 1
@@ -393,6 +396,8 @@ class EnhancedFolderImporter(BaseFolderImporter):
         agg_data = aggregator.as_dict()
         agg_errors = agg_data.pop("errors", [])
         stats.update(agg_data)
+        if result_set_id is not None:
+            stats["result_set_id"] = result_set_id
         if agg_errors:
             stats["errors"].extend(agg_errors)
 

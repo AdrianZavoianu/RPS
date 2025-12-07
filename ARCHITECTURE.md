@@ -30,6 +30,7 @@
 
 **New in v2.12**:
 - **Pushover Load Case Mapping**: Shorthand names (Px1, Py1) automatically generated for long pushover load case names to improve UI readability. Mapping supports both hyphen (`Push-Mod-X+Ecc+`) and underscore (`Push_Mod_X+Ecc+`) formats used across global and element results. Preserved +/- eccentricity signs using negative lookbehind/lookahead regex patterns.
+- **Pushover Load Case Mapping (Scope)**: Shorthands are UI-only to save column space; all exports keep full load-case names to preserve fidelity in downstream spreadsheets.
 - **Automatic Context Detection**: Result set analysis type (`Pushover` vs `NLTHA`) automatically detected when navigating tree browser, eliminating manual tab switching. Context switching triggers appropriate mapping application.
 - **Tree Browser Event Handlers**: Added missing click handlers for `pushover_column_result` (R2/R3 rotations) and `pushover_beam_result` (R3 plastic rotations) to enable element result navigation in pushover projects.
 

@@ -564,6 +564,7 @@ class MainWindow(QMainWindow):
                         session_factory=context.session_factory(),
                     )
                     stats = importer.import_all()
+                    result_set_id = getattr(importer, "result_set_id", None)
 
                     # Show success message
                     message = (
@@ -588,6 +589,12 @@ class MainWindow(QMainWindow):
 
                     # Refresh projects view
                     self._refresh_projects()
+
+                    # Invalidate caches for the imported result set if a project window is open
+                    if result_set_id and project_name in self._project_windows:
+                        window = self._project_windows[project_name]
+                        if hasattr(window, "result_service"):
+                            window.result_service.invalidate_result_set(result_set_id)
 
                 except Exception as e:
                     QMessageBox.critical(

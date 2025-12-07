@@ -7,19 +7,21 @@ Provides UI for exporting result data to Excel and CSV formats.
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QRadioButton, QGroupBox, QCheckBox,
-    QFileDialog, QMessageBox, QProgressBar, QScrollArea,
-    QWidget, QApplication
+    QFileDialog, QMessageBox, QProgressBar,
+    QApplication
 )
 from PyQt6.QtCore import QThread, pyqtSignal, QStandardPaths, Qt
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List
 
+from gui.components.export_selectors import ResultSetSelector, ResultTypeSelector
+from services.export_discovery import ExportDiscoveryService
 from services.export_service import ExportService, ExportOptions
 from gui.design_tokens import FormStyles, PALETTE
 from gui.ui_helpers import create_styled_button
 from gui.styles import COLORS
-from database.models import GlobalResultsCache, ElementResultsCache, JointResultsCache
+from database.models import ElementResultsCache, JointResultsCache
 
 
 class ComprehensiveExportDialog(QDialog):
@@ -46,6 +48,7 @@ class ComprehensiveExportDialog(QDialog):
         self.current_result_set_id = current_result_set_id
         self.project_name = project_name
         self.analysis_context = analysis_context  # 'NLTHA' or 'Pushover'
+        self.discovery_service = ExportDiscoveryService(self.context.session)
 
         # Discovered result types (populated on init)
         self.available_types: Dict[str, List[str]] = {
@@ -56,9 +59,6 @@ class ComprehensiveExportDialog(QDialog):
 
         # Available result sets (populated on init)
         self.available_result_sets = []  # List of (id, name) tuples
-
-        self.result_type_checkboxes: Dict[str, QCheckBox] = {}
-        self.result_set_checkboxes: Dict[int, QCheckBox] = {}
 
         # Set window title based on context
         title = f"Export {self.analysis_context} Results" if self.analysis_context else "Export Results"
@@ -106,30 +106,11 @@ class ComprehensiveExportDialog(QDialog):
         - NLTHA context: Only shows result sets where analysis_type != 'Pushover'
         - Pushover context: Only shows result sets where analysis_type == 'Pushover'
         """
-        from database.repository import ResultSetRepository, ProjectRepository
-
-        with self.context.session() as session:
-            # Get project ID from database
-            project_repo = ProjectRepository(session)
-            project = project_repo.get_by_name(self.context.name)
-
-            if not project:
-                self.available_result_sets = []
-                return
-
-            # Get all result sets for this project
-            result_set_repo = ResultSetRepository(session)
-            all_result_sets = result_set_repo.get_by_project(project.id)
-
-            # Filter by analysis context
-            if self.analysis_context == 'Pushover':
-                # Only show Pushover result sets
-                filtered_sets = [rs for rs in all_result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
-            else:
-                # Only show NLTHA result sets (where analysis_type is None or 'NLTHA')
-                filtered_sets = [rs for rs in all_result_sets if getattr(rs, 'analysis_type', None) != 'Pushover']
-
-            self.available_result_sets = [(rs.id, rs.name) for rs in filtered_sets]
+        discovered_sets = self.discovery_service.discover_result_sets(
+            project_name=self.context.name,
+            analysis_context=self.analysis_context
+        )
+        self.available_result_sets = [(rs.id, rs.name) for rs in discovered_sets]
 
     def _discover_result_types(self):
         """Query cache to find all result types with data across ALL result sets of this analysis type.
@@ -141,83 +122,15 @@ class ComprehensiveExportDialog(QDialog):
         - NLTHA: Shows only cache-based results (Drifts, Forces, etc.) from NLTHA result sets
         - Pushover: Shows Curves + pushover global/element/joint results from Pushover result sets
         """
-        with self.context.session() as session:
-            from database.models import ResultSet, PushoverCase
+        result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
+        types = self.discovery_service.discover_result_types(
+            result_set_ids=result_set_ids,
+            analysis_context=self.analysis_context
+        )
 
-            # Initialize empty lists
-            self.available_types['global'] = []
-            self.available_types['element'] = []
-            self.available_types['joint'] = []
-
-            # Get all result set IDs matching this analysis context
-            result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
-
-            if not result_set_ids:
-                return
-
-            # Discover based on analysis context
-            if self.analysis_context == 'Pushover':
-                # For Pushover context, check for curve data across all pushover result sets
-                pushover_cases = session.query(PushoverCase).filter(
-                    PushoverCase.result_set_id.in_(result_set_ids)
-                ).count()
-
-                if pushover_cases > 0:
-                    # Add "Curves" as a special global type
-                    self.available_types['global'].append('Curves')
-
-            # Query GlobalResultsCache for base types across ALL result sets of this type
-            global_base_types = session.query(
-                GlobalResultsCache.result_type
-            ).filter(
-                GlobalResultsCache.result_set_id.in_(result_set_ids)
-            ).distinct().all()
-
-            # Add cache-based global types (e.g., "Drifts", "Accelerations", "Forces")
-            self.available_types['global'].extend(sorted([r[0] for r in global_base_types]))
-
-            # Query ElementResultsCache - extract base types by removing direction suffix
-            element_results = session.query(
-                ElementResultsCache.result_type
-            ).filter(
-                ElementResultsCache.result_set_id.in_(result_set_ids)
-            ).distinct().all()
-
-            # Extract base types from element results (remove _V2, _V3, etc.)
-            element_base_types = set()
-            for result_type, in element_results:
-                # Remove direction suffix if present
-                if '_V2' in result_type or '_V3' in result_type or '_R2' in result_type or '_R3' in result_type:
-                    base_type = result_type.rsplit('_', 1)[0]
-                    element_base_types.add(base_type)
-                else:
-                    # No direction suffix (e.g., QuadRotations, BeamRotations)
-                    element_base_types.add(result_type)
-
-            self.available_types['element'] = sorted(element_base_types)
-
-            # Query JointResultsCache - extract base types by removing suffix
-            joint_results = session.query(
-                JointResultsCache.result_type
-            ).filter(
-                JointResultsCache.result_set_id.in_(result_set_ids)
-            ).distinct().all()
-
-            # Extract base types from joint results (remove _Min suffix)
-            joint_base_types = set()
-            for result_type, in joint_results:
-                # Remove suffix (e.g., 'SoilPressures_Min' -> 'SoilPressures')
-                if '_Min' in result_type:
-                    base_type = result_type.rsplit('_', 1)[0]
-                    joint_base_types.add(base_type)
-                elif '_Ux' in result_type or '_Uy' in result_type or '_Uz' in result_type:
-                    # JointDisplacements_Ux -> JointDisplacements
-                    base_type = result_type.rsplit('_', 1)[0]
-                    joint_base_types.add(base_type)
-                else:
-                    joint_base_types.add(result_type)
-
-            self.available_types['joint'] = sorted(joint_base_types)
+        self.available_types['global'] = types.global_types
+        self.available_types['element'] = types.element_types
+        self.available_types['joint'] = types.joint_types
 
     def _setup_ui(self):
         """Build dialog UI with vertical layout."""
@@ -267,36 +180,8 @@ class ComprehensiveExportDialog(QDialog):
         rt_actions.addStretch()
         result_types_layout.addLayout(rt_actions)
 
-        types_scroll = QScrollArea()
-        types_scroll.setWidgetResizable(True)
-        types_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        types_scroll.setStyleSheet(FormStyles.scroll_area())
-
-        types_container = QWidget()
-        types_container_layout = QVBoxLayout(types_container)
-        types_container_layout.setContentsMargins(4, 4, 4, 4)
-        types_container_layout.setSpacing(0)
-
-        def add_type_section(title: str, type_list: List[str]) -> None:
-            if not type_list:
-                return
-            label = QLabel(title)
-            label.setStyleSheet("color: {}; font-size: 13px; font-weight: 600; padding: 6px 0;".format(PALETTE['accent_primary']))
-            types_container_layout.addWidget(label)
-            for base_type in type_list:
-                checkbox = QCheckBox(base_type)
-                checkbox.setStyleSheet(FormStyles.checkbox(indent=False))
-                checkbox.setChecked(True)
-                checkbox.stateChanged.connect(lambda _state: None)
-                self.result_type_checkboxes[base_type] = checkbox
-                types_container_layout.addWidget(checkbox)
-
-        add_type_section("Global Results", self.available_types['global'])
-        add_type_section("Element Results", self.available_types['element'])
-        add_type_section("Joint Results", self.available_types['joint'])
-        types_container_layout.addStretch()
-        types_scroll.setWidget(types_container)
-        result_types_layout.addWidget(types_scroll)
+        self.type_selector = ResultTypeSelector(self.available_types)
+        result_types_layout.addWidget(self.type_selector)
 
         result_types_group.setLayout(result_types_layout)
         left_column.addWidget(result_types_group)
@@ -324,25 +209,8 @@ class ComprehensiveExportDialog(QDialog):
         rs_actions.addStretch()
         result_sets_layout.addLayout(rs_actions)
 
-        sets_scroll = QScrollArea()
-        sets_scroll.setWidgetResizable(True)
-        sets_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        sets_scroll.setStyleSheet(FormStyles.scroll_area())
-
-        sets_container = QWidget()
-        sets_container_layout = QVBoxLayout(sets_container)
-        sets_container_layout.setContentsMargins(4, 4, 4, 4)
-        sets_container_layout.setSpacing(0)
-
-        for rs_id, rs_name in self.available_result_sets:
-            checkbox = QCheckBox(rs_name)
-            checkbox.setStyleSheet(FormStyles.checkbox(indent=False))
-            checkbox.setChecked(True)
-            self.result_set_checkboxes[rs_id] = checkbox
-            sets_container_layout.addWidget(checkbox)
-        sets_container_layout.addStretch()
-        sets_scroll.setWidget(sets_container)
-        result_sets_layout.addWidget(sets_scroll)
+        self.result_set_selector = ResultSetSelector(self.available_result_sets)
+        result_sets_layout.addWidget(self.result_set_selector)
 
         result_sets_group.setLayout(result_sets_layout)
         right_column.addWidget(result_sets_group)
@@ -448,19 +316,13 @@ class ComprehensiveExportDialog(QDialog):
         layout.addLayout(button_layout)
 
     def _set_result_types_checked(self, checked: bool):
-        for checkbox in self.result_type_checkboxes.values():
-            checkbox.setChecked(checked)
+        self.type_selector.set_all(checked)
 
     def _set_result_sets_checked(self, checked: bool):
-        for checkbox in self.result_set_checkboxes.values():
-            checkbox.setChecked(checked)
+        self.result_set_selector.set_all(checked)
 
     def _get_selected_result_set_ids(self) -> List[int]:
-        return [
-            rs_id
-            for rs_id, checkbox in self.result_set_checkboxes.items()
-            if checkbox.isChecked()
-        ]
+        return self.result_set_selector.selected_ids()
 
     def _get_selected_result_types(self) -> List[str]:
         """Get list of checked result types from checkbox groups.
@@ -472,11 +334,7 @@ class ComprehensiveExportDialog(QDialog):
         """
         from config.result_config import RESULT_CONFIGS
 
-        selected_base_types = [
-            base_type
-            for base_type, checkbox in self.result_type_checkboxes.items()
-            if checkbox.isChecked()
-        ]
+        selected_base_types = self.type_selector.selected_base_types()
 
         # Expand base types to include all directions
         expanded_types = []
@@ -567,13 +425,13 @@ class ComprehensiveExportDialog(QDialog):
             format_ext = "xlsx" if self.excel_radio.isChecked() else "csv"
 
             self.filename_preview.setText(
-                f"{selected_count} files: {self.project_name}_<ResultType>_<timestamp>.{format_ext}"
+                f"{selected_count} files: {self.project_name}_{self.analysis_context}_<ResultType>_<timestamp>.{format_ext}"
             )
 
     def _build_combined_filename(self) -> str:
         """Build filename for combined export."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{self.project_name}_AllResults_{timestamp}.xlsx"
+        return f"{self.project_name}_{self.analysis_context}_AllResults_{timestamp}.xlsx"
 
     def _start_export(self):
         """Start comprehensive export process."""
@@ -611,7 +469,7 @@ class ComprehensiveExportDialog(QDialog):
             output_file = self.output_folder / self._build_combined_filename()
             output_folder = None
         else:
-            output_folder = self.output_folder / f"{self.project_name}_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            output_folder = self.output_folder / f"{self.project_name}_{self.analysis_context}_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             output_file = None
 
         # Start worker with multiple result sets
@@ -623,7 +481,8 @@ class ComprehensiveExportDialog(QDialog):
             format_type=format_type,
             is_combined=is_combined,
             output_file=output_file,
-            output_folder=output_folder
+            output_folder=output_folder,
+            analysis_context=self.analysis_context
         )
 
         self.worker.progress.connect(self._on_progress)
@@ -746,7 +605,7 @@ class ComprehensiveExportWorker(QThread):
     finished = pyqtSignal(bool, str, str)  # success, message, output_path
 
     def __init__(self, context, result_service, result_set_ids, result_types,
-                 format_type, is_combined, output_file, output_folder):
+                 format_type, is_combined, output_file, output_folder, analysis_context='NLTHA'):
         super().__init__()
         self.context = context
         self.result_service = result_service
@@ -756,6 +615,7 @@ class ComprehensiveExportWorker(QThread):
         self.is_combined = is_combined
         self.output_file = output_file
         self.output_folder = output_folder
+        self.analysis_context = analysis_context
 
     def run(self):
         """Execute comprehensive export."""
@@ -966,7 +826,7 @@ class ComprehensiveExportWorker(QThread):
                             continue
 
                         ext = "xlsx"
-                        filename = f"{result_set_name}_Curves_{timestamp}.{ext}"
+                        filename = f"{result_set_name}_{self.analysis_context}_Curves_{timestamp}.{ext}"
                         output_path = self.output_folder / filename
 
                         with self.context.session() as session:
@@ -1013,7 +873,7 @@ class ComprehensiveExportWorker(QThread):
                     # Build output path with single timestamp (clean display name for joints)
                     display_type = result_type.replace('_Min', '') if is_joint else result_type
                     ext = "xlsx" if self.format_type == "excel" else "csv"
-                    filename = f"{result_set_name}_{display_type}_{timestamp}.{ext}"
+                    filename = f"{result_set_name}_{self.analysis_context}_{display_type}_{timestamp}.{ext}"
                     output_path = self.output_folder / filename
 
                     if is_element:

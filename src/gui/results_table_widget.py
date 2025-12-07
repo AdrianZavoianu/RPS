@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, Set, TYPE_CHECKING
 
 import pandas as pd
@@ -23,6 +24,8 @@ from .components.results_table_header import ClickableTableWidget, SelectableHea
 
 if TYPE_CHECKING:
     from processing.result_service import ResultDataset
+
+logger = logging.getLogger(__name__)
 
 
 class ResultsTableWidget(QWidget):
@@ -226,12 +229,12 @@ class ResultsTableWidget(QWidget):
 
         # Set shorthand mapping if provided (check for None, not just falsy, since {} is valid)
         if shorthand_mapping is not None:
-            print(f"[DEBUG] Table load_dataset: Received mapping with {len(shorthand_mapping)} entries")
+            logger.debug("Table load_dataset: received mapping with %s entries", len(shorthand_mapping))
             if shorthand_mapping:
-                print(f"[DEBUG] Table sample mapping: {list(shorthand_mapping.items())[:2]}")
+                logger.debug("Table sample mapping: %s", list(shorthand_mapping.items())[:2])
             self.set_shorthand_mapping(shorthand_mapping)
         else:
-            print(f"[DEBUG] Table load_dataset: NO mapping provided (None)")
+            logger.debug("Table load_dataset: no mapping provided (None)")
             self.clear_shorthand_mapping()
         self._non_selectable_columns = {"Story", *dataset.summary_columns}
         self._story_sort_order = Qt.SortOrder.AscendingOrder
@@ -256,13 +259,10 @@ class ResultsTableWidget(QWidget):
         # Apply shorthand mapping to column headers if available
         if self._shorthand_mapping:
             display_names = [self._shorthand_mapping.get(name, name) for name in column_names]
-            print(f"[DEBUG] Setting headers WITH mapping")
-            print(f"[DEBUG] Original headers: {column_names[:3]}")
-            print(f"[DEBUG] Mapped headers: {display_names[:3]}")
+            logger.debug("Setting headers WITH mapping: %s -> %s", column_names[:3], display_names[:3])
             self.table.setHorizontalHeaderLabels(display_names)
         else:
-            print(f"[DEBUG] Setting headers WITHOUT mapping (using original names)")
-            print(f"[DEBUG] Headers: {column_names[:3]}")
+            logger.debug("Setting headers WITHOUT mapping (using original names): %s", column_names[:3])
             self.table.setHorizontalHeaderLabels(column_names)
 
         min_val, max_val = self._compute_value_range(df, self._load_case_columns)

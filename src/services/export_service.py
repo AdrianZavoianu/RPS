@@ -1163,7 +1163,7 @@ class ExportService:
 
                     df = pd.DataFrame(curve_info['data'])
 
-                    # Use case name as sheet name (truncate to 31 chars for Excel limit)
+                    # Use full case name for sheet name (truncate to 31 chars for Excel limit)
                     sheet_name = curve_info['case_name'][:31]
 
                     # Write to Excel

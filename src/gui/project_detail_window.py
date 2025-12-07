@@ -30,8 +30,16 @@ from .ui_helpers import create_styled_button, create_styled_label
 from .window_utils import enable_dark_title_bar
 from .styles import COLORS
 from services.project_runtime import ProjectRuntime
+from gui.controllers.result_view_controller import ResultViewController
+from gui.controllers.project_detail_controller import ProjectDetailController
 from utils.color_utils import get_gradient_color
 from config.result_config import RESULT_CONFIGS, format_result_type_with_unit
+from config.analysis_types import AnalysisType
+from gui.controllers.table_builder import (
+    apply_headers,
+    populate_beam_rotations_table,
+    populate_foundation_table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,17 +69,9 @@ class ProjectDetailWindow(QMainWindow):
         self.project_name = self.project.name
         self.result_service = runtime.result_service
 
-        # Current selection
-        self.current_result_type = None  # 'Drifts', 'Accelerations', 'Forces', 'WallShears'
-        self.current_result_set_id = None
-        self.current_direction = 'X'  # Default to X direction
-        self.current_element_id = 0  # 0 = global results, >0 = specific element
-
-        # Active context (NLTHA or Pushover)
-        self.active_context = "NLTHA"  # Default to NLTHA
-
-        # Cache for pushover load case mappings (result_set_id -> mapping dict)
-        self._pushover_mappings = {}
+        # Selection + context controller
+        self.controller = ProjectDetailController(project_id=self.project_id, cache_repo=self.cache_repo)
+        self.view_controller = ResultViewController(self.project_id, self.cache_repo, self.controller)
 
         self.setup_ui()
         self.load_project_data()
@@ -264,14 +264,15 @@ class ProjectDetailWindow(QMainWindow):
 
     def _switch_context(self, context: str):
         """Switch between NLTHA and Pushover contexts."""
-        print(f"[DEBUG] _switch_context called: '{self.active_context}' -> '{context}'")
+        current_ctx = self.controller.get_active_context().value
+        logger.debug("_switch_context called: '%s' -> '%s'", current_ctx, context)
 
-        if self.active_context == context:
-            print(f"[DEBUG] Context already '{context}', no change")
+        if self.controller.get_active_context().value == context:
+            logger.debug("Context already '%s', no change", context)
             return  # Already active
 
-        self.active_context = context
-        print(f"[DEBUG] Context switched to '{context}'")
+        self.controller.set_active_context(context)
+        logger.debug("Context switched to '%s'", context)
 
         # Update tab button states
         if context == "NLTHA":
@@ -541,13 +542,14 @@ class ProjectDetailWindow(QMainWindow):
 
         self.session.expire_all()
         self.result_service.invalidate_all()
+        self.controller.reset_pushover_mapping()
         try:
             # Get result sets
             result_sets = self.result_set_repo.get_by_project(self.project_id)
 
             # Set default result set for export functionality (use first result set)
-            if result_sets and not self.current_result_set_id:
-                self.current_result_set_id = result_sets[0].id
+            if result_sets and not self.controller.selection.result_set_id:
+                self.controller.update_selection(result_set_id=result_sets[0].id)
 
             # Get stories
             stories = self.story_repo.get_by_project(self.project_id)
@@ -562,17 +564,17 @@ class ProjectDetailWindow(QMainWindow):
             # Get pushover cases grouped by result set and create load case mappings
             pushover_repo = PushoverCaseRepository(self.session)
             pushover_cases = {}
-            print(f"[DEBUG] Checking {len(result_sets)} result sets for pushover analysis type")
+            logger.debug("Checking %s result sets for pushover analysis type", len(result_sets))
             for rs in result_sets:
                 analysis_type = getattr(rs, 'analysis_type', None)
-                print(f"[DEBUG] Result set {rs.id} ({rs.name}): analysis_type={analysis_type}")
+                logger.debug("Result set %s (%s): analysis_type=%s", rs.id, rs.name, analysis_type)
                 if analysis_type == 'Pushover':
                     cases = pushover_repo.get_by_result_set(rs.id)
-                    print(f"[DEBUG] Found {len(cases) if cases else 0} pushover cases for result set {rs.id}")
+                    logger.debug("Found %s pushover cases for result set %s", len(cases) if cases else 0, rs.id)
                     if cases:
                         pushover_cases[rs.id] = cases
-                        # Create mapping for this result set based on actual load cases
-                        self._create_pushover_mapping(rs.id)
+                        # Prime mapping cache for pushover load cases
+                        self.controller.get_pushover_mapping(rs.id)
 
             # Check which result types have data for each result set
             available_result_types = self._get_available_result_types(result_sets)
@@ -586,72 +588,6 @@ class ProjectDetailWindow(QMainWindow):
             )
         except Exception as e:
             self.statusBar().showMessage(f"Error loading project data: {str(e)}")
-
-    def _create_pushover_mapping(self, result_set_id: int):
-        """
-        Create and cache the shorthand mapping for a pushover result set.
-        Maps full load case names to shorthand (e.g., "Push-Mod-X+Ecc+" -> "Px1").
-        """
-        from utils.pushover_utils import create_pushover_shorthand_mapping
-        import re
-
-        print(f"[DEBUG] _create_pushover_mapping called for result_set_id={result_set_id}")
-
-        # Query all distinct load cases for this result set from cache
-        load_cases_with_suffix = self.cache_repo.get_distinct_load_cases(self.project_id, result_set_id)
-        print(f"[DEBUG] Retrieved {len(load_cases_with_suffix)} load cases from cache")
-        if load_cases_with_suffix:
-            print(f"[DEBUG] First 3 load cases: {load_cases_with_suffix[:3]}")
-
-        if load_cases_with_suffix:
-            # Strip direction suffixes (_UX, _UY, _VX, _VY, etc.) from cache keys
-            # Cache stores: "Push-Mod-X+Ecc+_UX" but dataset has: "Push-Mod-X+Ecc+"
-            load_cases = []
-            seen = set()
-            for case_name in load_cases_with_suffix:
-                # Remove suffix like _UX, _UY, _VX, _VY, etc.
-                base_name = re.sub(r'_(UX|UY|UZ|VX|VY|VZ)$', '', case_name)
-                if base_name not in seen:
-                    load_cases.append(base_name)
-                    seen.add(base_name)
-
-            print(f"[DEBUG] Stripped suffixes: {len(load_cases_with_suffix)} -> {len(load_cases)} unique load cases")
-            print(f"[DEBUG] Sample before: {load_cases_with_suffix[0]} -> after: {load_cases[0]}")
-
-            # Create mapping for all load cases (both X and Y directions)
-            mapping = create_pushover_shorthand_mapping(load_cases, direction=None)
-
-            # Add underscore variants to handle both hyphen and underscore formats
-            # Global results use hyphens (Push-Mod-X+Ecc+), element results use underscores (Push_Mod_X+Ecc+)
-            # BUT: Only replace word separators, NOT +/- signs before/after Ecc
-            extended_mapping = dict(mapping)
-            for full_name, shorthand in list(mapping.items()):
-                # Replace hyphens with underscores EXCEPT when adjacent to Ecc
-                # Pattern: Push-Mod-X-Ecc- should become Push_Mod_X-Ecc- (not Push_Mod_X_Ecc_)
-                # Use regex: replace - that is NOT preceded by Ecc and NOT followed by Ecc
-                underscore_variant = re.sub(r'(?<!Ecc)-(?!Ecc)', '_', full_name)
-                if underscore_variant != full_name:
-                    extended_mapping[underscore_variant] = shorthand
-                    print(f"[DEBUG] Added underscore variant: '{full_name}' -> '{underscore_variant}' = '{shorthand}'")
-
-            self._pushover_mappings[result_set_id] = extended_mapping
-            print(f"[DEBUG] Created pushover mapping for result set {result_set_id}: {len(mapping)} base + {len(extended_mapping) - len(mapping)} underscore variants = {len(extended_mapping)} total")
-            print(f"[DEBUG] Sample entries (first 2 hyphen, first 2 underscore):")
-            items = list(extended_mapping.items())
-            hyphen_items = [item for item in items if '-' in item[0]][:2]
-            underscore_items = [item for item in items if '_' in item[0]][:2]
-            print(f"[DEBUG]   Hyphen: {hyphen_items}")
-            print(f"[DEBUG]   Underscore: {underscore_items}")
-        else:
-            print(f"[DEBUG] No load cases found for result set {result_set_id} - no mapping created")
-
-    def _get_pushover_mapping(self, result_set_id: int) -> dict:
-        """Get the cached pushover mapping for a result set."""
-        mapping = self._pushover_mappings.get(result_set_id, {})
-        print(f"[DEBUG] _get_pushover_mapping({result_set_id}): returning {len(mapping)} entries")
-        print(f"[DEBUG] Current cache state: {[(k, len(v)) for k, v in self._pushover_mappings.items()]}")
-        # Return a COPY to prevent external modifications from affecting the cache
-        return dict(mapping)
 
     def _hide_all_views(self):
         """Hide all content views - call this before showing a specific view."""
@@ -675,33 +611,40 @@ class ProjectDetailWindow(QMainWindow):
             direction: Direction ('X', 'Y', 'V22', 'V33', case name for pushover)
             element_id: Element ID for element-specific results (0 for global results, -1 for all elements)
         """
-        print(f"[DEBUG] on_browser_selection_changed: category={category}, result_type={result_type}, result_set_id={result_set_id}")
+        logger.debug(
+            "on_browser_selection_changed: category=%s, result_type=%s, result_set_id=%s",
+            category,
+            result_type,
+            result_set_id,
+        )
 
         # Automatically switch context based on result set's analysis type
         # Check if this result set is a pushover result set
         result_set = self.result_set_repo.get_by_id(result_set_id) if result_set_id else None
         if result_set:
             analysis_type = getattr(result_set, 'analysis_type', None)
-            print(f"[DEBUG] Result set {result_set_id} analysis_type: {analysis_type}")
+            logger.debug("Result set %s analysis_type: %s", result_set_id, analysis_type)
 
             if analysis_type == "Pushover":
-                print(f"[DEBUG] Result set is Pushover, auto-switching to Pushover context")
+                logger.debug("Result set is Pushover, auto-switching to Pushover context")
                 self._switch_context("Pushover")
             else:
-                print(f"[DEBUG] Result set is not Pushover, auto-switching to NLTHA context")
+                logger.debug("Result set is not Pushover, auto-switching to NLTHA context")
                 self._switch_context("NLTHA")
         elif category == "Pushover":
             # Fallback: if no result_set_id but category is Pushover
-            print(f"[DEBUG] No result set but category is Pushover, switching to Pushover context")
+            logger.debug("No result set but category is Pushover, switching to Pushover context")
             self._switch_context("Pushover")
         else:
-            print(f"[DEBUG] Defaulting to NLTHA context")
+            logger.debug("Defaulting to NLTHA context")
             self._switch_context("NLTHA")
 
-        self.current_result_set_id = result_set_id
-        self.current_result_type = result_type
-        self.current_direction = direction
-        self.current_element_id = element_id
+        self.controller.update_selection(
+            result_type=result_type,
+            result_set_id=result_set_id,
+            direction=direction,
+            element_id=element_id,
+        )
 
         # Special handling for pushover curves
         if category == "Pushover" and result_type == "Curves":
@@ -933,7 +876,9 @@ class ProjectDetailWindow(QMainWindow):
     def load_standard_dataset(self, result_type: str, direction: str, result_set_id: int) -> None:
         """Load and display directional results for the selected type."""
         try:
-            dataset = self.result_service.get_standard_dataset(result_type, direction, result_set_id)
+            dataset, shorthand_mapping = self.view_controller.get_standard_view(
+                self.result_service, result_type, direction, result_set_id
+            )
 
             if not dataset:
                 self.standard_view.clear()
@@ -941,16 +886,6 @@ class ProjectDetailWindow(QMainWindow):
                     f"No data available for {result_type} ({direction})"
                 )
                 return
-
-            # Use cached pushover mapping if available
-            shorthand_mapping = None
-            if self.active_context == "Pushover":
-                shorthand_mapping = self._get_pushover_mapping(result_set_id)
-                print(f"[DEBUG] load_standard_dataset: context={self.active_context}, result_set_id={result_set_id}")
-                print(f"[DEBUG] Mapping retrieved: {len(shorthand_mapping) if shorthand_mapping else 0} entries")
-                if shorthand_mapping:
-                    print(f"[DEBUG] Sample mapping: {list(shorthand_mapping.items())[:2]}")
-                print(f"[DEBUG] Dataset load cases: {dataset.load_case_columns[:3] if len(dataset.load_case_columns) > 3 else dataset.load_case_columns}")
 
             self.content_title.setText(f"> {dataset.meta.display_name}")
             self.standard_view.set_dataset(dataset, shorthand_mapping=shorthand_mapping)
@@ -970,11 +905,18 @@ class ProjectDetailWindow(QMainWindow):
     def load_element_dataset(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
         """Load and display element-specific results (pier shears, etc.)."""
         try:
-            print(f"[DEBUG] load_element_dataset called:")
-            print(f"  - element_id={element_id}, result_type={result_type}, direction={direction}, result_set_id={result_set_id}")
-            print(f"  - active_context={self.active_context}")
+            logger.debug(
+                "load_element_dataset called: element_id=%s, result_type=%s, direction=%s, result_set_id=%s, active_context=%s",
+                element_id,
+                result_type,
+                direction,
+                result_set_id,
+                self.controller.get_active_context().value,
+            )
 
-            dataset = self.result_service.get_element_dataset(element_id, result_type, direction, result_set_id)
+            dataset, shorthand_mapping = self.view_controller.get_element_view(
+                self.result_service, element_id, result_type, direction, result_set_id
+            )
 
             if not dataset:
                 self.standard_view.clear()
@@ -983,19 +925,8 @@ class ProjectDetailWindow(QMainWindow):
                 )
                 return
 
-            # Use cached pushover mapping if available
-            shorthand_mapping = None
-            if self.active_context == "Pushover":
-                print(f"[DEBUG] Active context is Pushover, getting mapping for result_set_id={result_set_id}")
-                shorthand_mapping = self._get_pushover_mapping(result_set_id)
-                print(f"[DEBUG] Retrieved mapping: {len(shorthand_mapping) if shorthand_mapping else 0} entries")
-                if shorthand_mapping:
-                    print(f"[DEBUG] Sample mapping: {list(shorthand_mapping.items())[:2]}")
-            else:
-                print(f"[DEBUG] Active context is '{self.active_context}' (not Pushover), no mapping applied")
-
             self.content_title.setText(f"> {dataset.meta.display_name}")
-            print(f"[DEBUG] Passing mapping to standard_view: {shorthand_mapping is not None}")
+            logger.debug("Passing mapping to standard_view: %s", shorthand_mapping is not None)
             self.standard_view.set_dataset(dataset, shorthand_mapping=shorthand_mapping)
 
             story_count = len(dataset.data.index)
@@ -1012,11 +943,16 @@ class ProjectDetailWindow(QMainWindow):
     def load_joint_dataset(self, result_type: str, result_set_id: int) -> None:
         """Load and display joint-level results (soil pressures, etc.)."""
         try:
-            print(f"[DEBUG] load_joint_dataset called:")
-            print(f"  - result_type={result_type}, result_set_id={result_set_id}")
-            print(f"  - active_context={self.active_context}")
+            logger.debug(
+                "load_joint_dataset called: result_type=%s, result_set_id=%s, active_context=%s",
+                result_type,
+                result_set_id,
+                self.controller.get_active_context().value,
+            )
 
-            dataset = self.result_service.get_joint_dataset(result_type, result_set_id)
+            dataset, shorthand_mapping = self.view_controller.get_joint_view(
+                self.result_service, result_type, result_set_id
+            )
 
             if not dataset:
                 self.standard_view.clear()
@@ -1025,17 +961,8 @@ class ProjectDetailWindow(QMainWindow):
                 )
                 return
 
-            # Use cached pushover mapping if available
-            shorthand_mapping = None
-            if self.active_context == "Pushover":
-                print(f"[DEBUG] Active context is Pushover, getting mapping for result_set_id={result_set_id}")
-                shorthand_mapping = self._get_pushover_mapping(result_set_id)
-                print(f"[DEBUG] Retrieved mapping: {len(shorthand_mapping) if shorthand_mapping else 0} entries")
-            else:
-                print(f"[DEBUG] Active context is '{self.active_context}' (not Pushover), no mapping applied")
-
             self.content_title.setText(f"> {dataset.meta.display_name}")
-            print(f"[DEBUG] Passing mapping to standard_view: {shorthand_mapping is not None}")
+            logger.debug("Passing mapping to standard_view: %s", shorthand_mapping is not None)
             self.standard_view.set_dataset(dataset, shorthand_mapping=shorthand_mapping)
 
             element_count = len(dataset.data.index)
@@ -1372,7 +1299,11 @@ class ProjectDetailWindow(QMainWindow):
             result_set_id: ID of the result set
         """
         try:
-            print(f"[DEBUG] load_beam_rotations_table called with result_set_id={result_set_id}, active_context={self.active_context}")
+            logger.debug(
+                "load_beam_rotations_table called with result_set_id=%s, active_context=%s",
+                result_set_id,
+                self.controller.get_active_context().value,
+            )
 
             # Get beam rotation data in wide format
             df = self.result_service.get_beam_rotations_table_dataset(result_set_id)
@@ -1400,92 +1331,13 @@ class ProjectDetailWindow(QMainWindow):
 
             # Set column headers with pushover mapping if applicable
             column_names = df.columns.tolist()
-            print(f"[DEBUG] Column names: {column_names[:5]}...")  # Show first 5
+            display_names = self.view_controller.apply_mapping_to_headers(column_names, result_set_id)
+            apply_headers(self.beam_rotations_table, display_names)
 
-            try:
-                if self.active_context == "Pushover":
-                    shorthand_mapping = self._get_pushover_mapping(result_set_id)
-                    if shorthand_mapping:
-                        display_names = [shorthand_mapping.get(name, name) for name in column_names]
-                        self.beam_rotations_table.setHorizontalHeaderLabels(display_names)
-                        print(f"[DEBUG] Applied pushover mapping to beam rotations headers")
-                    else:
-                        self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-                        print(f"[DEBUG] No mapping available, using original headers")
-                else:
-                    self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-                    print(f"[DEBUG] Non-pushover context, using original headers")
-            except Exception as mapping_exc:
-                print(f"[ERROR] Failed to apply mapping: {mapping_exc}")
-                # Fallback to original headers
-                self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-
-            # Identify load case columns and summary columns
-            fixed_cols = ['Story', 'Frame/Wall', 'Unique Name', 'Hinge', 'Generated Hinge', 'Rel Dist']
-            summary_cols = ['Avg', 'Max', 'Min']
-            load_case_cols = [col for col in df.columns if col not in fixed_cols and col not in summary_cols]
-
-            # Get color scheme from config
             config = RESULT_CONFIGS.get('BeamRotations_R3Plastic')
             color_scheme = config.color_scheme if config else 'blue_orange'
 
-            # Calculate min/max values for gradient colors from all numeric columns
-            numeric_cols = load_case_cols + summary_cols
-            all_numeric_values = []
-            for col in numeric_cols:
-                if col in df.columns:
-                    all_numeric_values.extend(df[col].dropna().tolist())
-
-            min_val = min(all_numeric_values) if all_numeric_values else 0
-            max_val = max(all_numeric_values) if all_numeric_values else 0
-
-            # Populate table
-            for row_idx, (_, row) in enumerate(df.iterrows()):
-                for col_idx, col_name in enumerate(df.columns):
-                    value = row[col_name]
-
-                    # Format value based on column type
-                    if col_name in fixed_cols:
-                        # Fixed columns - display as is
-                        if col_name == 'Rel Dist':
-                            item_text = f"{value:.2f}" if value is not None else ""
-                        else:
-                            item_text = str(value) if value is not None else ""
-                    elif col_name in load_case_cols or col_name in summary_cols:
-                        # Numeric columns - format as percentage with 2 decimal places
-                        if value is not None and not pd.isna(value):
-                            item_text = f"{value:.2f}%"
-                        else:
-                            item_text = ""
-                    else:
-                        item_text = str(value) if value is not None else ""
-
-                    item = QTableWidgetItem(item_text)
-
-                    # Center align all items
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    # Apply gradient colors to numeric columns
-                    if col_name in load_case_cols or col_name in summary_cols:
-                        if value is not None and not pd.isna(value):
-                            color = get_gradient_color(value, min_val, max_val, color_scheme)
-                            item.setForeground(color)
-                            item._original_color = QColor(color)
-                        else:
-                            # Empty cells get default color
-                            default_color = QColor("#9ca3af")
-                            item.setForeground(default_color)
-                            item._original_color = QColor(default_color)
-                    else:
-                        # Fixed columns get default color
-                        default_color = QColor("#d1d5db")
-                        item.setForeground(default_color)
-                        item._original_color = QColor(default_color)
-
-                    self.beam_rotations_table.setItem(row_idx, col_idx, item)
-
-            # Resize columns to content
-            self.beam_rotations_table.resizeColumnsToContents()
+            populate_beam_rotations_table(self.beam_rotations_table, df, color_scheme)
 
             # Count unique beams
             num_beams = df['Frame/Wall'].nunique() if 'Frame/Wall' in df.columns else 0
@@ -1545,7 +1397,11 @@ class ProjectDetailWindow(QMainWindow):
             result_set_id: ID of the result set
         """
         try:
-            print(f"[DEBUG] load_soil_pressures_table called with result_set_id={result_set_id}, active_context={self.active_context}")
+            logger.debug(
+                "load_soil_pressures_table called with result_set_id=%s, active_context=%s",
+                result_set_id,
+                self.controller.get_active_context().value,
+            )
 
             # Get soil pressure data in wide format
             dataset = self.result_service.get_joint_dataset("SoilPressures_Min", result_set_id)
@@ -1573,87 +1429,18 @@ class ProjectDetailWindow(QMainWindow):
             self.beam_rotations_table.setRowCount(num_rows)
             self.beam_rotations_table.setColumnCount(num_cols)
 
-            # Set column headers with pushover mapping if applicable
+            load_case_cols = list(dataset.load_case_columns)
             column_names = df.columns.tolist()
+            display_names = self.view_controller.apply_mapping_to_headers(column_names, result_set_id)
+            apply_headers(self.beam_rotations_table, display_names)
 
-            try:
-                if self.active_context == "Pushover":
-                    shorthand_mapping = self._get_pushover_mapping(result_set_id)
-                    if shorthand_mapping:
-                        display_names = [shorthand_mapping.get(name, name) for name in column_names]
-                        self.beam_rotations_table.setHorizontalHeaderLabels(display_names)
-                        print(f"[DEBUG] Applied pushover mapping to soil pressures headers")
-                    else:
-                        self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-                else:
-                    self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-            except Exception as mapping_exc:
-                print(f"[ERROR] Failed to apply mapping in soil pressures: {mapping_exc}")
-                self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-
-            # Identify fixed, load case, and summary columns
-            fixed_cols = ['Shell Object', 'Unique Name']
-            load_case_cols = dataset.load_case_columns
-            summary_cols = dataset.summary_columns
-
-            # Get color scheme from config
-            config = dataset.config
-            color_scheme = config.color_scheme
-
-            # Calculate min/max values for gradient colors (only from load case columns)
-            all_numeric_values = []
-            for col in load_case_cols:
-                if col in df.columns:
-                    all_numeric_values.extend(df[col].dropna().tolist())
-
-            if all_numeric_values:
-                global_min = min(all_numeric_values)
-                global_max = max(all_numeric_values)
-            else:
-                global_min = global_max = 0
-
-            # Populate table
-            for row_idx, (_, row) in enumerate(df.iterrows()):
-                for col_idx, col_name in enumerate(df.columns):
-                    value = row[col_name]
-
-                    # Format value based on column type
-                    if (col_name in load_case_cols or col_name in summary_cols) and pd.notna(value):
-                        # Numeric column - format with decimal places
-                        formatted_value = f"{value:.{config.decimal_places}f}"
-                    else:
-                        # Fixed column (Shell Object, Unique Name)
-                        formatted_value = str(value) if pd.notna(value) else ""
-
-                    item = QTableWidgetItem(formatted_value)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    # Apply gradient colors to load case columns
-                    if col_name in load_case_cols and pd.notna(value):
-                        if global_max != global_min:
-                            from utils.color_utils import get_gradient_color
-                            color = get_gradient_color(value, global_min, global_max, color_scheme)
-                            item.setForeground(color)
-                            item._original_color = QColor(color)
-                        else:
-                            default_color = QColor("#9ca3af")
-                            item.setForeground(default_color)
-                            item._original_color = QColor(default_color)
-                    elif col_name in summary_cols and pd.notna(value):
-                        # Summary columns get a distinct color (lighter gray)
-                        summary_color = QColor("#a3a3a3")
-                        item.setForeground(summary_color)
-                        item._original_color = QColor(summary_color)
-                    else:
-                        # Fixed columns get default color
-                        default_color = QColor("#d1d5db")
-                        item.setForeground(default_color)
-                        item._original_color = QColor(default_color)
-
-                    self.beam_rotations_table.setItem(row_idx, col_idx, item)
-
-            # Resize columns to content
-            self.beam_rotations_table.resizeColumnsToContents()
+            populate_foundation_table(
+                table=self.beam_rotations_table,
+                df=df,
+                load_case_cols=load_case_cols,
+                summary_cols=dataset.summary_columns,
+                color_scheme=dataset.config.color_scheme,
+            )
 
             # Count unique elements
             num_elements = len(df)
@@ -1712,7 +1499,11 @@ class ProjectDetailWindow(QMainWindow):
             result_set_id: ID of the result set
         """
         try:
-            print(f"[DEBUG] load_vertical_displacements_table called with result_set_id={result_set_id}, active_context={self.active_context}")
+            logger.debug(
+                "load_vertical_displacements_table called with result_set_id=%s, active_context=%s",
+                result_set_id,
+                self.controller.get_active_context().value,
+            )
 
             # Get vertical displacement data in wide format
             dataset = self.result_service.get_joint_dataset("VerticalDisplacements_Min", result_set_id)
@@ -1740,87 +1531,18 @@ class ProjectDetailWindow(QMainWindow):
             self.beam_rotations_table.setRowCount(num_rows)
             self.beam_rotations_table.setColumnCount(num_cols)
 
-            # Set column headers with pushover mapping if applicable
+            load_case_cols = list(dataset.load_case_columns)
             column_names = df.columns.tolist()
+            display_names = self.view_controller.apply_mapping_to_headers(column_names, result_set_id)
+            apply_headers(self.beam_rotations_table, display_names)
 
-            try:
-                if self.active_context == "Pushover":
-                    shorthand_mapping = self._get_pushover_mapping(result_set_id)
-                    if shorthand_mapping:
-                        display_names = [shorthand_mapping.get(name, name) for name in column_names]
-                        self.beam_rotations_table.setHorizontalHeaderLabels(display_names)
-                        print(f"[DEBUG] Applied pushover mapping to vertical displacements headers")
-                    else:
-                        self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-                else:
-                    self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-            except Exception as mapping_exc:
-                print(f"[ERROR] Failed to apply mapping in vertical displacements: {mapping_exc}")
-                self.beam_rotations_table.setHorizontalHeaderLabels(column_names)
-
-            # Identify fixed, load case, and summary columns
-            fixed_cols = ['Shell Object', 'Unique Name']
-            load_case_cols = dataset.load_case_columns
-            summary_cols = dataset.summary_columns
-
-            # Get color scheme from config
-            config = dataset.config
-            color_scheme = config.color_scheme
-
-            # Calculate min/max values for gradient colors (only from load case columns)
-            all_numeric_values = []
-            for col in load_case_cols:
-                if col in df.columns:
-                    all_numeric_values.extend(df[col].dropna().tolist())
-
-            if all_numeric_values:
-                global_min = min(all_numeric_values)
-                global_max = max(all_numeric_values)
-            else:
-                global_min = global_max = 0
-
-            # Populate table
-            for row_idx, (_, row) in enumerate(df.iterrows()):
-                for col_idx, col_name in enumerate(df.columns):
-                    value = row[col_name]
-
-                    # Format value based on column type
-                    if (col_name in load_case_cols or col_name in summary_cols) and pd.notna(value):
-                        # Numeric column - format with decimal places
-                        formatted_value = f"{value:.{config.decimal_places}f}"
-                    else:
-                        # Fixed column (Shell Object, Unique Name)
-                        formatted_value = str(value) if pd.notna(value) else ""
-
-                    item = QTableWidgetItem(formatted_value)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    # Apply gradient colors to load case columns
-                    if col_name in load_case_cols and pd.notna(value):
-                        if global_max != global_min:
-                            from utils.color_utils import get_gradient_color
-                            color = get_gradient_color(value, global_min, global_max, color_scheme)
-                            item.setForeground(color)
-                            item._original_color = QColor(color)
-                        else:
-                            default_color = QColor("#9ca3af")
-                            item.setForeground(default_color)
-                            item._original_color = QColor(default_color)
-                    elif col_name in summary_cols and pd.notna(value):
-                        # Summary columns get a distinct color (lighter gray)
-                        summary_color = QColor("#a3a3a3")
-                        item.setForeground(summary_color)
-                        item._original_color = QColor(summary_color)
-                    else:
-                        # Fixed columns get default color
-                        default_color = QColor("#d1d5db")
-                        item.setForeground(default_color)
-                        item._original_color = QColor(default_color)
-
-                    self.beam_rotations_table.setItem(row_idx, col_idx, item)
-
-            # Resize columns to content
-            self.beam_rotations_table.resizeColumnsToContents()
+            populate_foundation_table(
+                table=self.beam_rotations_table,
+                df=df,
+                load_case_cols=load_case_cols,
+                summary_cols=dataset.summary_columns,
+                color_scheme=dataset.config.color_scheme,
+            )
 
             # Count unique joints
             num_joints = len(df)
@@ -1848,37 +1570,43 @@ class ProjectDetailWindow(QMainWindow):
         if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
             # Data was imported, refresh the view
             self.session.expire_all()
+            result_set_id = getattr(dialog, "last_result_set_id", None)
+            if result_set_id:
+                self.result_service.invalidate_result_set(result_set_id)
+            else:
+                self.result_service.invalidate_all()
             self.load_project_data()
 
             # Reload current result if selected
-            if self.current_result_type and self.current_result_set_id:
-                if self.current_result_type.startswith("MaxMin"):
-                    base_type = self._extract_base_result_type(self.current_result_type)
-                    self.result_service.invalidate_maxmin_dataset(self.current_result_set_id, base_type)
-                    self.load_maxmin_dataset(self.current_result_set_id, base_type)
-                elif self.current_element_id > 0:
+            sel = self.controller.selection
+            if sel.result_type and sel.result_set_id:
+                if sel.result_type.startswith("MaxMin"):
+                    base_type = self._extract_base_result_type(sel.result_type)
+                    self.result_service.invalidate_maxmin_dataset(sel.result_set_id, base_type)
+                    self.load_maxmin_dataset(sel.result_set_id, base_type)
+                elif sel.element_id > 0:
                     self.result_service.invalidate_element_dataset(
-                        self.current_element_id,
-                        self.current_result_type,
-                        self.current_direction,
-                        self.current_result_set_id,
+                        sel.element_id,
+                        sel.result_type,
+                        sel.direction,
+                        sel.result_set_id,
                     )
                     self.load_element_dataset(
-                        self.current_element_id,
-                        self.current_result_type,
-                        self.current_direction,
-                        self.current_result_set_id,
+                        sel.element_id,
+                        sel.result_type,
+                        sel.direction,
+                        sel.result_set_id,
                     )
                 else:
                     self.result_service.invalidate_standard_dataset(
-                        self.current_result_type,
-                        self.current_direction,
-                        self.current_result_set_id,
+                        sel.result_type,
+                        sel.direction,
+                        sel.result_set_id,
                     )
                     self.load_standard_dataset(
-                        self.current_result_type,
-                        self.current_direction,
-                        self.current_result_set_id,
+                        sel.result_type,
+                        sel.direction,
+                        sel.result_set_id,
                     )
 
             QMessageBox.information(
@@ -1914,6 +1642,11 @@ class ProjectDetailWindow(QMainWindow):
         """Handle pushover import completion."""
         # Refresh the project data to show new result set
         self.session.expire_all()
+        result_set_id = stats.get("result_set_id")
+        if result_set_id:
+            self.result_service.invalidate_result_set(result_set_id)
+        else:
+            self.result_service.invalidate_all()
         self.load_project_data()
         self.statusBar().showMessage(
             f"Imported {stats['curves_imported']} pushover curves into {stats['result_set_name']}"
@@ -1965,6 +1698,11 @@ class ProjectDetailWindow(QMainWindow):
         """Handle pushover global results import completion."""
         # Refresh the project data to show new result set
         self.session.expire_all()
+        result_set_id = stats.get("result_set_id")
+        if result_set_id:
+            self.result_service.invalidate_result_set(result_set_id)
+        else:
+            self.result_service.invalidate_all()
         self.load_project_data()
         self.statusBar().showMessage(
             f"Imported pushover global results: {stats.get('result_types_imported', 0)} result types"
@@ -1983,7 +1721,7 @@ class ProjectDetailWindow(QMainWindow):
             pushover_repo = PushoverCaseRepository(self.session)
             case = pushover_repo.get_by_name(
                 self.project_id,
-                self.current_result_set_id,
+                self.controller.selection.result_set_id,
                 case_name
             )
 
@@ -2036,7 +1774,7 @@ class ProjectDetailWindow(QMainWindow):
             pushover_repo = PushoverCaseRepository(self.session)
 
             # Get all cases for this result set
-            all_cases = pushover_repo.get_by_result_set(self.current_result_set_id)
+            all_cases = pushover_repo.get_by_result_set(self.controller.selection.result_set_id)
 
             # Filter by direction
             direction_cases = [c for c in all_cases if c.direction == direction]
@@ -2079,7 +1817,7 @@ class ProjectDetailWindow(QMainWindow):
     def export_results(self):
         """Export results to file - contextual based on active mode (NLTHA or Pushover)."""
         # Check if we're in Pushover context
-        if self.active_context == "Pushover":
+        if self.controller.get_active_context() == AnalysisType.PUSHOVER:
             self.export_pushover_results()
         else:
             # NLTHA context - show comprehensive export dialog
@@ -2090,11 +1828,12 @@ class ProjectDetailWindow(QMainWindow):
         from gui.export_dialog import ComprehensiveExportDialog
 
         # If no result set is selected, use the first available one
-        result_set_id = self.current_result_set_id
+        result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
             result_sets = self.result_set_repo.get_by_project(self.project_id)
             if result_sets:
                 result_set_id = result_sets[0].id
+                self.controller.update_selection(result_set_id=result_set_id)
             else:
                 self.statusBar().showMessage("No result sets available in this project", 3000)
                 return
@@ -2119,13 +1858,14 @@ class ProjectDetailWindow(QMainWindow):
         from PyQt6.QtWidgets import QMessageBox
 
         # Get current result set ID
-        result_set_id = self.current_result_set_id
+        result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
             # Try to find a pushover result set
             result_sets = self.result_set_repo.get_by_project(self.project_id)
             pushover_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
             if pushover_sets:
                 result_set_id = pushover_sets[0].id
+                self.controller.update_selection(result_set_id=result_set_id)
             else:
                 QMessageBox.warning(
                     self,
@@ -2165,72 +1905,74 @@ class ProjectDetailWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close event - clean up all resources."""
+        try:
+            self._cleanup_resources()
+            self._remove_from_parent_tracking()
+        finally:
+            event.accept()
+
+    def _cleanup_resources(self) -> None:
+        """Release DB/session/runtime resources on window close."""
         import gc
         import time
 
         project_name = getattr(self, "project_name", "Unknown")
-        print(f"\n[DEBUG] ========== Closing project window: {project_name} ==========")
+        logger.debug("Closing project window: %s", project_name)
 
-        try:
-            # Store db_path before clearing context
-            db_path = self.context.db_path if getattr(self, "context", None) else None
+        # Store db_path before clearing context
+        db_path = self.context.db_path if getattr(self, "context", None) else None
 
-            # 1. Rollback any pending transactions and close session
-            if getattr(self, "session", None):
-                try:
-                    print(f"[DEBUG] Rolling back and closing session...")
-                    self.session.rollback()
-                    self.session.close()
-                    print(f"[DEBUG] Session closed successfully")
-                except Exception as e:
-                    print(f"[ERROR] Error closing session: {e}")
-                finally:
-                    self.session = None
+        # 1. Rollback any pending transactions and close session
+        if getattr(self, "session", None):
+            try:
+                logger.debug("Rolling back and closing session...")
+                self.session.rollback()
+                self.session.close()
+                logger.debug("Session closed successfully")
+            except Exception as exc:
+                logger.exception("Error closing session: %s", exc)
+            finally:
+                self.session = None
 
-            # 2. Dispose runtime resources
-            if getattr(self, "runtime", None):
-                try:
-                    print(f"[DEBUG] Disposing runtime...")
-                    self.runtime.dispose()
-                    print(f"[DEBUG] Runtime disposed successfully")
-                except Exception as e:
-                    print(f"[ERROR] Error disposing runtime: {e}")
-                finally:
-                    self.runtime = None
+        # 2. Dispose runtime resources
+        if getattr(self, "runtime", None):
+            try:
+                logger.debug("Disposing runtime...")
+                self.runtime.dispose()
+                logger.debug("Runtime disposed successfully")
+            except Exception as exc:
+                logger.exception("Error disposing runtime: %s", exc)
+            finally:
+                self.runtime = None
 
-            # 3. Clear context reference
-            if getattr(self, "context", None):
-                self.context = None
+        # 3. Clear context reference
+        if getattr(self, "context", None):
+            self.context = None
 
-            # 4. Force garbage collection to release any remaining references
-            print(f"[DEBUG] Running garbage collection...")
-            gc.collect()
+        # 4. Force garbage collection to release any remaining references
+        logger.debug("Running garbage collection...")
+        gc.collect()
 
-            # 5. Small delay to ensure all references are released
-            time.sleep(0.1)
+        # 5. Small delay to ensure all references are released
+        time.sleep(0.1)
 
-            # 6. Dispose of the database engine to fully release connections
-            if db_path:
-                print(f"[DEBUG] Disposing database engine...")
-                from database.base import dispose_project_engine
-                dispose_project_engine(db_path)
+        # 6. Dispose of the database engine to fully release connections
+        if db_path:
+            logger.debug("Disposing database engine...")
+            from database.base import dispose_project_engine
+            dispose_project_engine(db_path)
 
-            print(f"[DEBUG] ========== Project window closed successfully: {project_name} ==========\n")
+        logger.debug("Project window closed successfully: %s", project_name)
 
-            # Notify parent to remove from tracking (if parent is MainWindow)
-            if hasattr(self.parent(), '_project_windows'):
-                parent_name = getattr(self, 'project_name', None)
-                if parent_name and parent_name in self.parent()._project_windows:
-                    print(f"[DEBUG] Removing {parent_name} from parent tracking...")
-                    self.parent()._project_windows.pop(parent_name, None)
-
-        except Exception as e:
-            import traceback
-            print(f"[ERROR] Error during project window cleanup: {e}")
-            traceback.print_exc()
-        finally:
-            # Always accept the close event
-            event.accept()
+    def _remove_from_parent_tracking(self) -> None:
+        """Remove this window from parent tracking if present."""
+        parent = self.parent()
+        if not hasattr(parent, "_project_windows"):
+            return
+        parent_name = getattr(self, "project_name", None)
+        if parent_name and parent_name in parent._project_windows:
+            logger.debug("Removing %s from parent tracking...", parent_name)
+            parent._project_windows.pop(parent_name, None)
 
     @staticmethod
     def _extract_base_result_type(result_type: str) -> str:

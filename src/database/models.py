@@ -372,6 +372,7 @@ class GlobalResultsCache(Base):
     # Composite index for fast lookups
     __table_args__ = (
         Index("ix_cache_lookup", "project_id", "result_set_id", "result_type"),
+        Index("ix_cache_lookup_project_type", "project_id", "result_type"),
         Index("ix_cache_story", "story_id"),
     )
 
@@ -752,6 +753,7 @@ class ElementResultsCache(Base):
     # Composite index for fast lookups
     __table_args__ = (
         Index("ix_elem_cache_lookup", "project_id", "result_set_id", "result_type", "element_id"),
+        Index("ix_elem_cache_project_type", "project_id", "result_type"),
         Index("ix_elem_cache_element", "element_id"),
         Index("ix_elem_cache_story", "story_id"),
     )
@@ -791,6 +793,7 @@ class JointResultsCache(Base):
     # Composite index for fast lookups
     __table_args__ = (
         Index("ix_joint_cache_lookup", "project_id", "result_set_id", "result_type"),
+        Index("ix_joint_cache_project_type", "project_id", "result_type"),
         Index("ix_joint_cache_unique", "project_id", "result_set_id", "result_type", "unique_name", unique=True),
     )
 

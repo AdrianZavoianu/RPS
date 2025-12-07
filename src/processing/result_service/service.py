@@ -573,6 +573,33 @@ class ResultDataService:
             provider.clear()
         self._maxmin_cache.clear()
         self._comparison_cache.clear()
+        self._category_cache.clear()
+
+    def invalidate_result_set(self, result_set_id: int) -> None:
+        """Invalidate all caches associated with a specific result set."""
+        for provider in self._dataset_providers.values():
+            clear_fn = getattr(provider, "clear_for_result_set", None)
+            if callable(clear_fn):
+                clear_fn(result_set_id)
+
+        # Drop max/min and comparison caches involving this result set
+        maxmin_keys = [k for k in self._maxmin_cache if k[1] == result_set_id]
+        for key in maxmin_keys:
+            self._maxmin_cache.pop(key, None)
+
+        def _key_matches(target_key) -> bool:
+            for part in target_key:
+                if part == result_set_id:
+                    return True
+                if isinstance(part, (list, tuple, set)) and result_set_id in part:
+                    return True
+            return False
+
+        comparison_keys = [key for key in self._comparison_cache if _key_matches(key)]
+        for key in comparison_keys:
+            self._comparison_cache.pop(key, None)
+
+        self._category_cache.pop(result_set_id, None)
 
     # ------------------------------------------------------------------
     # Internals
