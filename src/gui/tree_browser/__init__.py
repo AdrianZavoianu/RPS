@@ -1,9 +1,13 @@
 """Tree browser package for hierarchical result navigation.
 
-This package provides the ResultsTreeBrowser widget and supporting utilities.
+This package provides the ResultsTreeBrowser widget and supporting modules:
+- browser: Main ResultsTreeBrowser class
+- nltha_builders: NLTHA section tree builders
+- pushover_builders: Pushover section tree builders
+- comparison_builders: Comparison set tree builders
+- click_handlers: Item click event handlers
 """
 
-# Re-export main class for backward compatibility
-from gui.results_tree_browser import ResultsTreeBrowser
+from .browser import ResultsTreeBrowser
 
 __all__ = ["ResultsTreeBrowser"]

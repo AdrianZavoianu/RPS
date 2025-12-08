@@ -54,7 +54,10 @@
       "Bash(do echo \"=== $dir%/ ===\")",
       "Bash(done)",
       "Bash(python3:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(xargs basename:*)",
+      "Bash(ls:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []

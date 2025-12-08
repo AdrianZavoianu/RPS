@@ -2,7 +2,7 @@
 
 **RPS (Results Processing System)** - Structural engineering results processor (ETABS/SAP2000)
 **Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
-**Status**: Production-ready (v2.15 - December 2024 - Architecture Cleanup)
+**Status**: Production-ready (v2.19 - December 2024 - ResultsTreeBrowser Decomposition)
 
 ---
 
@@ -281,7 +281,16 @@ Follow DESIGN.md:
 
 **Data Access:**
 - `database/models.py` - All 24 ORM models (includes SoilPressure, VerticalDisplacement)
-- `database/repository.py` - Domain-specific repositories (all extend BaseRepository)
+- `database/repositories/` - Domain-specific repositories (decomposed package)
+  - `project.py` - ProjectRepository
+  - `load_case.py` - LoadCaseRepository
+  - `story.py` - StoryRepository, StoryDriftDataRepository, ResultRepository
+  - `result_set.py` - ResultSetRepository, ComparisonSetRepository
+  - `element.py` - ElementRepository
+  - `cache.py` - CacheRepository, ElementCacheRepository, JointCacheRepository
+  - `foundation.py` - SoilPressureRepository, VerticalDisplacementRepository
+  - `pushover.py` - PushoverCaseRepository
+- `database/repository.py` - Re-exports from repositories/ for backward compatibility
 - `database/base_repository.py` - Generic CRUD operations
 - `database/element_result_repository.py` - Element result queries (max/min aggregation)
 - `processing/result_service/` - Data retrieval layer (7 focused modules)
@@ -317,14 +326,22 @@ Follow DESIGN.md:
 - `processing/pushover_joint_importer.py` - Pushover joint displacements importer (v2.13)
 
 **UI:**
-- `gui/project_detail_window.py` - Main 3-panel view (browser | content)
-- `gui/results_tree_browser.py` - Hierarchical browser (includes comparison sets)
+- `gui/project_detail/` - Project detail window package (window.py, view_loaders.py, event_handlers.py)
+- `gui/project_detail_window.py` - Re-exports from gui.project_detail (backward compat)
+- `gui/tree_browser/` - Results tree browser package (decomposed v2.19)
+  - `browser.py` - Main ResultsTreeBrowser class
+  - `nltha_builders.py` - NLTHA section tree builders
+  - `pushover_builders.py` - Pushover section tree builders
+  - `comparison_builders.py` - Comparison set tree builders
+  - `click_handlers.py` - Item click event handlers
+- `gui/results_tree_browser.py` - Re-exports from gui.tree_browser (backward compat)
 - `gui/result_views/standard_view.py` - Reusable table+plot
 - `gui/result_views/comparison_view.py` - Multi-series comparison view
 - `gui/result_views/pushover_curve_view.py` - Pushover curve visualization (NEW in v2.10)
 - `gui/comparison_set_dialog.py` - Create comparison dialog
 - `gui/maxmin_drifts_widget.py` - Max/Min visualization
-- `gui/export_dialog.py` - Export dialogs
+- `gui/export/` - Export dialog package (dialogs.py, workers.py)
+- `gui/export_dialog.py` - Re-exports from gui.export (backward compat)
 - `gui/styles.py` - Design system constants
 
 **Utilities:**
@@ -353,6 +370,70 @@ Follow DESIGN.md:
 ---
 
 ## Recent Changes (November-December 2024)
+
+### v2.19 - ResultsTreeBrowser Decomposition (Dec 8)
+- **Tree Browser Package**: Split monolithic `results_tree_browser.py` (2,413 lines) into focused modules
+  - Created `gui/tree_browser/` package with 5 files
+  - `browser.py` - Main ResultsTreeBrowser class with UI setup (~200 lines)
+  - `nltha_builders.py` - NLTHA section tree builders (~600 lines)
+  - `pushover_builders.py` - Pushover section tree builders (~500 lines)
+  - `comparison_builders.py` - Comparison set tree builders (~400 lines)
+  - `click_handlers.py` - Item click event handlers (~300 lines)
+- **Backward Compatibility**: Original `results_tree_browser.py` re-exports ResultsTreeBrowser
+  - Existing imports continue to work unchanged
+  - New code can import directly from `gui.tree_browser`
+- **Code Organization**: ~2,413 lines split into logical modules
+  - Builders separated by analysis type (NLTHA, Pushover, Comparison)
+  - Click handlers centralized in dedicated module
+  - Main browser class focuses on delegation
+
+### v2.18 - ProjectDetailWindow Decomposition (Dec 8)
+- **Project Detail Package**: Split monolithic `project_detail_window.py` (1,983 lines) into focused modules
+  - Created `gui/project_detail/` package with 4 files
+  - `window.py` - Main window class with UI setup (~600 lines)
+  - `view_loaders.py` - 20+ data loading functions (~600 lines)
+  - `event_handlers.py` - Browser selection event handlers (~250 lines)
+  - `__init__.py` - Package exports
+- **Backward Compatibility**: Original `project_detail_window.py` re-exports ProjectDetailWindow
+  - Existing imports continue to work unchanged
+  - New code can import directly from `gui.project_detail`
+- **Code Organization**: ~1,983 lines split into logical modules
+  - View loaders handle data fetching and display
+  - Event handlers process browser selection changes
+  - Window class focuses on UI structure and delegation
+
+### v2.17 - Export Dialog Decomposition (Dec 8)
+- **Export Package**: Split monolithic `export_dialog.py` (1,551 lines) into focused modules
+  - Created `gui/export/` package with 3 files
+  - `dialogs.py` - 3 dialog classes (Comprehensive, Simple, ProjectExcel)
+  - `workers.py` - 3 worker thread classes for background export operations
+  - `__init__.py` - Package exports for clean imports
+- **Backward Compatibility**: Original `export_dialog.py` re-exports all classes
+  - Existing imports continue to work unchanged
+  - New code can import directly from `gui.export`
+- **Code Organization**: ~1,551 lines split into logical modules
+  - Dialogs handle UI and user interaction
+  - Workers handle background thread operations
+  - Clear separation between UI and processing
+
+### v2.16 - Repository Decomposition (Dec 7)
+- **Repository Package**: Split monolithic `repository.py` (1,078 lines) into focused modules
+  - Created `database/repositories/` package with 8 specialized files
+  - `project.py` - Project operations
+  - `load_case.py` - Load case operations
+  - `story.py` - Story and story-level result operations (drifts, forces, etc.)
+  - `result_set.py` - Result set and comparison set operations
+  - `element.py` - Element operations
+  - `cache.py` - All cache repositories (Global, Element, Joint, MaxMin)
+  - `foundation.py` - Soil pressure and vertical displacement operations
+  - `pushover.py` - Pushover case operations
+- **Backward Compatibility**: Original `repository.py` re-exports all classes
+  - Existing imports continue to work unchanged
+  - New code can import directly from `database.repositories`
+- **Code Organization**: ~1,078 lines split into logical, focused modules
+  - Each file handles one domain area
+  - Easier to navigate and maintain
+  - Clear separation of concerns
 
 ### v2.15 - Architecture Cleanup (Dec 7)
 - **Code Deduplication**: Consolidated pushover direction detection across 6 parsers
@@ -652,4 +733,4 @@ Follow DESIGN.md:
 ---
 
 **Last Updated**: 2024-12-07
-**Version**: 2.15
+**Version**: 2.16
