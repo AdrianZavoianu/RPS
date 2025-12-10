@@ -68,33 +68,33 @@ class MaxMinDriftsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Tab widget
+        # Tab widget - minimalistic, borderless
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(f"""
             QTabWidget::pane {{
                 background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                padding: 8px;
+                border: none;
+                border-radius: 0px;
+                padding: 0px;
             }}
             QTabBar::tab {{
                 background-color: transparent;
                 color: {COLORS['muted']};
                 border: none;
-                padding: 10px 20px;
+                padding: 8px 16px;
                 margin-right: 4px;
-                margin-bottom: 4px;
                 font-size: 14px;
-                border-radius: 6px;
+                border-radius: 0px;
             }}
             QTabBar::tab:hover {{
                 color: {COLORS['text']};
-                background-color: {COLORS['hover']};
+                background-color: transparent;
             }}
             QTabBar::tab:selected {{
                 color: {COLORS['accent']};
-                background-color: rgba(74, 125, 137, 0.15);
+                background-color: transparent;
                 font-weight: 600;
+                border-bottom: 2px solid {COLORS['accent']};
             }}
         """)
 
@@ -147,12 +147,14 @@ class MaxMinDriftsWidget(QWidget):
         # Set plot area background
         view_box = plot_widget.getPlotItem().getViewBox()
         view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
+        # Clean, minimal border - subtle color and thin width to avoid visual conflict with gridlines
+        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
 
-        # Configure plot appearance
+        # Configure plot appearance - clean and minimal
         plot_widget.showGrid(x=True, y=True, alpha=0.5)
-        plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
+        # Axis lines - subtle and clean, slightly darker than grid to distinguish but not overpowering
+        plot_widget.getAxis('bottom').setPen(pg.mkPen('#1a1f26', width=1))
+        plot_widget.getAxis('left').setPen(pg.mkPen('#1a1f26', width=1))
         plot_widget.getAxis('bottom').setTextPen('#d1d5db')
         plot_widget.getAxis('left').setTextPen('#d1d5db')
 
@@ -178,15 +180,15 @@ class MaxMinDriftsWidget(QWidget):
         legend_frame = QFrame()
         legend_frame.setStyleSheet("""
             QFrame {
-                background-color: #11151c;
-                border: 1px solid #2c313a;
-                border-radius: 6px;
+                background-color: transparent;
+                border: none;
+                border-radius: 0px;
             }
         """)
         legend_frame.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
 
         legend_layout = QVBoxLayout(legend_frame)
-        legend_layout.setContentsMargins(8, 8, 8, 8)
+        legend_layout.setContentsMargins(0, 0, 0, 0)
         legend_layout.setSpacing(6)
         legend_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -304,9 +306,8 @@ class MaxMinDriftsWidget(QWidget):
         table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: #0a0c10;
-                border: 1px solid #2c313a;
-                border-radius: 0px;
-                gridline-color: #2c313a;
+                border: none;
+                gridline-color: #1e2329;
             }}
             QTableWidget::item {{
                 padding: {TABLE_CELL_PADDING};
@@ -322,13 +323,21 @@ class MaxMinDriftsWidget(QWidget):
                 border: none;
                 outline: none;
             }}
-            QHeaderView::section {{
+            QHeaderView {{
                 background-color: #161b22;
+                border: none;
+            }}
+            QHeaderView::section {{
+                background-color: transparent;
                 color: #4a7d89;
                 border: none;
-                border-bottom: 1px solid #2c313a;
+                border-left: none;
+                border-right: none;
+                border-top: none;
+                border-bottom: none;
                 padding: {TABLE_HEADER_PADDING};
                 font-weight: 600;
+                text-align: center;
             }}
             QTableWidget QTableCornerButton::section {{
                 background-color: #161b22;
@@ -911,9 +920,8 @@ class MaxMinDriftsWidget(QWidget):
             text = f"{round(value):.0f}"
         else:
             text = f"{value:.{decimals}f}"
-        # Add % symbol for percentage-based result types (Drifts, Rotations)
-        needs_percent = base_type in ("Drifts", "ColumnRotations", "QuadRotations")
-        return f"{text}%" if needs_percent else text
+        # No unit suffix in table cells - unit is shown in title
+        return text
 
     def eventFilter(self, obj, event):
         """Handle hover effects and clicks for table rows."""

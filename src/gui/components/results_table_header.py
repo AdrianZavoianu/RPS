@@ -2,22 +2,105 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QRect, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter
-from PyQt6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
+from PyQt6.QtCore import Qt, QRect, pyqtSignal, QModelIndex
+from PyQt6.QtGui import QColor, QPainter, QPen, QPaintEvent
+from PyQt6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem, QStyledItemDelegate, QStyleOptionViewItem
+
+
+
+
+class PerimeterBorderDelegate(QStyledItemDelegate):
+    """Delegate that draws bottom border on last row only and respects item background."""
+
+    # Custom data role for bold text
+    BoldRole = Qt.ItemDataRole.UserRole + 100
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._border_color = QColor("#1e2329")
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        # Get the item's background color if set
+        table = self.parent()
+        if isinstance(table, QTableWidget):
+            item = table.item(index.row(), index.column())
+            if item:
+                bg = item.data(Qt.ItemDataRole.BackgroundRole)
+                if bg and isinstance(bg, QColor) and bg.isValid():
+                    painter.fillRect(option.rect, bg)
+
+                # Check if text should be bold
+                is_bold = item.data(self.BoldRole)
+                if is_bold:
+                    font = option.font
+                    font.setBold(True)
+                    option.font = font
+
+        # Draw normal cell content
+        super().paint(painter, option, index)
+
+        # Get table dimensions for border drawing
+        if not isinstance(table, QTableWidget):
+            return
+
+        row = index.row()
+        row_count = table.rowCount()
+        rect = option.rect
+
+        # Bottom border - 1px for last row only
+        if row == row_count - 1:
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.fillRect(rect.left(), rect.bottom(), rect.width() + 1, 1, self._border_color)
+            painter.restore()
 
 
 class ClickableTableWidget(QTableWidget):
-    """QTableWidget that emits row click signals instead of using Qt selection."""
+    """QTableWidget that emits row click signals for Story column only."""
 
-    rowClicked = pyqtSignal(int)
+    rowClicked = pyqtSignal(int)  # Emitted when Story column (col 0) is clicked
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._border_color = QColor("#1e2329")
+        # Set delegate for perimeter borders (right and bottom)
+        self._perimeter_delegate = PerimeterBorderDelegate(self)
+        self.setItemDelegate(self._perimeter_delegate)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.pos())
             if item:
-                self.rowClicked.emit(item.row())
+                # Only emit row click for Story column (col 0)
+                if item.column() == 0:
+                    self.rowClicked.emit(item.row())
         super().mousePressEvent(event)
+
+    def paintEvent(self, event: QPaintEvent):
+        # Draw normal table content
+        super().paintEvent(event)
+
+        # Draw left and right borders on viewport
+        if self.rowCount() > 0 and self.columnCount() > 0:
+            painter = QPainter(self.viewport())
+            painter.setPen(Qt.PenStyle.NoPen)
+
+            # Calculate content dimensions
+            content_height = 0
+            for i in range(self.rowCount()):
+                content_height += self.rowHeight(i)
+
+            content_width = 0
+            for i in range(self.columnCount()):
+                content_width += self.columnWidth(i)
+
+            # Draw 1px left border
+            painter.fillRect(0, 0, 1, content_height, self._border_color)
+
+            # Draw 1px right border
+            painter.fillRect(content_width - 1, 0, 1, content_height, self._border_color)
+
+            painter.end()
 
 
 class SelectableHeaderView(QHeaderView):
@@ -61,6 +144,26 @@ class SelectableHeaderView(QHeaderView):
         self.viewport().update()
         super().leaveEvent(event)
 
+    def paintEvent(self, event: QPaintEvent):
+        # Paint all sections normally
+        super().paintEvent(event)
+
+        # Draw right border on the header's right edge
+        table = self.parent()
+        if isinstance(table, QTableWidget) and table.columnCount() > 0:
+            painter = QPainter(self.viewport())
+            painter.setPen(Qt.PenStyle.NoPen)
+
+            # Calculate total width
+            total_width = 0
+            for i in range(table.columnCount()):
+                total_width += self.sectionSize(i)
+
+            # Draw 1px right border at edge
+            border_color = QColor("#1e2329")
+            painter.fillRect(total_width - 1, 0, 1, self.height(), border_color)
+            painter.end()
+
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
         painter.save()
 
@@ -71,7 +174,10 @@ class SelectableHeaderView(QHeaderView):
 
             is_selected = col_name in self._selected_sections
             is_hovered = logicalIndex == self._hovered_section
+            is_first = logicalIndex == 0
+            is_last = logicalIndex == table.columnCount() - 1
 
+            # Fill background
             if is_selected:
                 painter.fillRect(rect, QColor("#2c5f6b"))
             elif is_hovered:
@@ -79,9 +185,23 @@ class SelectableHeaderView(QHeaderView):
             else:
                 painter.fillRect(rect, QColor("#161b22"))
 
-            painter.setPen(QColor("#2c313a"))
-            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+            border_color = QColor("#1e2329")
 
+            # Top border - 1px for perimeter
+            painter.fillRect(rect.left(), rect.top(), rect.width() + 1, 1, border_color)
+
+            # Bottom border (1px) - separates header from data
+            painter.fillRect(rect.left(), rect.bottom(), rect.width() + 1, 1, border_color)
+
+            # Left border - 1px for first column (perimeter)
+            if is_first:
+                painter.fillRect(rect.left(), rect.top(), 1, rect.height() + 1, border_color)
+
+            # Right border - 1px for internal column separators only
+            if not is_last:
+                painter.fillRect(rect.right(), rect.top(), 1, rect.height() + 1, border_color)
+
+            # Draw text
             font = painter.font()
             if is_selected or is_hovered:
                 font.setBold(True)

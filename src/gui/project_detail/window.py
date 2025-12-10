@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QDialog,
+    QLabel,
 )
 from PyQt6.QtCore import Qt
 
@@ -26,6 +27,9 @@ from gui.result_views.pushover_curve_view import PushoverCurveView
 from gui.ui_helpers import create_styled_button, create_styled_label
 from gui.window_utils import enable_dark_title_bar
 from gui.styles import COLORS
+from gui.icon_utils import get_colored_icon_pixmap, create_settings_icon
+from gui.settings_popup import SettingsPopup
+from gui.settings_manager import settings
 from services.project_runtime import ProjectRuntime
 from gui.controllers.result_view_controller import ResultViewController
 from gui.controllers.project_detail_controller import ProjectDetailController
@@ -70,6 +74,10 @@ class ProjectDetailWindow(QMainWindow):
         self.load_project_data()
         enable_dark_title_bar(self)
 
+        # Connect to settings changes for layout borders
+        settings.settings_changed.connect(self._on_settings_changed)
+        self._apply_layout_borders()
+
     def showEvent(self, event):
         """Ensure the window opens maximized for better workspace visibility."""
         super().showEvent(event)
@@ -88,12 +96,29 @@ class ProjectDetailWindow(QMainWindow):
         layout.setSpacing(0)
 
         # Header bar
-        header = self._create_header()
-        layout.addWidget(header)
+        self._header_widget = self._create_header()
+        layout.addWidget(self._header_widget)
+
+        # Spacing below header (stored for border mode adjustment)
+        self._header_spacer = QWidget()
+        self._header_spacer.setFixedHeight(8)
+        layout.addWidget(self._header_spacer)
 
         # Main content splitter (browser | table + plots)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._main_splitter.setObjectName("mainSplitter")
+        splitter = self._main_splitter
         splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(1)  # Minimal handle - just a hint
+        splitter.setStyleSheet("""
+            QSplitter#mainSplitter::handle {
+                background-color: transparent;
+                border: none;
+            }
+            QSplitter#mainSplitter::handle:hover {
+                background-color: rgba(74, 125, 137, 0.2);
+            }
+        """)
 
         # Left: Results browser
         self.browser = ResultsTreeBrowser(self.project_id)
@@ -103,45 +128,53 @@ class ProjectDetailWindow(QMainWindow):
         splitter.addWidget(self.browser)
 
         # Right: Content area (table + plots)
-        content_widget = self._create_content_area()
-        splitter.addWidget(content_widget)
+        self._content_widget = self._create_content_area()
+        splitter.addWidget(self._content_widget)
 
-        # Set splitter proportions (browser 200px, rest for content)
+        # Set splitter proportions (browser 220px, rest for content)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 5)
-        splitter.setSizes([200, 1200])  # Browser 200px default
+        splitter.setSizes([220, 1180])  # Browser 220px default for full text visibility
 
         layout.addWidget(splitter)
 
-        # Status bar
-        self.statusBar().showMessage(f"Project: {self.project_name}")
+        # Hide status bar for cleaner UI
+        self.statusBar().hide()
 
     def _create_header(self) -> QWidget:
         """Create header bar with contextual tabs and controls."""
         header = QWidget()
         header.setObjectName("projectHeader")
-        header.setFixedHeight(64)
+        header.setFixedHeight(36)
         header.setStyleSheet(f"""
             QWidget#projectHeader {{
-                background-color: {COLORS['card']};
-                border-bottom: 1px solid {COLORS['border']};
-                min-height: 64px;
-                max-height: 64px;
+                background-color: {COLORS['background']};
+                border: none;
+                min-height: 36px;
+                max-height: 36px;
             }}
         """)
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 4, 12, 4)
+        layout.setSpacing(6)
 
-        # Project name (left side, distinctive)
-        title = create_styled_label(f"▸ {self.project_name}", "header")
+        # RPS icon (colored with lighter accent for prominence)
+        icon_label = QLabel()
+        icon_pixmap = get_colored_icon_pixmap("RPS_icon", "#5a9daa", size=32)
+        icon_label.setPixmap(icon_pixmap)
+        icon_label.setFixedSize(32, 32)
+        layout.addWidget(icon_label)
+
+        # Project name (left side, distinctive) - largest in hierarchy
+        title = create_styled_label(self.project_name, "header")
+        title.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(title)
 
         # Stretch to push all buttons to the right
         layout.addStretch()
 
-        # Tab buttons (NLTHA / Pushover)
+        # Tab buttons (NLTHA / Pushover) - simple underlined style
         self.nltha_tab = self._create_tab_button("NLTHA", active=True)
         self.pushover_tab = self._create_tab_button("Pushover", active=False)
         self.nltha_tab.clicked.connect(lambda: self._switch_context("NLTHA"))
@@ -150,110 +183,157 @@ class ProjectDetailWindow(QMainWindow):
         layout.addWidget(self.nltha_tab)
         layout.addWidget(self.pushover_tab)
 
-        # Separator
-        layout.addSpacing(12)
-        separator = QWidget()
-        separator.setFixedWidth(1)
-        separator.setStyleSheet(f"background-color: {COLORS['border']};")
-        layout.addWidget(separator)
-        layout.addSpacing(12)
+        # Visual separator for contextual actions
+        separator1 = self._create_separator()
+        layout.addWidget(separator1)
 
-        # NLTHA-specific buttons
+        # NLTHA-specific buttons (contextual)
         self.nltha_buttons = []
 
-        load_data_btn = create_styled_button("Load NLTHA Data", "primary", "sm")
+        load_data_btn = self._create_text_link_button("Load NLTHA Data")
         load_data_btn.setToolTip("Import NLTHA data from folder")
         load_data_btn.clicked.connect(self.load_data_from_folder)
         layout.addWidget(load_data_btn)
         self.nltha_buttons.append(load_data_btn)
 
-        create_comparison_btn = create_styled_button("Create Comparison", "primary", "sm")
+        create_comparison_btn = self._create_text_link_button("Create Comparison")
         create_comparison_btn.setToolTip("Create a new comparison set")
         create_comparison_btn.clicked.connect(self.create_comparison_set)
         layout.addWidget(create_comparison_btn)
         self.nltha_buttons.append(create_comparison_btn)
 
-        nltha_export_btn = create_styled_button("Export Results", "secondary", "sm")
+        nltha_export_btn = self._create_text_link_button("Export Results")
         nltha_export_btn.setToolTip("Export NLTHA results to file")
         nltha_export_btn.clicked.connect(self.export_results)
         layout.addWidget(nltha_export_btn)
         self.nltha_buttons.append(nltha_export_btn)
 
-        # Pushover-specific buttons
+        # Pushover-specific buttons (contextual)
         self.pushover_buttons = []
 
-        load_pushover_btn = create_styled_button("Load Pushover Curves", "primary", "sm")
+        load_pushover_btn = self._create_text_link_button("Load Pushover Curves")
         load_pushover_btn.setToolTip("Import pushover capacity curves")
         load_pushover_btn.clicked.connect(self.load_pushover_curves)
         layout.addWidget(load_pushover_btn)
         load_pushover_btn.hide()  # Hidden initially
         self.pushover_buttons.append(load_pushover_btn)
 
-        load_results_btn = create_styled_button("Load Results", "primary", "sm")
+        load_results_btn = self._create_text_link_button("Load Results")
         load_results_btn.setToolTip("Import pushover global results (drifts, displacements, forces)")
         load_results_btn.clicked.connect(self.load_pushover_results)
         layout.addWidget(load_results_btn)
         load_results_btn.hide()  # Hidden initially
         self.pushover_buttons.append(load_results_btn)
 
-        pushover_export_btn = create_styled_button("Export Results", "secondary", "sm")
+        pushover_export_btn = self._create_text_link_button("Export Results")
         pushover_export_btn.setToolTip("Export pushover results to file")
         pushover_export_btn.clicked.connect(self.export_results)
         layout.addWidget(pushover_export_btn)
         pushover_export_btn.hide()  # Hidden initially
         self.pushover_buttons.append(pushover_export_btn)
 
-        # Separator before common buttons
-        layout.addSpacing(12)
-        separator2 = QWidget()
-        separator2.setFixedWidth(1)
-        separator2.setStyleSheet(f"background-color: {COLORS['border']};")
+        # Visual separator for general actions
+        separator2 = self._create_separator()
         layout.addWidget(separator2)
-        layout.addSpacing(12)
 
-        # Common buttons (always visible)
-        export_project_btn = create_styled_button("Export Project", "secondary", "sm")
+        # Common buttons (always visible - general actions)
+        export_project_btn = self._create_text_link_button("Export Project")
         export_project_btn.setToolTip("Export complete project to Excel")
         export_project_btn.clicked.connect(self.export_project_excel)
         layout.addWidget(export_project_btn)
 
-        close_btn = create_styled_button("Close", "ghost", "sm")
-        close_btn.clicked.connect(self.close)
-        layout.addWidget(close_btn)
+        settings_btn = QPushButton()
+        settings_btn.setIcon(create_settings_icon(18, COLORS['muted']))
+        settings_btn.setFixedSize(28, 28)
+        settings_btn.setToolTip("Settings")
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['hover']};
+            }}
+        """)
+        settings_btn.clicked.connect(self._show_settings_popup)
+        layout.addWidget(settings_btn)
+        self._settings_btn = settings_btn
 
         return header
 
     def _create_tab_button(self, text: str, active: bool = False) -> QPushButton:
-        """Create a tab button with custom styling."""
+        """Create a tab button with web-style navigation."""
         btn = QPushButton(text)
         btn.setCheckable(True)
         btn.setChecked(active)
-        btn.setFixedHeight(40)
-        btn.setMinimumWidth(100)
+        btn.setFixedHeight(32)
+        btn.setMinimumWidth(80)
 
-        # Custom tab styling
+        # Web-style tab navigation - prominent with accent color for selected
         btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: transparent;
                 color: {COLORS['muted'] if not active else COLORS['accent']};
                 border: none;
                 border-bottom: 2px solid {'transparent' if not active else COLORS['accent']};
-                padding: 8px 16px;
-                font-size: 14px;
-                font-weight: {'normal' if not active else 'bold'};
+                border-radius: 0px;
+                padding: 4px 16px;
+                font-size: 15px;
+                font-weight: 500;
+                letter-spacing: 0.3px;
             }}
             QPushButton:hover {{
-                color: {COLORS['text']};
-                background-color: rgba(255, 255, 255, 0.05);
+                color: {COLORS['text'] if not active else COLORS['accent']};
+                background-color: transparent;
             }}
             QPushButton:checked {{
                 color: {COLORS['accent']};
                 border-bottom: 2px solid {COLORS['accent']};
-                font-weight: bold;
+                border-radius: 0px;
+                font-weight: 500;
             }}
         """)
 
         return btn
+    
+    def _create_text_link_button(self, text: str) -> QPushButton:
+        """Create a text-link style button with web navigation vibe."""
+        btn = QPushButton(text)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {COLORS['text']};
+                border: none;
+                padding: 4px 10px;
+                font-size: 15px;
+                font-weight: 500;
+                letter-spacing: 0.3px;
+            }}
+            QPushButton:hover {{
+                color: {COLORS['accent']};
+                background-color: transparent;
+            }}
+            QPushButton:pressed {{
+                color: {COLORS['accent']};
+                background-color: transparent;
+            }}
+        """)
+        return btn
+    
+    def _create_separator(self) -> QWidget:
+        """Create a vertical separator for visual grouping."""
+        separator = QWidget()
+        separator.setFixedWidth(1)
+        separator.setFixedHeight(20)
+        separator.setStyleSheet(f"""
+            QWidget {{
+                background-color: {COLORS['border']};
+            }}
+        """)
+        return separator
 
     def _switch_context(self, context: str):
         """Switch between NLTHA and Pushover contexts."""
@@ -295,21 +375,24 @@ class ProjectDetailWindow(QMainWindow):
             tab_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: transparent;
-                    color: {COLORS['accent'] if is_active else COLORS['muted']};
+                    color: {COLORS['muted'] if not is_active else COLORS['accent']};
                     border: none;
-                    border-bottom: 2px solid {COLORS['accent'] if is_active else 'transparent'};
-                    padding: 8px 16px;
-                    font-size: 14px;
-                    font-weight: {'bold' if is_active else 'normal'};
+                    border-bottom: 2px solid {'transparent' if not is_active else COLORS['accent']};
+                    border-radius: 0px;
+                    padding: 4px 16px;
+                    font-size: 15px;
+                    font-weight: 500;
+                    letter-spacing: 0.3px;
                 }}
                 QPushButton:hover {{
-                    color: {COLORS['text']};
-                    background-color: rgba(255, 255, 255, 0.05);
+                    color: {COLORS['text'] if not is_active else COLORS['accent']};
+                    background-color: transparent;
                 }}
                 QPushButton:checked {{
                     color: {COLORS['accent']};
                     border-bottom: 2px solid {COLORS['accent']};
-                    font-weight: bold;
+                    border-radius: 0px;
+                    font-weight: 500;
                 }}
             """)
 
@@ -317,22 +400,25 @@ class ProjectDetailWindow(QMainWindow):
         """Create content area with table and plots."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
 
         # Content header with result type title
         content_header = QWidget()
-        content_header.setFixedHeight(48)
+        content_header.setFixedHeight(32)
         content_header_layout = QHBoxLayout(content_header)
-        content_header_layout.setContentsMargins(8, 4, 8, 4)
-        content_header_layout.setSpacing(12)
+        content_header_layout.setContentsMargins(4, 2, 4, 2)
+        content_header_layout.setSpacing(8)
 
-        self.content_title = create_styled_label("Select a result type", "subheader")
+        # Content title - prominent main section title
+        self.content_title = create_styled_label("Select a result type", "header")
+        self.content_title.setStyleSheet("font-size: 18px; font-weight: 600;")
         content_header_layout.addWidget(self.content_title)
 
         content_header_layout.addStretch()
 
         layout.addWidget(content_header, stretch=0)
+        layout.addSpacing(8)  # Spacing below main section title
 
         # Standard result view (table + plot)
         self.standard_view = StandardResultView()
@@ -374,23 +460,29 @@ class ProjectDetailWindow(QMainWindow):
         self.beam_rotations_table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                gridline-color: {COLORS['border']};
+                border: none;
+                gridline-color: #1e2329;
                 color: {COLORS['text']};
             }}
             QTableWidget::item {{
                 padding: 4px 8px;
                 border: none;
             }}
+            QHeaderView {{
+                background-color: {COLORS['card']};
+            }}
             QHeaderView::section {{
                 background-color: {COLORS['card']};
                 color: {COLORS['accent']};
-                padding: 8px;
+                padding: 4px 4px;
                 border: none;
-                border-bottom: 2px solid {COLORS['border']};
+                border-right: 1px solid #1e2329;
+                border-bottom: 1px solid #1e2329;
                 font-weight: 600;
                 text-align: center;
+            }}
+            QHeaderView::section:last {{
+                border-right: none;
             }}
             QHeaderView::section:hover {{
                 background-color: #1f2937;
@@ -653,12 +745,12 @@ class ProjectDetailWindow(QMainWindow):
 
             self.browser.populate_tree(result_sets, stories, elements, available_result_types, comparison_sets, pushover_cases)
 
-            self.statusBar().showMessage(
-                f"Loaded project: {self.project_name} "
-                f"({len(stories)} stories, {len(result_sets)} result sets, {len(comparison_sets)} comparisons, {len(elements)} elements)"
+            logger.info(
+                "Loaded project: %s (%d stories, %d result sets, %d comparisons, %d elements)",
+                self.project_name, len(stories), len(result_sets), len(comparison_sets), len(elements)
             )
         except Exception as e:
-            self.statusBar().showMessage(f"Error loading project data: {str(e)}")
+            logger.error("Error loading project data: %s", str(e))
 
     # -------------------------------------------------------------------------
     # Import dialogs
@@ -703,8 +795,6 @@ class ProjectDetailWindow(QMainWindow):
                 f"The results browser has been refreshed."
             )
 
-            self.statusBar().showMessage("Data loaded successfully", 5000)
-
     def load_pushover_curves(self):
         """Load pushover curves from Excel file."""
         from PyQt6.QtWidgets import QMessageBox
@@ -720,8 +810,7 @@ class ProjectDetailWindow(QMainWindow):
 
         dialog.import_completed.connect(lambda stats: self._on_pushover_import_completed(stats))
 
-        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
-            self.statusBar().showMessage("Pushover curves import successful")
+        show_dialog_with_blur(dialog, self)
 
     def _on_pushover_import_completed(self, stats: dict):
         """Handle pushover import completion."""
@@ -732,9 +821,7 @@ class ProjectDetailWindow(QMainWindow):
         else:
             self.result_service.invalidate_all()
         self.load_project_data()
-        self.statusBar().showMessage(
-            f"Imported {stats['curves_imported']} pushover curves into {stats['result_set_name']}"
-        )
+        logger.info("Imported %d pushover curves into %s", stats['curves_imported'], stats['result_set_name'])
 
     def load_pushover_results(self):
         """Load pushover global results from folder."""
@@ -763,8 +850,7 @@ class ProjectDetailWindow(QMainWindow):
 
             dialog.import_completed.connect(lambda stats: self._on_pushover_global_import_completed(stats))
 
-            if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
-                self.statusBar().showMessage("Pushover global results import successful")
+            show_dialog_with_blur(dialog, self)
 
         except Exception as e:
             QMessageBox.critical(
@@ -784,9 +870,7 @@ class ProjectDetailWindow(QMainWindow):
         else:
             self.result_service.invalidate_all()
         self.load_project_data()
-        self.statusBar().showMessage(
-            f"Imported pushover global results: {stats.get('result_types_imported', 0)} result types"
-        )
+        logger.info("Imported pushover global results: %d result types", stats.get('result_types_imported', 0))
 
     # -------------------------------------------------------------------------
     # Export methods
@@ -810,7 +894,8 @@ class ProjectDetailWindow(QMainWindow):
                 result_set_id = result_sets[0].id
                 self.controller.update_selection(result_set_id=result_set_id)
             else:
-                self.statusBar().showMessage("No result sets available in this project", 3000)
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "No Data", "No result sets available in this project")
                 return
 
         from gui.ui_helpers import show_dialog_with_blur
@@ -823,8 +908,7 @@ class ProjectDetailWindow(QMainWindow):
             parent=self
         )
 
-        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
-            self.statusBar().showMessage("Export completed successfully!", 3000)
+        show_dialog_with_blur(dialog, self)
 
     def export_pushover_results(self):
         """Export pushover results."""
@@ -857,8 +941,7 @@ class ProjectDetailWindow(QMainWindow):
             parent=self
         )
 
-        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
-            self.statusBar().showMessage("Export completed successfully!", 3000)
+        show_dialog_with_blur(dialog, self)
 
     def export_project_excel(self):
         """Export complete project to Excel workbook."""
@@ -871,8 +954,83 @@ class ProjectDetailWindow(QMainWindow):
             parent=self
         )
 
-        if dialog.exec():
-            self.statusBar().showMessage("Project exported to Excel successfully!", 3000)
+        dialog.exec()
+
+    def _show_settings_popup(self):
+        """Show the settings popup below the settings button."""
+        popup = SettingsPopup(self)
+        popup.show_below(self._settings_btn)
+
+    def _on_settings_changed(self, key: str, value):
+        """Handle global settings changes."""
+        if key == "layout_borders_enabled":
+            self._apply_layout_borders()
+
+    def _apply_layout_borders(self):
+        """Apply or remove layout borders based on settings."""
+        border_color = COLORS['border']
+        if settings.layout_borders_enabled:
+            # Remove spacer below header
+            self._header_spacer.setFixedHeight(0)
+
+            # Header: bottom border with padding
+            self._header_widget.setStyleSheet(f"""
+                QWidget#projectHeader {{
+                    background-color: {COLORS['background']};
+                    border: none;
+                    border-bottom: 1px solid {border_color};
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+                    min-height: 44px;
+                    max-height: 44px;
+                }}
+            """)
+            self._header_widget.setFixedHeight(44)
+
+            # Use splitter handle as vertical separator (1px to match header border)
+            self._main_splitter.setHandleWidth(1)
+            self._main_splitter.setStyleSheet(f"""
+                QSplitter#mainSplitter::handle {{
+                    background-color: {border_color};
+                    max-width: 1px;
+                    min-width: 1px;
+                }}
+                QSplitter#mainSplitter::handle:hover {{
+                    background-color: {COLORS['accent']};
+                }}
+            """)
+
+            # Increase left margin on content area for spacing from border
+            self._content_widget.layout().setContentsMargins(12, 4, 6, 4)
+        else:
+            # Restore spacer below header
+            self._header_spacer.setFixedHeight(8)
+
+            # Remove borders - restore original height
+            self._header_widget.setStyleSheet(f"""
+                QWidget#projectHeader {{
+                    background-color: {COLORS['background']};
+                    border: none;
+                    min-height: 36px;
+                    max-height: 36px;
+                }}
+            """)
+            self._header_widget.setFixedHeight(36)
+
+            # Restore transparent splitter handle
+            self._main_splitter.setHandleWidth(1)
+            self._main_splitter.setStyleSheet("""
+                QSplitter#mainSplitter::handle {
+                    background-color: transparent;
+                    border: none;
+                }
+                QSplitter#mainSplitter::handle:hover {
+                    background-color: rgba(74, 125, 137, 0.2);
+                }
+            """)
+
+            # Restore original content margins
+            self._content_widget.layout().setContentsMargins(6, 4, 6, 4)
 
     # -------------------------------------------------------------------------
     # Cleanup

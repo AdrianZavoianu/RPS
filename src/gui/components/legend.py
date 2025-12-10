@@ -122,9 +122,12 @@ class InteractiveLegendItem(QWidget):
 
 
 def create_static_legend_item(color: str, label: str, pen_style: Qt.PenStyle = Qt.PenStyle.SolidLine) -> QWidget:
-    """Return a non-interactive legend entry."""
+    """Return a non-interactive legend entry - minimalistic, no borders."""
     item_widget = QWidget()
-    item_widget.setStyleSheet("background-color: transparent;")
+    item_widget.setStyleSheet("""
+        background-color: transparent;
+        border: none;
+    """)
     item_widget.setContentsMargins(0, 3, 0, 3)
 
     layout = QHBoxLayout(item_widget)
@@ -149,5 +152,5 @@ def create_static_legend_item(color: str, label: str, pen_style: Qt.PenStyle = Q
 
     layout.addWidget(indicator)
     layout.addWidget(text_label)
-    layout.addStretch()
+    # No stretch - spacing controlled by parent layout
     return item_widget

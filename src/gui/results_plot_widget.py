@@ -5,18 +5,18 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+import numpy as np
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QGridLayout,
-    QTabWidget,
     QLabel,
     QFrame,
-    QSpacerItem,
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 import pandas as pd
 import pyqtgraph as pg
 
@@ -28,6 +28,8 @@ from config.visual_config import (
     series_color,
 )
 from gui.components.legend import create_static_legend_item
+from gui.settings_manager import settings
+from gui.styles import COLORS
 
 logger = logging.getLogger(__name__)
 
@@ -45,62 +47,32 @@ class ResultsPlotWidget(QWidget):
         self._highlighted_case = None  # Track currently highlighted load case
         self._current_selection: set[str] = set()
         self._average_plot_item = None
+        self._envelope_fill_item = None  # Store envelope fill for shading
         self._shorthand_mapping: dict = {}  # Full name -> shorthand for legend display
         self.setup_ui()
 
+        # Connect to settings changes
+        settings.settings_changed.connect(self._on_settings_changed)
+
     def setup_ui(self):
-        """Setup the plot UI."""
+        """Setup the plot UI - single plot view (no tabs)."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)  # No margins - match table widget
+        layout.setContentsMargins(0, 0, 8, 0)  # Reduced right margin for spacing at the right of the plot
+        layout.setSpacing(0)
 
         # Configure PyQtGraph to match GMP dark theme
         pg.setConfigOptions(antialias=True)
         pg.setConfigOption('background', '#0a0c10')
         pg.setConfigOption('foreground', '#d1d5db')
 
-        # Tab widget for different plot types
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: #0a0c10;
-                margin-top: 0px;
-            }
-            QTabBar {
-                background-color: transparent;
-            }
-            QTabBar::tab {
-                background-color: #161b22;
-                color: #7f8b9a;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                min-width: 120px;
-                max-height: 40px;
-            }
-            QTabBar::tab:selected {
-                background-color: #0a0c10;
-                color: #4a7d89;
-                border-bottom: 2px solid #4a7d89;
-            }
-            QTabBar::tab:hover {
-                background-color: #1f2937;
-                color: #d1d5db;
-            }
-        """)
+        # Single plot container (no tabs)
+        self.main_plot = self._create_plot_widget("Building Profile")
+        layout.addWidget(self.main_plot)
 
-        # Create plot tabs
-        self.envelope_plot = self._create_plot_widget("Envelope by Story")
-        self.tabs.addTab(self.envelope_plot, "▤ Envelope")
-
-        self.comparison_plot = self._create_plot_widget("Load Case Comparison")
-        self.tabs.addTab(self.comparison_plot, "≡ Comparison")
-
-        self.profile_plot = self._create_plot_widget("Building Profile")
-        self.tabs.addTab(self.profile_plot, "▭ Profile")
-
-        layout.addWidget(self.tabs)
+        # Keep references for backward compatibility with internal methods
+        self.envelope_plot = self.main_plot
+        self.comparison_plot = self.main_plot
+        self.profile_plot = self.main_plot
 
     def _create_plot_widget(self, title: str) -> QWidget:
         """Create a styled PyQtGraph plot widget with external legend."""
@@ -118,13 +90,14 @@ class ResultsPlotWidget(QWidget):
         view_box = plot_widget.getPlotItem().getViewBox()
         view_box.setBackgroundColor('#0f1419')
 
-        # Add border to plot area
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
+        # Clean, minimal border - subtle color and thin width to avoid visual conflict with gridlines
+        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
 
-        # Configure plot appearance to match GMP
+        # Configure plot appearance - clean and minimal
         plot_widget.showGrid(x=True, y=True, alpha=0.5)  # Visible grid
-        plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
+        # Axis lines - subtle and clean, slightly darker than grid to distinguish but not overpowering
+        plot_widget.getAxis('bottom').setPen(pg.mkPen('#1a1f26', width=1))
+        plot_widget.getAxis('left').setPen(pg.mkPen('#1a1f26', width=1))
         plot_widget.getAxis('bottom').setTextPen('#d1d5db')
         plot_widget.getAxis('left').setTextPen('#d1d5db')
 
@@ -137,13 +110,13 @@ class ResultsPlotWidget(QWidget):
         # No title - maximizes plot area
         plot_widget.setTitle(None)
 
-        # Create legend as a separate widget below the plot
+        # Create legend as a separate widget below the plot - minimalistic, no border/fill
         legend_widget = QFrame()
         legend_widget.setStyleSheet("""
             QFrame {
-                background-color: #11151c;
-                border: 1px solid #2c313a;
-                border-radius: 6px;
+                background-color: transparent;
+                border: none;
+                border-radius: 0px;
             }
         """)
         legend_widget.setSizePolicy(
@@ -151,12 +124,15 @@ class ResultsPlotWidget(QWidget):
             QSizePolicy.Policy.Maximum  # Fit content height, don't expand
         )
 
-        # Use grid layout for multi-row legend (4 items per row)
-        legend_layout = QGridLayout(legend_widget)
-        legend_layout.setContentsMargins(6, 4, 6, 4)  # Reduced padding
-        legend_layout.setHorizontalSpacing(12)  # Horizontal space between items
-        legend_layout.setVerticalSpacing(2)  # Minimal vertical space between rows
-        legend_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        # Use vertical layout for rows, each row uses horizontal layout to distribute items
+        # No fixed margins - items will be spaced to fill available width
+        legend_layout = QVBoxLayout(legend_widget)
+        legend_layout.setContentsMargins(0, 4, 0, 4)  # No left/right margins - items control spacing
+        legend_layout.setSpacing(2)  # Minimal vertical space between rows
+        legend_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        # Store plot widget reference for potential width calculation
+        container._plot_widget_ref = plot_widget
 
         # Add plot and legend to container (vertical stack)
         layout.addWidget(plot_widget, 1)  # Plot stretches
@@ -164,10 +140,10 @@ class ResultsPlotWidget(QWidget):
 
         # Store references
         container._plot_widget = plot_widget
-        container._legend_layout = legend_layout
+        container._legend_layout = legend_layout  # Now a VBoxLayout
         container._legend_items = []
-        container._legend_row = 0  # Track current row for grid layout
-        container._legend_col = 0  # Track current column for grid layout
+        container._legend_rows = []  # Store row widgets for horizontal layouts
+        container._current_row = None  # Current row widget being populated
 
         self._plot_legends[container] = legend_layout
         return container
@@ -176,8 +152,8 @@ class ResultsPlotWidget(QWidget):
         """Extract the PlotWidget from container."""
         return container._plot_widget
 
-    def _add_legend_item(self, container, color: str, label: str):
-        """Add a legend item to the external legend (grid layout, 2-4 items per row based on mapping)."""
+    def _add_legend_item(self, container, color: str, label: str, pen_style: Qt.PenStyle = Qt.PenStyle.SolidLine):
+        """Add a legend item to the external legend (horizontal rows, items distributed across width)."""
         # For pushover results with shorthand mapping, show "Px1 = Full Name"
         if label in self._shorthand_mapping:
             shorthand = self._shorthand_mapping[label]
@@ -192,23 +168,91 @@ class ResultsPlotWidget(QWidget):
             else:
                 logger.debug("Legend item (no mapping active): '%s'", label)
 
-        item_widget = create_static_legend_item(color, display_label)
-        # Add to grid layout at current position
-        container._legend_layout.addWidget(
-            item_widget,
-            container._legend_row,
-            container._legend_col
-        )
-        container._legend_items.append(item_widget)
-
-        # Determine columns per row: 2 for mapped labels (longer), 4 for normal labels
+        # Determine items per row: 2 for mapped labels (longer), 4 for normal labels
         max_cols = 2 if self._shorthand_mapping else 4
 
-        # Move to next position
-        container._legend_col += 1
-        if container._legend_col >= max_cols:
-            container._legend_col = 0
-            container._legend_row += 1
+        item_widget = create_static_legend_item(color, display_label, pen_style=pen_style)
+
+        # Get or create current row
+        if container._current_row is None or len(container._current_row._items) >= max_cols:
+            # Create new row with horizontal layout
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            # Left margin aligns with plot area (axis width ~45px), right margin (~8px)
+            row_layout.setContentsMargins(45, 0, 8, 0)
+            row_layout.setSpacing(0)  # Spacing controlled by stretches
+            row_widget._items = []  # Track items in this row
+            row_widget._layout = row_layout
+            row_widget._max_cols = max_cols
+
+            container._legend_layout.addWidget(row_widget)
+            container._legend_rows.append(row_widget)
+            container._current_row = row_widget
+
+        # Add stretch before item (except first) for even distribution
+        if len(container._current_row._items) > 0:
+            container._current_row._layout.addStretch(1)
+
+        # Add item to current row
+        container._current_row._layout.addWidget(item_widget)
+        container._current_row._items.append(item_widget)
+        container._legend_items.append(item_widget)
+
+        # If row is full, close row (NO final stretch - last item aligns to right edge)
+        if len(container._current_row._items) >= max_cols:
+            container._current_row = None
+
+    def _finalize_legend(self, container):
+        """Finalize legend - no action needed, items have fixed width."""
+        container._current_row = None
+
+    def _on_settings_changed(self, key: str, value):
+        """Handle settings changes."""
+        if key == "plot_shading_enabled":
+            # Re-render the current dataset to apply/remove shading
+            if self.current_dataset:
+                self.load_dataset(self.current_dataset, self._shorthand_mapping)
+
+    def _add_envelope_fill(self, plot, numeric_df, story_positions, base_index, include_base_anchor):
+        """Add a subtle filled area between min and max envelope of all load cases.
+
+        Args:
+            plot: The PlotWidget to add the fill to
+            numeric_df: DataFrame with numeric values for each load case
+            story_positions: List of y-positions for stories
+            base_index: Y-position for base anchor (or None)
+            include_base_anchor: Whether to include base anchor at 0
+        """
+        # Calculate min and max at each story level
+        min_values = numeric_df.min(axis=1, skipna=True).fillna(0.0).tolist()
+        max_values = numeric_df.max(axis=1, skipna=True).fillna(0.0).tolist()
+        y_positions = list(story_positions)
+
+        if include_base_anchor:
+            min_values = [0.0] + min_values
+            max_values = [0.0] + max_values
+            y_positions = [base_index] + y_positions
+
+        # Create fill between min and max using FillBetweenItem
+        # Convert to numpy arrays for pyqtgraph
+        x_min = np.array(min_values)
+        x_max = np.array(max_values)
+        y = np.array(y_positions)
+
+        # Create curves for min and max envelope
+        curve_min = pg.PlotDataItem(x_min, y)
+        curve_max = pg.PlotDataItem(x_max, y)
+
+        # Use theme accent color with low opacity for subtle shading
+        accent_color = QColor(COLORS['accent'])
+        accent_color.setAlphaF(settings.plot_shading_opacity)
+
+        # Create fill between the two curves
+        self._envelope_fill_item = pg.FillBetweenItem(
+            curve_min, curve_max,
+            brush=pg.mkBrush(accent_color)
+        )
+        plot.addItem(self._envelope_fill_item)
 
     def load_dataset(self, dataset: ResultDataset, shorthand_mapping: dict = None) -> None:
         """
@@ -218,14 +262,14 @@ class ResultsPlotWidget(QWidget):
             dataset: The result dataset to display
             shorthand_mapping: Optional mapping of full names to shorthand for legend display
         """
-        self.current_dataset = dataset
         self._current_selection.clear()
         self._average_plot_item = None
 
         # Clear plots FIRST, then set mapping (clear_plots() clears mapping too)
         self.clear_plots()
 
-        # Now set the mapping AFTER clearing
+        # Set dataset and mapping AFTER clearing (clear_plots sets current_dataset to None)
+        self.current_dataset = dataset
         self._shorthand_mapping = shorthand_mapping if shorthand_mapping is not None else {}
 
         logger.debug("Plot received shorthand_mapping: %s, length: %s", shorthand_mapping is not None, len(self._shorthand_mapping))
@@ -244,18 +288,14 @@ class ResultsPlotWidget(QWidget):
         has_story_column = 'Story' in df.columns
 
         if config.plot_mode == "building_profile":
-            self.tabs.tabBar().hide()  # Hide tabs for clean single plot view
             self._plot_building_profile(dataset)
         elif not has_story_column:
             # Joint-level results (soil pressures, etc.) - no plot, just table
-            self.tabs.tabBar().hide()
             # Don't generate plots for joint results as they don't have story hierarchy
+            pass
         else:
-            self.tabs.tabBar().show()  # Show tabs for other result types
-            # Generate standard plots for other result types
-            self._plot_envelope(dataset)
-            self._plot_comparison(dataset)
-            self._plot_profile(dataset)
+            # For other result types, use building profile view
+            self._plot_building_profile(dataset)
 
     def _data_columns(self, dataset: ResultDataset) -> list[str]:
         """Return columns that represent load cases (exclude Story and summaries)."""
@@ -421,6 +461,7 @@ class ResultsPlotWidget(QWidget):
         # Clear plot items dictionary
         self._plot_items.clear()
         self._average_plot_item = None
+        self._envelope_fill_item = None
 
         # Use dataset order for plotting (already aligned bottom-to-top)
         numeric_df = df[load_case_columns].apply(pd.to_numeric, errors='coerce')
@@ -431,7 +472,16 @@ class ResultsPlotWidget(QWidget):
             duplicates = [col for col, count in Counter(load_case_columns).items() if count > 1]
             raise ValueError(f"Duplicate column names found: {duplicates}. This usually means the cache needs to be rebuilt. Please re-import the result set.")
 
+        # Add envelope fill FIRST (so it's behind the lines) if shading is enabled
+        if settings.plot_shading_enabled and len(load_case_columns) > 1:
+            self._add_envelope_fill(plot, numeric_df, story_positions, base_index, include_base_anchor)
+
         # Plot each load case as a line
+        # When shading is enabled, make lines thinner and more transparent
+        shading_active = settings.plot_shading_enabled and len(load_case_columns) > 1
+        line_width = 1 if shading_active else 2
+        line_alpha = 0.4 if shading_active else 1.0
+
         for idx, load_case in enumerate(load_case_columns):
             numeric_values = numeric_df[load_case].fillna(0.0).tolist()
             y_positions = list(story_positions)
@@ -441,14 +491,22 @@ class ResultsPlotWidget(QWidget):
 
             color = series_color(idx)
 
+            # Apply alpha if shading is active
+            if shading_active:
+                qcolor = QColor(color)
+                qcolor.setAlphaF(line_alpha)
+                pen_color = qcolor
+            else:
+                pen_color = color
+
             # Plot horizontal (drift on x-axis, story on y-axis)
             plot_item = plot.plot(
                 numeric_values,
                 y_positions,
-                pen=pg.mkPen(color, width=2)
+                pen=pg.mkPen(pen_color, width=line_width)
             )
-            # Store the plot item for later highlighting
-            self._plot_items[load_case] = {'item': plot_item, 'color': color, 'width': 2}
+            # Store the plot item for later highlighting (store original color for hover/selection)
+            self._plot_items[load_case] = {'item': plot_item, 'color': color, 'width': line_width}
 
             self._add_legend_item(container, color, load_case)
 
@@ -467,7 +525,7 @@ class ResultsPlotWidget(QWidget):
                 y_positions,
                 pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
             )
-            self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Avg')
+            self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Avg', pen_style=Qt.PenStyle.DashLine)
 
         # Use PlotBuilder for common configuration
         builder = PlotBuilder(plot, dataset.config)
@@ -504,7 +562,8 @@ class ResultsPlotWidget(QWidget):
         # Enable grid with increased visibility
         plot.showGrid(x=True, y=True, alpha=0.5)
 
-        # No title - maximizes plot area
+        # Finalize legend (add stretch to incomplete last row)
+        self._finalize_legend(container)
 
     def highlight_load_cases(self, selected_cases: list):
         """Highlight multiple selected load cases, dim others, always show average at full opacity."""
@@ -594,6 +653,7 @@ class ResultsPlotWidget(QWidget):
         self._plot_items.clear()
         self._highlighted_case = None
         self._average_plot_item = None
+        self._envelope_fill_item = None
         self.current_dataset = None
         self._shorthand_mapping.clear()
 
@@ -602,12 +662,10 @@ class ResultsPlotWidget(QWidget):
         plot = self._get_plot_from_container(container)
         plot.clear()
 
-        # Clear external legend
-        for item in container._legend_items:
-            container._legend_layout.removeWidget(item)
-            item.deleteLater()
+        # Clear external legend rows
+        for row_widget in container._legend_rows:
+            container._legend_layout.removeWidget(row_widget)
+            row_widget.deleteLater()
+        container._legend_rows.clear()
         container._legend_items.clear()
-
-        # Reset grid position counters
-        container._legend_row = 0
-        container._legend_col = 0
+        container._current_row = None

@@ -34,7 +34,7 @@ class ProjectGridWidget(QWidget):
         self._current_columns: int = 0
 
         self._grid = QGridLayout()
-        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setContentsMargins(0, 12, 0, 12)  # Top and bottom margins only
         self._grid.setHorizontalSpacing(20)
         self._grid.setVerticalSpacing(20)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -219,8 +219,8 @@ class ProjectGridWidget(QWidget):
         delete_button.setObjectName("cardDeleteAction")
         delete_button.setToolTip("Delete project")
         delete_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-        delete_button.setIconSize(QSize(18, 18))
-        delete_button.setFixedSize(36, 36)
+        delete_button.setIconSize(QSize(14, 14))
+        delete_button.setFixedSize(28, 28)
         delete_button.clicked.connect(lambda _, name=data["name"]: self._on_delete(name))
         button_layout.addWidget(delete_button)
 

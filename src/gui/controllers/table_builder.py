@@ -45,7 +45,7 @@ def populate_beam_rotations_table(table: QTableWidget, df: pd.DataFrame, color_s
                     item_text = str(value) if value is not None else ""
             elif col_name in load_case_cols or col_name in summary_cols:
                 if value is not None and not pd.isna(value):
-                    item_text = f"{value:.2f}%"
+                    item_text = f"{value:.2f}"
                 else:
                     item_text = ""
             else:

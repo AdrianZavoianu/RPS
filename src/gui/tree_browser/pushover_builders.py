@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from gui.results_tree_browser import ResultsTreeBrowser
 
 
-def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set) -> None:
+def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set, expand_first_path: bool = True) -> None:
     """Add a pushover result set with Curves, Global Results, Elements, and Joints sections."""
     # Result set item
     result_set_item = QTreeWidgetItem(parent_item)
@@ -21,7 +21,7 @@ def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWid
         "type": "pushover_result_set",
         "id": result_set.id
     })
-    result_set_item.setExpanded(True)
+    result_set_item.setExpanded(expand_first_path)
 
     # Curves category
     curves_item = QTreeWidgetItem(result_set_item)
@@ -30,7 +30,7 @@ def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWid
         "type": "pushover_curves_category",
         "result_set_id": result_set.id
     })
-    curves_item.setExpanded(True)
+    curves_item.setExpanded(expand_first_path)
 
     # Get cases for this result set
     all_cases = browser.pushover_cases.get(result_set.id, [])
@@ -39,9 +39,9 @@ def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWid
     x_cases = [c for c in all_cases if c.direction == 'X']
     y_cases = [c for c in all_cases if c.direction == 'Y']
 
-    # Add X and Y direction sections
-    add_direction_section(browser, curves_item, 'X', x_cases, result_set.id)
-    add_direction_section(browser, curves_item, 'Y', y_cases, result_set.id)
+    # Add X and Y direction sections (only expand first direction)
+    add_direction_section(browser, curves_item, 'X', x_cases, result_set.id, expand_first_path and len(x_cases) > 0)
+    add_direction_section(browser, curves_item, 'Y', y_cases, result_set.id, False)
 
     # Global Results category
     global_item = QTreeWidgetItem(result_set_item)
@@ -95,6 +95,7 @@ def add_direction_section(
     direction: str,
     cases: list,
     result_set_id: int,
+    expand_first_path: bool = True,
 ) -> None:
     """Add X or Y direction section under Curves."""
     direction_item = QTreeWidgetItem(parent_item)
@@ -104,7 +105,7 @@ def add_direction_section(
         "direction": direction,
         "result_set_id": result_set_id
     })
-    direction_item.setExpanded(True)
+    direction_item.setExpanded(expand_first_path)
 
     if not cases:
         placeholder = QTreeWidgetItem(direction_item)

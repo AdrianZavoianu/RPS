@@ -102,20 +102,20 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         direction_suffix="_X",
         unit="%",
         decimal_places=2,
-        multiplier=100.0,
-        y_label="Drift (%)",
+        multiplier=100.0,  # Display as percentage (0.025 -> 2.5)
+        y_label="Drift [%]",
         plot_mode="building_profile",
         color_scheme="blue_orange",
         variants=(
             ResultTypeVariantSpec(
                 key_suffix="X",
                 direction_suffix="_X",
-                y_label="Drift X (%)",
+                y_label="Drift X [%]",
             ),
             ResultTypeVariantSpec(
                 key_suffix="Y",
                 direction_suffix="_Y",
-                y_label="Drift Y (%)",
+                y_label="Drift Y [%]",
             ),
         ),
     ),
@@ -212,8 +212,8 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         direction_suffix="",
         unit="%",
         decimal_places=2,
-        multiplier=1.0,
-        y_label="Rotation (%)",
+        multiplier=100.0,  # Display as percentage
+        y_label="Rotation [%]",
         plot_mode="building_profile",
         color_scheme="blue_orange",
     ),
@@ -264,20 +264,20 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         direction_suffix="",
         unit="%",
         decimal_places=2,
-        multiplier=1.0,
-        y_label="Column Rotation (%)",
+        multiplier=100.0,  # Display as percentage
+        y_label="Column Rotation [%]",
         plot_mode="building_profile",
         color_scheme="blue_orange",
         variants=(
             ResultTypeVariantSpec(
                 key_suffix="R2",
                 direction_suffix="_R2",
-                y_label="Column Rotation R2 (%)",
+                y_label="Column Rotation R2 [%]",
             ),
             ResultTypeVariantSpec(
                 key_suffix="R3",
                 direction_suffix="_R3",
-                y_label="Column Rotation R3 (%)",
+                y_label="Column Rotation R3 [%]",
             ),
         ),
     ),
@@ -286,15 +286,15 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         direction_suffix="",
         unit="%",
         decimal_places=2,
-        multiplier=1.0,
-        y_label="Beam Rotation (%)",
+        multiplier=100.0,  # Display as percentage
+        y_label="Beam Rotation [%]",
         plot_mode="building_profile",
         color_scheme="blue_orange",
         variants=(
             ResultTypeVariantSpec(
                 key_suffix="R3Plastic",
                 direction_suffix="_R3Plastic",
-                y_label="Beam R3 Plastic Rotation (%)",
+                y_label="Beam R3 Plastic Rotation [%]",
             ),
         ),
     ),
@@ -337,11 +337,7 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
         direction: Direction suffix (e.g., 'X', 'Y') - optional
 
     Returns:
-        Formatted string like "Floor Displacements [mm]" or "Story Forces [kN]"
-
-    Note:
-        - Drifts and rotations are unitless (shown as percentage in tables but conceptually unitless)
-        - Returns display name without unit for drifts and rotations
+        Formatted string like "Floor Displacements [mm]" or "Story Drifts [%]"
     """
     # Map base result types to display names
     display_names = {
@@ -362,15 +358,6 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
 
     # Get display name
     display_name = display_names.get(result_type, result_type)
-
-    # Check if result type is drift or rotation (unitless)
-    is_unitless = 'Drift' in result_type or 'Rotation' in result_type
-
-    if is_unitless:
-        # No unit for drifts and rotations
-        if direction:
-            return f"{display_name} - {direction} Direction"
-        return display_name
 
     # Get config to extract unit
     config_key = f"{result_type}_{direction}" if direction else result_type

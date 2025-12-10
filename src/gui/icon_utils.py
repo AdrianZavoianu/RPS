@@ -100,3 +100,144 @@ def set_app_icons(app):
         app: QApplication instance
     """
     app.setWindowIcon(get_app_icon())
+
+
+def create_settings_icon(size: int = 18, color: str = None) -> QIcon:
+    """Create a gear/settings icon with proper tooth shape.
+
+    Args:
+        size: Icon size in pixels
+        color: Hex color string (defaults to muted text color)
+
+    Returns:
+        QIcon: Gear icon
+    """
+    from PyQt6.QtGui import QColor, QPen, QBrush, QPainterPath
+    from PyQt6.QtCore import QPointF
+    import math
+
+    from .styles import COLORS
+
+    if color is None:
+        color = COLORS['muted']
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    center = size / 2
+    outer_radius = size * 0.46
+    inner_radius = size * 0.28
+    hole_radius = size * 0.15
+    num_teeth = 8
+    tooth_width = 0.35  # Width of tooth as fraction of tooth spacing
+
+    pen_color = QColor(color)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(pen_color))
+
+    # Build gear path with rectangular teeth
+    path = QPainterPath()
+
+    for i in range(num_teeth):
+        # Angle for this tooth
+        base_angle = (i * 2 * math.pi / num_teeth) - math.pi / 2
+        half_tooth = (math.pi / num_teeth) * tooth_width
+
+        # Tooth outer corners
+        angle1 = base_angle - half_tooth
+        angle2 = base_angle + half_tooth
+
+        # Valley angles (between teeth)
+        valley_start = base_angle + half_tooth
+        valley_end = base_angle + (2 * math.pi / num_teeth) - half_tooth
+
+        if i == 0:
+            # Start at outer edge of first tooth
+            x = center + outer_radius * math.cos(angle1)
+            y = center + outer_radius * math.sin(angle1)
+            path.moveTo(x, y)
+
+        # Outer edge of tooth
+        x = center + outer_radius * math.cos(angle2)
+        y = center + outer_radius * math.sin(angle2)
+        path.lineTo(x, y)
+
+        # Down to inner radius
+        x = center + inner_radius * math.cos(angle2)
+        y = center + inner_radius * math.sin(angle2)
+        path.lineTo(x, y)
+
+        # Along inner radius to next tooth
+        x = center + inner_radius * math.cos(valley_end)
+        y = center + inner_radius * math.sin(valley_end)
+        path.lineTo(x, y)
+
+        # Up to next tooth outer
+        next_angle1 = valley_end
+        x = center + outer_radius * math.cos(next_angle1)
+        y = center + outer_radius * math.sin(next_angle1)
+        path.lineTo(x, y)
+
+    path.closeSubpath()
+
+    # Cut out center hole
+    hole_path = QPainterPath()
+    hole_path.addEllipse(QPointF(center, center), hole_radius, hole_radius)
+    path = path.subtracted(hole_path)
+
+    painter.drawPath(path)
+    painter.end()
+
+    return QIcon(pixmap)
+
+
+def get_colored_icon_pixmap(icon_name: str, color: str, size: int = 24) -> QPixmap:
+    """Load a mask icon and colorize it with the specified color.
+
+    Args:
+        icon_name: Name of the icon file (without extension) in resources/icons
+        color: Hex color string to apply to the icon
+        size: Desired size in pixels
+
+    Returns:
+        QPixmap: Colorized icon pixmap
+    """
+    from PyQt6.QtGui import QColor, QImage
+
+    icon_path = ICONS_DIR / f"{icon_name}.png"
+    if not icon_path.exists():
+        # Return empty pixmap if icon doesn't exist
+        return QPixmap(size, size)
+
+    # Load the original image
+    image = QImage(str(icon_path))
+    if image.isNull():
+        return QPixmap(size, size)
+
+    # Convert to ARGB32 format for pixel manipulation
+    image = image.convertToFormat(QImage.Format.Format_ARGB32)
+
+    # Apply color to all pixels while preserving alpha
+    target_color = QColor(color)
+    for y in range(image.height()):
+        for x in range(image.width()):
+            pixel = image.pixelColor(x, y)
+            if pixel.alpha() > 0:
+                # Keep alpha, replace RGB with target color
+                new_color = QColor(target_color)
+                new_color.setAlpha(pixel.alpha())
+                image.setPixelColor(x, y, new_color)
+
+    # Convert to pixmap and scale
+    pixmap = QPixmap.fromImage(image)
+    if size > 0:
+        pixmap = pixmap.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+    return pixmap

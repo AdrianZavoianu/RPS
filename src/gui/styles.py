@@ -43,10 +43,10 @@ QMainWindow {{
 
 /* ==================== TOP HEADER ==================== */
 #topHeader {{
-    background-color: {COLORS['card']};
-    border-bottom: 1px solid {COLORS['border']};
-    min-height: 88px;
-    max-height: 88px;
+    background-color: {COLORS['background']};
+    border: none;
+    min-height: 80px;
+    max-height: 80px;
 }}
 
 #headerLogo {{
@@ -188,17 +188,23 @@ QMainWindow {{
 #cardDeleteAction {{
     background-color: transparent;
     border: none;
-    color: #f87171;
-    border-radius: 18px;
+    color: {COLORS['muted']};
+    border-radius: 0px;
+    padding: 4px;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
 }}
 
 #cardDeleteAction:hover {{
-    background-color: rgba(248, 113, 113, 0.12);
-    color: #fca5a5;
+    background-color: {COLORS['hover']};
+    color: {COLORS['text']};
 }}
 
 #cardDeleteAction:pressed {{
-    background-color: rgba(248, 113, 113, 0.2);
+    background-color: {COLORS['hover']};
+    color: {COLORS['text']};
 }}
 
 #cardStatsContainer {{
@@ -296,9 +302,9 @@ QMenu::separator {{
 
 /* ==================== STATUS BAR ==================== */
 QStatusBar {{
-    background-color: {COLORS['card']};
+    background-color: {COLORS['background']};
     color: {COLORS['muted']};
-    border-top: 1px solid {COLORS['border']};
+    border: none;
     padding: 4px 8px;
 }}
 
@@ -469,9 +475,8 @@ QComboBox QAbstractItemView {{
 
 /* ==================== TREE WIDGET ==================== */
 QTreeWidget {{
-    background-color: {COLORS['card']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 8px;
+    background-color: transparent;
+    border: none;
     color: {COLORS['text']};
     outline: none;
     padding: 4px;
@@ -509,65 +514,84 @@ QTreeWidget::branch:has-children:open {{
     border-bottom: 6px solid {COLORS['text']};
 }}
 
+QHeaderView {{
+    background-color: {COLORS['card']};
+}}
+
 QHeaderView::section {{
     background-color: {COLORS['card']};
-    color: {COLORS['text']};
+    color: {COLORS['accent']};
     border: none;
-    border-bottom: 1px solid {COLORS['border']};
-    padding: 8px 4px;
+    border-right: 1px solid #1e2329;
+    border-bottom: 1px solid #1e2329;
+    padding: 4px 4px;
     font-weight: 600;
+}}
+
+QHeaderView::section:last {{
+    border-right: none;
 }}
 
 /* ==================== SCROLL BARS ==================== */
 QScrollBar:vertical {{
     background-color: transparent;
-    width: 8px;
-    border-radius: 4px;
+    width: 6px;
+    border: none;
+    margin: 4px 2px;
 }}
 
 QScrollBar::handle:vertical {{
-    background-color: {COLORS['border']};
-    border-radius: 4px;
-    min-height: 20px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    min-height: 24px;
 }}
 
 QScrollBar::handle:vertical:hover {{
-    background-color: {COLORS['accent']};
+    background-color: rgba(255, 255, 255, 0.15);
 }}
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
 
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: none;
+}}
+
 QScrollBar:horizontal {{
     background-color: transparent;
-    height: 8px;
-    border-radius: 4px;
+    height: 6px;
+    border: none;
+    margin: 2px 4px;
 }}
 
 QScrollBar::handle:horizontal {{
-    background-color: {COLORS['border']};
-    border-radius: 4px;
-    min-width: 20px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    min-width: 24px;
 }}
 
 QScrollBar::handle:horizontal:hover {{
-    background-color: {COLORS['accent']};
+    background-color: rgba(255, 255, 255, 0.15);
 }}
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
 }}
 
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: none;
+}}
+
 /* ==================== SPLITTER ==================== */
 QSplitter::handle {{
-    background-color: {COLORS['border']};
-    width: 1px;
-    height: 1px;
+    background-color: transparent;
+    width: 8px;
+    height: 8px;
 }}
 
 QSplitter::handle:hover {{
-    background-color: {COLORS['accent']};
+    background-color: rgba(255, 255, 255, 0.03);
 }}
 
 /* ==================== DIALOG ==================== */
@@ -632,6 +656,20 @@ QLabel[styleClass="muted"] {{
 QLabel[styleClass="small"] {{
     font-size: 13px;
     color: {COLORS['muted']};
+}}
+
+QLabel[styleClass="section"] {{
+    font-size: 16px;
+    font-weight: 600;
+    color: {COLORS['text']};
+    line-height: 1.5;
+}}
+
+QLabel[styleClass="subsection"] {{
+    font-size: 15px;
+    font-weight: 600;
+    color: {COLORS['text']};
+    line-height: 1.5;
 }}
 
 /* ==================== TAB WIDGET ==================== */

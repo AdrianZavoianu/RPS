@@ -74,35 +74,32 @@ class PushoverCurveView(QWidget):
                 background-color: #0a0c10;
                 border: none;
                 outline: none;
-                gridline-color: #2c313a;
+                gridline-color: #1e2329;
                 color: #d1d5db;
             }
             QTableWidget::item {
                 padding: 1px 2px;
                 border: none;
             }
-            QTableWidget QAbstractScrollArea {
-                border: none;
-            }
-            QTableWidget::viewport {
-                border: 1px solid #2c313a;
-            }
             QTableWidget QTableCornerButton::section {
-                border: 0px;
+                border: none;
+                background-color: #161b22;
+            }
+            QHeaderView {
                 background-color: #161b22;
             }
             QHeaderView::section {
                 background-color: #161b22;
                 color: #4a7d89;
-                padding: 2px 4px;
+                padding: 4px 4px;
                 border: none;
-                border-right: 1px solid #2c313a;
-                border-bottom: 1px solid #2c313a;
+                border-right: 1px solid #1e2329;
+                border-bottom: 1px solid #1e2329;
                 font-weight: 600;
                 text-align: center;
             }
             QHeaderView::section:last {
-                border-right: 0px;
+                border-right: none;
             }
         """)
 

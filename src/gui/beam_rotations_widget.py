@@ -61,20 +61,28 @@ class BeamRotationsWidget(QWidget):
         self.table_widget.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
-                gridline-color: {COLORS['border']};
+                border: none;
+                gridline-color: #1e2329;
                 color: {COLORS['text']};
             }}
             QTableWidget::item {{
                 padding: 4px 8px;
                 border: none;
             }}
+            QHeaderView {{
+                background-color: {COLORS['card']};
+            }}
             QHeaderView::section {{
                 background-color: {COLORS['card']};
-                color: {COLORS['muted']};
-                padding: 8px;
+                color: {COLORS['accent']};
+                padding: 4px 4px;
                 border: none;
-                border-bottom: 1px solid {COLORS['border']};
+                border-right: 1px solid #1e2329;
+                border-bottom: 1px solid #1e2329;
+                font-weight: 600;
+            }}
+            QHeaderView::section:last {{
+                border-right: none;
             }}
         """)
         self.tab_widget.addTab(self.table_widget, "Table")
@@ -173,9 +181,9 @@ class BeamRotationsWidget(QWidget):
             case_item = QTableWidgetItem(str(row['LoadCase']))
             self.table_widget.setItem(row_idx, 1, case_item)
 
-            # Rotation (formatted as percentage)
+            # Rotation (percentage value, no unit suffix)
             rotation_value = row['Rotation']
-            rotation_item = QTableWidgetItem(f"{rotation_value:.2f}%")
+            rotation_item = QTableWidgetItem(f"{rotation_value:.2f}")
             self.table_widget.setItem(row_idx, 2, rotation_item)
 
         # Resize columns to content

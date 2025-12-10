@@ -198,9 +198,8 @@ class SheetConflictDialog(QDialog):
             }}
             QTableWidget {{
                 background-color: {COLORS['card']};
-                gridline-color: {COLORS['border']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
+                gridline-color: #1e2329;
+                border: none;
                 font-size: 13px;
             }}
             QTableWidget::item {{
@@ -211,14 +210,21 @@ class SheetConflictDialog(QDialog):
             QTableWidget::item:alternate {{
                 background-color: rgba(255, 255, 255, 0.02);
             }}
+            QHeaderView {{
+                background-color: {COLORS['hover']};
+            }}
             QHeaderView::section {{
                 background-color: {COLORS['hover']};
                 color: {COLORS['text']};
-                padding: 8px;
+                padding: 4px 8px;
                 border: none;
-                border-bottom: 2px solid {COLORS['border']};
+                border-right: 1px solid #1e2329;
+                border-bottom: 1px solid #1e2329;
                 font-weight: bold;
                 font-size: 13px;
+            }}
+            QHeaderView::section:last {{
+                border-right: none;
             }}
         """)
 

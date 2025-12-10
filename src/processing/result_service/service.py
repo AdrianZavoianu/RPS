@@ -261,14 +261,18 @@ class ResultDataService:
         if not self.session or not self.element_repo:
             return None
 
-        from database.models import QuadRotation, LoadCase, Story, Element
+        from database.models import QuadRotation, LoadCase, Story, Element, ResultCategory
 
         records = (
             self.session.query(QuadRotation, LoadCase, Story, Element)
             .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
             .join(Story, QuadRotation.story_id == Story.id)
             .join(Element, QuadRotation.element_id == Element.id)
-            .filter(Story.project_id == self.project_id)
+            .join(ResultCategory, QuadRotation.result_category_id == ResultCategory.id)
+            .filter(
+                Story.project_id == self.project_id,
+                ResultCategory.result_set_id == result_set_id,
+            )
             .all()
         )
 
@@ -305,14 +309,18 @@ class ResultDataService:
         if not self.session or not self.element_repo:
             return None
 
-        from database.models import ColumnRotation, LoadCase, Story, Element
+        from database.models import ColumnRotation, LoadCase, Story, Element, ResultCategory
 
         records = (
             self.session.query(ColumnRotation, LoadCase, Story, Element)
             .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
             .join(Story, ColumnRotation.story_id == Story.id)
             .join(Element, ColumnRotation.element_id == Element.id)
-            .filter(Story.project_id == self.project_id)
+            .join(ResultCategory, ColumnRotation.result_category_id == ResultCategory.id)
+            .filter(
+                Story.project_id == self.project_id,
+                ResultCategory.result_set_id == result_set_id,
+            )
             .all()
         )
 
@@ -361,14 +369,18 @@ class ResultDataService:
         if not self.session or not self.element_repo:
             return None
 
-        from database.models import BeamRotation, LoadCase, Story, Element
+        from database.models import BeamRotation, LoadCase, Story, Element, ResultCategory
 
         records = (
             self.session.query(BeamRotation, LoadCase, Story, Element)
             .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
             .join(Story, BeamRotation.story_id == Story.id)
             .join(Element, BeamRotation.element_id == Element.id)
-            .filter(Story.project_id == self.project_id)
+            .join(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
+            .filter(
+                Story.project_id == self.project_id,
+                ResultCategory.result_set_id == result_set_id,
+            )
             .all()
         )
 
@@ -414,14 +426,18 @@ class ResultDataService:
         if not self.session or not self.element_repo:
             return None
 
-        from database.models import BeamRotation, LoadCase, Story, Element
+        from database.models import BeamRotation, LoadCase, Story, Element, ResultCategory
 
         records = (
             self.session.query(BeamRotation, LoadCase, Story, Element)
             .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
             .join(Story, BeamRotation.story_id == Story.id)
             .join(Element, BeamRotation.element_id == Element.id)
-            .filter(Story.project_id == self.project_id)
+            .join(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
+            .filter(
+                Story.project_id == self.project_id,
+                ResultCategory.result_set_id == result_set_id,
+            )
             .order_by(Story.sort_order, Element.name, LoadCase.name)
             .all()
         )

@@ -50,21 +50,21 @@ class ElementResultQueryRepository:
             max_attr="max_rotation",
             min_attr="min_rotation",
             direction_attr="direction",
-            multiplier=100.0,
+            multiplier=100.0,  # Display as percentage
         ),
         "BeamRotations": ElementResultModelInfo(
             model=BeamRotation,
             max_attr="max_r3_plastic",
             min_attr="min_r3_plastic",
             direction_attr=None,
-            multiplier=100.0,
+            multiplier=100.0,  # Display as percentage
         ),
         "QuadRotations": ElementResultModelInfo(
             model=QuadRotation,
             max_attr="max_rotation",
             min_attr="min_rotation",
             direction_attr=None,
-            multiplier=100.0,
+            multiplier=100.0,  # Display as percentage
         ),
     }
 

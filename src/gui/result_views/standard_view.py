@@ -72,7 +72,7 @@ class StandardResultView(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(8)
+        splitter.setHandleWidth(12)  # Increased handle width for more spacing
         splitter.setStyleSheet(
             """
             QSplitter {
@@ -81,7 +81,7 @@ class StandardResultView(QWidget):
             }
             QSplitter::handle {
                 background-color: transparent;
-                margin: 0px 4px;
+                margin: 0px 6px;  # Increased margin for more spacing between table and plot
             }
             """
         )

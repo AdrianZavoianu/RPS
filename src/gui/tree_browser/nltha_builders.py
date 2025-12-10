@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from gui.results_tree_browser import ResultsTreeBrowser
 
 
-def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set) -> None:
+def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set, expand_first_path: bool = True) -> None:
     """Add a result set with its hierarchy.
 
     Structure:
@@ -30,7 +30,7 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
     result_set_item = QTreeWidgetItem(parent_item)
     result_set_item.setText(0, f"▸ {result_set.name}")
     result_set_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "result_set", "id": result_set.id})
-    result_set_item.setExpanded(True)
+    result_set_item.setExpanded(expand_first_path)
 
     # Envelopes category
     envelopes_item = QTreeWidgetItem(result_set_item)
@@ -40,7 +40,7 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
         "result_set_id": result_set.id,
         "category": "Envelopes"
     })
-    envelopes_item.setExpanded(True)
+    envelopes_item.setExpanded(expand_first_path)
 
     # Global Results
     global_item = QTreeWidgetItem(envelopes_item)
@@ -51,26 +51,35 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
         "category": "Envelopes",
         "category_type": "Global"
     })
-    global_item.setExpanded(True)
+    global_item.setExpanded(expand_first_path)
 
     # Result types under Global (only show if data exists)
+    # Track if we've expanded the first result type
+    first_result_type_expanded = False
+    
     if browser._has_data_for(result_set.id, "Drifts"):
-        add_drifts_section(browser, global_item, result_set.id)
+        add_drifts_section(browser, global_item, result_set.id, expand_first_path)
+        first_result_type_expanded = True
 
     if browser._has_data_for(result_set.id, "Accelerations"):
         add_result_type_with_directions(
             browser, global_item, "> Story Accelerations", result_set.id,
-            "Envelopes", "Accelerations", include_maxmin=True, maxmin_label="Accelerations"
+            "Envelopes", "Accelerations", include_maxmin=True, maxmin_label="Accelerations",
+            expand_first_path=expand_first_path and not first_result_type_expanded
         )
+        if expand_first_path and not first_result_type_expanded:
+            first_result_type_expanded = True
     if browser._has_data_for(result_set.id, "Forces"):
         add_result_type_with_directions(
             browser, global_item, "> Story Forces", result_set.id,
-            "Envelopes", "Forces", include_maxmin=True, maxmin_label="Story Forces"
+            "Envelopes", "Forces", include_maxmin=True, maxmin_label="Story Forces",
+            expand_first_path=False
         )
     if browser._has_data_for(result_set.id, "Displacements"):
         add_result_type_with_directions(
             browser, global_item, "> Floors Displacements", result_set.id,
-            "Envelopes", "Displacements", include_maxmin=True, maxmin_label="Floors Displacements"
+            "Envelopes", "Displacements", include_maxmin=True, maxmin_label="Floors Displacements",
+            expand_first_path=False
         )
 
     # Elements category
@@ -123,7 +132,7 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
     placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
 
 
-def add_drifts_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_drifts_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int, expand_first_path: bool = True) -> None:
     """Add Drifts section with directions and Max/Min subsection."""
     drifts_parent = QTreeWidgetItem(parent_item)
     drifts_parent.setText(0, "› Drifts")
@@ -133,7 +142,7 @@ def add_drifts_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetIt
         "category": "Envelopes",
         "result_type": "Drifts"
     })
-    drifts_parent.setExpanded(False)
+    drifts_parent.setExpanded(expand_first_path)
 
     # X Direction
     x_item = QTreeWidgetItem(drifts_parent)
@@ -177,6 +186,7 @@ def add_result_type_with_directions(
     result_type: str,
     include_maxmin: bool = False,
     maxmin_label: str = None,
+    expand_first_path: bool = False,
 ) -> None:
     """Add a result type with X/Y directions and optional Max/Min."""
     result_type_parent = QTreeWidgetItem(parent_item)
@@ -187,7 +197,7 @@ def add_result_type_with_directions(
         "category": category,
         "result_type": result_type
     })
-    result_type_parent.setExpanded(False)
+    result_type_parent.setExpanded(expand_first_path)
 
     # X Direction
     x_item = QTreeWidgetItem(result_type_parent)
@@ -644,7 +654,7 @@ def add_beam_rotations_section(
     result_set_id: int,
     beam_elements: List,
 ) -> None:
-    """Add Beam Rotations subsection."""
+    """Add Beam Rotations subsection with Plot and Table views (like Soil Pressures)."""
     rotations_parent = QTreeWidgetItem(parent_item)
     rotations_parent.setText(0, "  › R3 Plastic Rotations")
     rotations_parent.setData(0, Qt.ItemDataRole.UserRole, {
@@ -653,12 +663,12 @@ def add_beam_rotations_section(
         "category": "Envelopes",
         "result_type": "BeamRotations"
     })
-    rotations_parent.setExpanded(True)
+    rotations_parent.setExpanded(False)
 
-    # Add "All" section
-    all_item = QTreeWidgetItem(rotations_parent)
-    all_item.setText(0, "    › All Rotations (Scatter)")
-    all_item.setData(0, Qt.ItemDataRole.UserRole, {
+    # Plot view
+    plot_item = QTreeWidgetItem(rotations_parent)
+    plot_item.setText(0, "    ├ Plot")
+    plot_item.setData(0, Qt.ItemDataRole.UserRole, {
         "type": "beam_rotations_plot",
         "result_set_id": result_set_id,
         "category": "Envelopes",
@@ -666,9 +676,9 @@ def add_beam_rotations_section(
         "element_id": -1
     })
 
-    # Add "Table" section for wide-format table
+    # Table view
     table_item = QTreeWidgetItem(rotations_parent)
-    table_item.setText(0, "    › All Rotations (Table)")
+    table_item.setText(0, "    └ Table")
     table_item.setData(0, Qt.ItemDataRole.UserRole, {
         "type": "beam_rotations_table",
         "result_set_id": result_set_id,
@@ -676,47 +686,6 @@ def add_beam_rotations_section(
         "result_type": "BeamRotationsTable",
         "element_id": -1
     })
-
-    if not beam_elements:
-        placeholder = QTreeWidgetItem(rotations_parent)
-        placeholder.setText(0, "    └ No beams found")
-        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
-        return
-
-    for element in beam_elements:
-        beam_item = QTreeWidgetItem(rotations_parent)
-        beam_item.setText(0, f"    › {element.name}")
-        beam_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "element_parent",
-            "result_set_id": result_set_id,
-            "category": "Envelopes",
-            "element_id": element.id,
-            "element_name": element.name
-        })
-        beam_item.setExpanded(True)
-
-        # Rotation
-        rotation_item = QTreeWidgetItem(beam_item)
-        rotation_item.setText(0, "      ├ R3 Plastic")
-        rotation_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "result_type",
-            "result_set_id": result_set_id,
-            "category": "Envelopes",
-            "result_type": "BeamRotations",
-            "direction": "R3Plastic",
-            "element_id": element.id
-        })
-
-        # Max/Min
-        maxmin_item = QTreeWidgetItem(beam_item)
-        maxmin_item.setText(0, "      └ Max/Min")
-        maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "maxmin_results",
-            "result_set_id": result_set_id,
-            "category": "Envelopes",
-            "result_type": "MaxMinBeamRotations",
-            "element_id": element.id
-        })
 
 
 def add_soil_pressures_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:

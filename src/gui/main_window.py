@@ -47,8 +47,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Results Processing System")
         self.setMinimumSize(QSize(1200, 800))
 
-        # Apply gray background to main window (match group box background)
-        self.setStyleSheet(f"QMainWindow {{ background-color: {COLORS['card']}; }}")
+        # Apply primary background to main window
+        self.setStyleSheet(f"QMainWindow {{ background-color: {COLORS['background']}; }}")
 
         # Store current project
         self.current_project = None
@@ -88,17 +88,8 @@ class MainWindow(QMainWindow):
         self._create_content_area(layout)
 
     def _create_status_bar(self):
-        """Create status bar."""
-        self.statusBar().showMessage("Ready")
-
-        # Add permanent widgets to status bar
-        self.project_label = QLabel("No project loaded")
-        self.statusBar().addPermanentWidget(self.project_label)
-
-        diagnostics_btn = QPushButton("Diagnostics")
-        diagnostics_btn.setObjectName("statusDiagnosticsButton")
-        diagnostics_btn.clicked.connect(self._show_diagnostics)
-        self.statusBar().addPermanentWidget(diagnostics_btn)
+        """Create status bar - hidden for cleaner UI."""
+        self.statusBar().hide()
 
     def _show_diagnostics(self):
         """Open diagnostics dialog showing log output."""
@@ -110,21 +101,36 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("topHeader")
         header.setFrameShape(QFrame.Shape.NoFrame)
-        header.setFixedHeight(110)  # Taller header for larger logo
+        header.setFixedHeight(80)  # Compact header
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 8, 20, 8)
+        header_layout.setContentsMargins(24, 8, 24, 8)
         header_layout.setSpacing(16)
 
-        # Branded logo on the left
+        # Branded logo on the left (colorized mask)
         logo_path = Path(__file__).resolve().parent.parent.parent / "resources" / "icons" / "RPS_Logo.png"
         logo_label = QLabel()
         logo_label.setObjectName("headerLogo")
         logo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         # Scale logo based on header height and keep aspect ratio (HiDPI safe)
-        # Use a slightly smaller target than header inner height to avoid any clipping
-        target_logo_height = 60
-        pixmap = QPixmap(str(logo_path))
-        if not pixmap.isNull():
+        target_logo_height = 56  # Larger logo
+
+        # Load and colorize the logo mask
+        from PyQt6.QtGui import QImage, QColor
+        image = QImage(str(logo_path))
+        if not image.isNull():
+            # Colorize the mask with lighter blue color
+            logo_color = QColor("#6b9dad")  # Lighter teal/blue
+            image = image.convertToFormat(QImage.Format.Format_ARGB32)
+            for y in range(image.height()):
+                for x in range(image.width()):
+                    pixel = image.pixelColor(x, y)
+                    if pixel.alpha() > 0:
+                        new_color = QColor(logo_color)
+                        new_color.setAlpha(pixel.alpha())
+                        image.setPixelColor(x, y, new_color)
+
+            pixmap = QPixmap.fromImage(image)
+
             # Compute logical width from aspect ratio to avoid DPI cropping
             aspect = pixmap.width() / pixmap.height() if pixmap.height() else 1.0
             logical_width = int(target_logo_height * aspect)
@@ -246,8 +252,8 @@ class MainWindow(QMainWindow):
         """Create projects page container."""
         page = QWidget()
         outer_layout = QVBoxLayout(page)
-        outer_layout.setContentsMargins(24, 24, 24, 24)
-        outer_layout.setSpacing(16)
+        outer_layout.setContentsMargins(24, 4, 24, 24)  # Minimal top margin
+        outer_layout.setSpacing(12)
 
         title = QLabel("My Projects")
         title.setObjectName("pageHeadline")
@@ -274,30 +280,14 @@ class MainWindow(QMainWindow):
 
         self.projects_scroll = QScrollArea()
         self.projects_scroll.setWidgetResizable(True)
+        self.projects_scroll.setFrameShape(QFrame.Shape.NoFrame)  # Remove scroll area border
+        self.projects_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         self.project_grid = ProjectGridWidget(
             on_open=self._open_project_detail,
             on_delete=self._delete_project,
         )
         self.projects_scroll.setWidget(self.project_grid)
         outer_layout.addWidget(self.projects_scroll)
-
-        self.summary_card = QFrame()
-        self.summary_card.setObjectName("summaryCard")
-        summary_layout = QHBoxLayout(self.summary_card)
-        summary_layout.setContentsMargins(24, 16, 24, 16)
-        summary_layout.setSpacing(32)
-
-        self.summary_labels = {
-            "projects": self._create_summary_metric("Total Projects", "0"),
-            "load_cases": self._create_summary_metric("Total Load Cases", "0"),
-            "stories": self._create_summary_metric("Total Stories", "0"),
-        }
-
-        for metric in self.summary_labels.values():
-            summary_layout.addLayout(metric)
-
-        outer_layout.addWidget(self.summary_card)
-        self.summary_card.setVisible(False)
 
         return page
 
@@ -322,26 +312,6 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         return page
-
-    def _create_summary_metric(self, label: str, value: str) -> QVBoxLayout:
-        """Helper to create a summary metric widget."""
-        layout = QVBoxLayout()
-        layout.setSpacing(4)
-
-        value_label = QLabel(value)
-        value_label.setObjectName("summaryMetricValue")
-
-        label_widget = QLabel(label)
-        label_widget.setObjectName("summaryMetricLabel")
-
-        layout.addWidget(value_label)
-        layout.addWidget(label_widget)
-
-        # Store references for updates
-        layout.value_label = value_label  # type: ignore[attr-defined]
-        layout.label_widget = label_widget  # type: ignore[attr-defined]
-
-        return layout
 
     def _set_active_nav(self, name: str):
         """Toggle nav button state and set stacked widget page."""
@@ -371,7 +341,6 @@ class MainWindow(QMainWindow):
     def _refresh_projects(self):
         """Load projects from catalog and render cards."""
         project_rows = []
-        totals = {"projects": 0, "load_cases": 0, "stories": 0}
         summaries = self.project_controller.list_summaries()
 
         for summary in summaries:
@@ -386,19 +355,7 @@ class MainWindow(QMainWindow):
             }
             project_rows.append(row)
 
-            totals["projects"] += 1
-            totals["load_cases"] += summary.load_cases
-            totals["stories"] += summary.stories
-
         self.project_grid.set_projects(project_rows)
-
-        if not project_rows:
-            self._update_summary({"projects": 0, "load_cases": 0, "stories": 0})
-            self.summary_card.setVisible(False)
-            return
-
-        self._update_summary(totals)
-        self.summary_card.setVisible(True)
 
     def _open_project_detail(self, project_name: str):
         """Open project detail window."""
@@ -495,12 +452,6 @@ class MainWindow(QMainWindow):
                 f"An error occurred while deleting the project:\n\n{str(e)}"
             )
 
-    def _update_summary(self, totals: dict):
-        """Update summary metrics at bottom of page."""
-        self.summary_labels["projects"].value_label.setText(str(totals.get("projects", 0)))  # type: ignore[attr-defined]
-        self.summary_labels["load_cases"].value_label.setText(str(totals.get("load_cases", 0)))  # type: ignore[attr-defined]
-        self.summary_labels["stories"].value_label.setText(str(totals.get("stories", 0)))  # type: ignore[attr-defined]
-
     @staticmethod
     def _format_date(date_value) -> str:
         """Format datetime for display."""
@@ -583,8 +534,6 @@ class MainWindow(QMainWindow):
 
                     QMessageBox.information(self, "Import Complete", message)
 
-                    self.statusBar().showMessage(f"Import complete: {project_name}", 5000)
-                    self.project_label.setText(f"Project: {project_name}")
                     self.current_project = project_name
 
                     # Refresh projects view
@@ -635,8 +584,6 @@ class MainWindow(QMainWindow):
                 "Review the Projects page to explore the new results.",
             )
 
-            self.statusBar().showMessage(f"Folder import complete: {project_name}", 5000)
-            self.project_label.setText(f"Project: {project_name}")
             self.current_project = project_name
 
             # Refresh projects view

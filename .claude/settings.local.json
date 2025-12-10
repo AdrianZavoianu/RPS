@@ -57,7 +57,10 @@
       "Bash(grep:*)",
       "Bash(xargs basename:*)",
       "Bash(ls:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(ping:*)",
+      "Bash(if not exist \"C:\\SoftDev\\RPS\\data\" mkdir \"C:\\SoftDev\\RPS\\data\")",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []

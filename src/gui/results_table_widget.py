@@ -7,11 +7,12 @@ from typing import List, Optional, Set, TYPE_CHECKING
 
 import pandas as pd
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QHeaderView,
+    QHBoxLayout,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -20,7 +21,13 @@ from PyQt6.QtWidgets import (
 )
 
 from utils.color_utils import get_gradient_color
-from .components.results_table_header import ClickableTableWidget, SelectableHeaderView
+from .components.results_table_header import ClickableTableWidget, SelectableHeaderView, PerimeterBorderDelegate
+
+if TYPE_CHECKING:
+    pass
+
+
+
 
 if TYPE_CHECKING:
     from processing.result_service import ResultDataset
@@ -72,17 +79,19 @@ class ResultsTableWidget(QWidget):
         from PyQt6.QtWidgets import QHeaderView  # Local import to avoid missing symbol during hot reload
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)  # No margins - table fills container edge-to-edge
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self.table = ClickableTableWidget()
-        # Remove any native frame; rely only on explicit border + gridlines
+        # No frame - we'll handle borders via CSS on container
         self.table.setFrameShape(QFrame.Shape.NoFrame)
+        self.table.setFrameShadow(QFrame.Shadow.Plain)
         self.table.setLineWidth(0)
         self.table.setMidLineWidth(0)
+        # Use Qt gridlines for internal borders
         self.table.setShowGrid(True)
 
-        # Connect row click signal
+        # Connect row click signal (for Story column clicks only)
         self.table.rowClicked.connect(self._on_row_clicked)
 
         # Set custom header view for highlighting selected columns
@@ -112,50 +121,82 @@ class ResultsTableWidget(QWidget):
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         # Set consistent font across entire table (compact for fitting both table and plot)
-        table_font = QFont("Inter", 10)
+        table_font = QFont("Inter", 9)
         self.table.setFont(table_font)
         self.table.horizontalHeader().setFont(table_font)
 
-        # Style matching GMP tables
+        # Style matching GMP tables - clean minimal design
         # NOTE: No background rules for ::item to allow programmatic background styling
+        # Minimal design: no outer border, subtle gridlines, clean header separators
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #0a0c10;
                 border: none;
+                border-left: none;
+                border-right: none;
+                border-top: none;
+                border-bottom: none;
                 outline: none;
-                gridline-color: #2c313a;
+                gridline-color: #1e2329;
                 color: #d1d5db;
+            }
+            QTableWidget QAbstractItemView {
+                border: none;
+                border-left: none;
+                outline: none;
             }
             QTableWidget::item {
                 padding: 1px 2px;
                 border: none;
             }
-            QTableWidget QAbstractScrollArea {
-                border: none;
-            }
-            QTableWidget::viewport {
-                border: 1px solid #2c313a;
-            }
             QTableWidget QTableCornerButton::section {
-                border: 0px;
+                border: none;
                 background-color: #161b22;
+            }
+            QHeaderView {
+                background-color: #161b22;
+                border: none;
             }
             QHeaderView::section {
-                background-color: #161b22;
+                background-color: transparent;
                 color: #4a7d89;
-                padding: 2px 4px;
+                padding: 4px 4px;
                 border: none;
-                border-right: 1px solid #2c313a;
-                border-bottom: 1px solid #2c313a;
+                border-left: none;
+                border-right: none;
+                border-top: none;
+                border-bottom: none;
                 font-weight: 600;
                 text-align: center;
             }
-            QHeaderView::section:last {
-                border-right: 0px;
+            QScrollBar:vertical {
+                border: none;
+                border-left: none;
+                border-right: none;
+                background-color: transparent;
+                width: 2px;
+                margin: 0px;
+                padding: 0px;
             }
-            QHeaderView::section:hover {
-                background-color: #1f2937;
-                color: #67e8f9;
+            QScrollBar::handle:vertical {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: none;
+                border-left: none;
+                border-right: none;
+                border-radius: 1px;
+                min-height: 20px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: rgba(255, 255, 255, 0.08);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+                border: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+                border: none;
             }
         """)
 
@@ -318,14 +359,13 @@ class ResultsTableWidget(QWidget):
             else:
                 self.table.setColumnWidth(col_idx, data_column_width)
 
-        total_width = story_column_width + max(0, column_count - 1) * data_column_width + 2
+        table_width = story_column_width + max(0, column_count - 1) * data_column_width
+
         # Set minimum width to content width - table should not scroll
-        # This allows table to take just enough space, giving more to the plot
-        self.table.setMinimumWidth(total_width)
-        self.setMinimumWidth(total_width)
-        # Lock maximum to content width to avoid empty bordered area
-        self.table.setMaximumWidth(total_width)
-        self.setMaximumWidth(total_width)
+        self.table.setMinimumWidth(table_width)
+        self.table.setMaximumWidth(table_width)
+        self.setMinimumWidth(table_width)
+        self.setMaximumWidth(table_width)
 
     def _format_value(self, value, config) -> str:
         """Format numeric table value with unit string."""
@@ -335,12 +375,8 @@ class ResultsTableWidget(QWidget):
             numeric_value = float(value)
         except (TypeError, ValueError):
             return str(value)
-        base_type = self._base_result_type()
-        if base_type in {"Accelerations", "Forces", "Displacements", "WallShears", "ColumnShears", "MinAxial", "QuadRotations"}:
-            unit_suffix = ""
-        else:
-            unit_suffix = config.unit or ""
-        return f"{numeric_value:.{config.decimal_places}f}{unit_suffix}"
+        # No unit suffix in table cells - unit is shown in column header/title
+        return f"{numeric_value:.{config.decimal_places}f}"
 
     @staticmethod
     def _safe_numeric(value) -> float:
@@ -377,15 +413,15 @@ class ResultsTableWidget(QWidget):
         return min_val, max_val
 
     def _on_row_clicked(self, row: int):
-        """Handle row click - toggle selection."""
+        """Handle row click (Story column) - toggle row selection."""
         # Toggle row selection
         if row in self._selected_rows:
             self._selected_rows.remove(row)
         else:
             self._selected_rows.add(row)
 
-        # Update row styling
-        self._apply_row_style(self.table, row)
+        # Update all column highlighting (to update bold state)
+        self._update_column_highlighting()
 
     def _on_header_hovered(self, display_name: str):
         """
@@ -436,7 +472,7 @@ class ResultsTableWidget(QWidget):
         # Avg, Max, Min columns - do nothing
 
     def eventFilter(self, obj, event):
-        """Handle hover effects for table rows."""
+        """Handle hover effects - bold only the hovered cell."""
         table = obj.parent()
         if not isinstance(table, ClickableTableWidget):
             return False
@@ -449,36 +485,57 @@ class ResultsTableWidget(QWidget):
                 pos = event.position().toPoint()
             item = table.itemAt(pos)
             new_row = item.row() if item else -1
+            new_col = item.column() if item else -1
             old_row = getattr(table, '_hovered_row', -1)
+            old_col = getattr(table, '_hovered_col', -1)
 
-            if new_row != old_row:
-                if old_row >= 0:
-                    self._apply_row_hover(table, old_row, False)
-                if new_row >= 0:
-                    self._apply_row_hover(table, new_row, True)
+            # Only update if hovered cell changed
+            if new_row != old_row or new_col != old_col:
+                # Clear bold on old hovered cell
+                if old_row >= 0 and old_col >= 0:
+                    old_item = table.item(old_row, old_col)
+                    if old_item:
+                        # Only remove bold if not in selected row/column
+                        old_col_name = self._column_names[old_col] if old_col < len(self._column_names) else ""
+                        is_selected = (old_row in self._selected_rows) or (old_col_name in self._selected_load_cases)
+                        old_item.setData(PerimeterBorderDelegate.BoldRole, is_selected)
+
+                # Set bold on new hovered cell
+                if new_row >= 0 and new_col >= 0:
+                    new_item = table.item(new_row, new_col)
+                    if new_item:
+                        new_item.setData(PerimeterBorderDelegate.BoldRole, True)
+
+                table._hovered_row = new_row
+                table._hovered_col = new_col
+                table.viewport().update()
 
         elif event.type() in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
-            # Clear hover when mouse leaves table
+            # Clear bold on hovered cell when mouse leaves
             old_row = getattr(table, '_hovered_row', -1)
-            if old_row >= 0:
-                self._apply_row_hover(table, old_row, False)
+            old_col = getattr(table, '_hovered_col', -1)
+            if old_row >= 0 and old_col >= 0:
+                old_item = table.item(old_row, old_col)
+                if old_item:
+                    old_col_name = self._column_names[old_col] if old_col < len(self._column_names) else ""
+                    is_selected = (old_row in self._selected_rows) or (old_col_name in self._selected_load_cases)
+                    old_item.setData(PerimeterBorderDelegate.BoldRole, is_selected)
+            table._hovered_row = -1
+            table._hovered_col = -1
+            table.viewport().update()
 
         return False
 
-    def _apply_row_style(self, table, row, hovered=None):
-        """Apply style to a row based on hover and selection state."""
+    def _apply_row_style(self, table, row):
+        """Apply style to a row based on selection and column selection state."""
         from PyQt6.QtGui import QColor, QBrush
 
         if row < 0 or row >= table.rowCount():
             return
 
-        if hovered is None:
-            hovered = (row == getattr(table, '_hovered_row', -1))
-        is_selected = (row in self._selected_rows)
-
-        hover_color = QColor("#1c2128")
+        is_row_selected = (row in self._selected_rows)
         selection_color = QColor("#1f2937")
-        combined_color = QColor("#264653")
+        col_select_color = QColor("#1a2a30")  # Subtle teal tint for column selection
 
         for col in range(table.columnCount()):
             item = table.item(row, col)
@@ -489,13 +546,15 @@ class ResultsTableWidget(QWidget):
             if original_color is not None:
                 item.setForeground(original_color)
 
-            # Apply background overlay if hovered or selected
-            if hovered and is_selected:
-                bg_color = combined_color
-            elif is_selected:
+            # Check if this column is selected
+            col_name = self._column_names[col] if col < len(self._column_names) else ""
+            is_col_selected = col_name in self._selected_load_cases
+
+            # Apply background overlay based on states (priority order)
+            if is_row_selected:
                 bg_color = selection_color
-            elif hovered:
-                bg_color = hover_color
+            elif is_col_selected:
+                bg_color = col_select_color
             else:
                 bg_color = None
 
@@ -507,26 +566,68 @@ class ResultsTableWidget(QWidget):
                 item.setBackground(QBrush())
                 item.setData(Qt.ItemDataRole.BackgroundRole, None)
 
+            # Set bold for selected cells (column or row selection)
+            should_bold = is_col_selected or is_row_selected
+            item.setData(PerimeterBorderDelegate.BoldRole, should_bold)
+
         # Force table to repaint this row
         table.viewport().update()
-
-    def _apply_row_hover(self, table, row, is_hovered):
-        """Apply or remove hover effect from a row."""
-        if row < 0 or row >= table.rowCount():
-            return
-
-        if is_hovered:
-            table._hovered_row = row
-        elif getattr(table, '_hovered_row', -1) == row:
-            table._hovered_row = -1
-
-        self._apply_row_style(table, row, hovered=is_hovered)
 
     def _update_header_styling(self):
         """Update header styling to highlight selected columns."""
         header = self.table.horizontalHeader()
         if isinstance(header, SelectableHeaderView):
             header.set_selected_sections(self._selected_load_cases)
+        # Also update column cell highlighting
+        self._update_column_highlighting()
+
+    def _update_column_highlighting(self):
+        """Apply gentle background highlight and bold text to selected columns and rows."""
+        from PyQt6.QtGui import QBrush, QColor
+
+        # Colors for different states
+        col_select_color = QColor("#1a2a30")  # Gentle teal tint for column selection
+        row_select_color = QColor("#1f2937")  # Row selection
+
+        row_count = self.table.rowCount()
+        col_count = len(self._column_names)
+
+        for col_idx in range(col_count):
+            col_name = self._column_names[col_idx]
+            is_col_selected = col_name in self._selected_load_cases
+
+            for row_idx in range(row_count):
+                item = self.table.item(row_idx, col_idx)
+                if not item:
+                    continue
+
+                is_row_selected = (row_idx in self._selected_rows)
+
+                # Determine background color based on states (row selection takes priority)
+                if is_row_selected:
+                    bg_color = row_select_color
+                elif is_col_selected:
+                    bg_color = col_select_color
+                else:
+                    bg_color = None
+
+                if bg_color:
+                    item.setBackground(QBrush(bg_color))
+                    item.setData(Qt.ItemDataRole.BackgroundRole, bg_color)
+                else:
+                    item.setBackground(QBrush())
+                    item.setData(Qt.ItemDataRole.BackgroundRole, None)
+
+                # Set bold for selected cells (column or row selection)
+                # But preserve hover bold state if cell is currently hovered
+                hovered_row = getattr(self.table, '_hovered_row', -1)
+                hovered_col = getattr(self.table, '_hovered_col', -1)
+                is_hovered = (row_idx == hovered_row and col_idx == hovered_col)
+                should_bold = is_col_selected or is_row_selected or is_hovered
+                item.setData(PerimeterBorderDelegate.BoldRole, should_bold)
+
+        # Force repaint
+        self.table.viewport().repaint()
 
     def clear_data(self):
         """Clear table contents but preserve shorthand mapping."""

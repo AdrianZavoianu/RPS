@@ -205,11 +205,8 @@ class ComparisonTableWidget(ResultsTableWidget):
                         # Ratio column - always 2 decimal places, no unit
                         formatted_value = f"{value:.2f}"
                     else:
-                        # Regular result column - use config decimal places
+                        # Regular result column - use config decimal places (no unit suffix)
                         formatted_value = f"{value:.{dataset.config.decimal_places}f}"
-                        # Add % for drift results only
-                        if dataset.config.unit == "%":
-                            formatted_value += " %"
 
                     item.setText(formatted_value)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -33,16 +33,16 @@ class PlotBuilder:
         story_indices = list(range(len(stories)))
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
 
-        # Set labels with larger font
+        # Set labels - slightly larger than axis tick values (typically 10pt)
         self.plot.setLabel(
             'left',
             y_label or 'Building Height',
-            **{'font-size': '12pt'}
+            **{'font-size': '10.5pt'}
         )
         self.plot.setLabel(
             'bottom',
             x_label or self.config.y_label,
-            **{'font-size': '12pt'}
+            **{'font-size': '10.5pt'}
         )
 
     def set_story_range(self, num_stories: int, padding: float = 0.08):
