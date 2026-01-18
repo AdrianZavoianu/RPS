@@ -18,6 +18,10 @@ pipenv run python src/main.py
 pipenv run python dev_watch.py
 ```
 
+### Repo hygiene
+
+- Detect stray top-level folders (e.g., accidental extracted paths): `pipenv run python scripts/check_repo_hygiene.py`
+
 ## Features
 
 ✅ **Complete Data Pipeline** – Import, process, and store envelopes, element, and foundation results
@@ -68,6 +72,13 @@ pipenv run pytest
 ```
 
 New tests cover the import task registry, folder import aggregators, project runtime/controller wiring, and logging utilities. Additions should keep parity by extending the relevant suites under `tests/`.
+
+## Developer checklist
+
+- `pipenv run black src tests`
+- `pipenv run flake8`
+- `pipenv run pytest`
+- `pipenv run python scripts/check_repo_hygiene.py`
 
 ## Platform Support
 

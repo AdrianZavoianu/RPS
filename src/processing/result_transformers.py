@@ -58,17 +58,22 @@ class ResultTransformer(ABC):
         df['Min'] = numeric_data.min(axis=1)
         return df
 
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, df: pd.DataFrame, skip_summary: bool = False) -> pd.DataFrame:
         """
         Full transformation pipeline.
 
         1. Filter relevant columns
         2. Clean column names
-        3. Add statistics
+        3. Add statistics (unless skip_summary=True for Pushover)
+
+        Args:
+            df: Input DataFrame
+            skip_summary: If True, skip adding Avg/Max/Min columns (for Pushover results)
         """
         df = self.filter_columns(df)
         df = self.clean_column_names(df)
-        df = self.add_statistics(df)
+        if not skip_summary:
+            df = self.add_statistics(df)
         return df
 
 

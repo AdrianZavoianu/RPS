@@ -1,0 +1,24 @@
+{
+  "shape": [
+    6,
+    7
+  ],
+  "columns": [
+    "Story",
+    "Pier",
+    "Output Case",
+    "Step Type",
+    "Location",
+    "V2",
+    "V3"
+  ],
+  "piers": [
+    "P1",
+    "P2"
+  ],
+  "load_cases": [
+    "Push_X+",
+    "Push_X-"
+  ],
+  "row_count": 6
+}

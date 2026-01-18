@@ -4,7 +4,7 @@ from typing import Dict, List
 from sqlalchemy.orm import Session
 
 from database.models import PushoverCase, PushoverCurvePoint
-from .pushover_parser import PushoverCurveData
+from .pushover_curve_parser import PushoverCurveData
 
 
 class PushoverTransformer:

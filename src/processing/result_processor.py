@@ -332,7 +332,7 @@ class ResultProcessor:
     def process_column_axials(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str]
     ) -> pd.DataFrame:
-        """Process column axial force data (minimum P values).
+        """Process column axial force data (min and max P values).
 
         Args:
             df: Raw column force data DataFrame (row-based format)
@@ -341,10 +341,11 @@ class ResultProcessor:
             columns: List of unique column names
 
         Returns:
-            Processed DataFrame with columns: [Story, Column, UniqueNameList, LoadCase, Location, MinAxial]
+            Processed DataFrame with columns: [Story, Column, UniqueName, LoadCase, Location, MinAxial, MaxAxial]
 
         Note:
-            Unlike shears which track both directions, axial forces only track the minimum (most compression) P value.
+            MinAxial = minimum P (most compression, most negative value)
+            MaxAxial = maximum P (most tension, most positive value)
         """
         results = []
 
@@ -366,12 +367,14 @@ class ResultProcessor:
                         for unique_name in unique_names:
                             filtered_unique = filtered[filtered["Unique Name"] == unique_name]
 
-                            # Get P values (axial forces - negative = compression)
+                            # Get P values (axial forces - negative = compression, positive = tension)
                             p_values = pd.to_numeric(filtered_unique["P"], errors="coerce").dropna()
 
                             if not p_values.empty:
                                 # Minimum P (most compression - most negative value)
                                 min_axial = p_values.min()
+                                # Maximum P (most tension - most positive value)
+                                max_axial = p_values.max()
 
                                 # Determine location (typically 'Top' or 'Bottom')
                                 location = filtered_unique["Location"].iloc[0] if "Location" in filtered_unique.columns else None
@@ -384,6 +387,7 @@ class ResultProcessor:
                                         "LoadCase": case,
                                         "Location": location,
                                         "MinAxial": round(min_axial, 1),
+                                        "MaxAxial": round(max_axial, 1),
                                     }
                                 )
 
@@ -456,69 +460,110 @@ class ResultProcessor:
     def process_beam_rotations(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], beams: List[str]
     ) -> pd.DataFrame:
-        """Process beam R3 plastic rotation data.
+        """Process beam R3 plastic rotation data for database import.
 
         Args:
             df: Raw hinge state data DataFrame (row-based format)
             load_cases: List of load case names
-            stories: List of story names (top-down order)
-            beams: List of unique beam identifiers (Frame/Wall)
+            stories: List of story names (preserves source order)
+            beams: List of unique beam identifiers (Frame/Wall, preserves source order)
 
         Returns:
-            Processed DataFrame with columns: [Story, Beam, Element, Hinge, GeneratedHinge, RelDist, LoadCase, R3Plastic, MaxR3Plastic, MinR3Plastic]
+            Long-format DataFrame for DB import with columns:
+            [Story, Beam, Element, StepType, Hinge, GeneratedHinge, RelDist, LoadCase, R3Plastic]
+
+            Preserves ALL rows from source Excel (both Max/Min step types, both Rel Dist 0/1).
 
         Note:
-            R3 Plastic rotations are stored in radians. They will be converted to percentage (× 100) in the cache.
+            R3 Plastic rotations are stored in radians.
         """
+        if df.empty or "R3 Plastic" not in df.columns:
+            return pd.DataFrame()
+
+        df = df.copy()
+
+        # Build long-format output preserving source order
         results = []
+        for idx, row in df.iterrows():
+            r3_val = pd.to_numeric(row.get("R3 Plastic"), errors="coerce")
+            if pd.isna(r3_val):
+                continue
 
-        for story in stories:
-            for beam in beams:
-                for case in load_cases:
-                    # Filter data for this story, beam, and case
-                    filtered = df.loc[
-                        (df["Story"] == story)
-                        & (df["Frame/Wall"] == beam)
-                        & (df["Output Case"] == case)
-                    ].copy()
-
-                    if not filtered.empty and "R3 Plastic" in filtered.columns:
-                        # Get unique element names (Unique Name column)
-                        elements = filtered["Unique Name"].unique().tolist()
-
-                        # Process each element
-                        for element in elements:
-                            filtered_element = filtered[filtered["Unique Name"] == element]
-
-                            # Get R3 Plastic values
-                            r3_values = pd.to_numeric(filtered_element["R3 Plastic"], errors="coerce").dropna()
-
-                            if not r3_values.empty:
-                                # Use absolute max rotation (similar to column rotations)
-                                abs_max_r3 = r3_values.abs().max()
-                                max_r3 = r3_values.max()
-                                min_r3 = r3_values.min()
-
-                                # Get hinge info from first row
-                                first_row = filtered_element.iloc[0]
-                                hinge = first_row.get("Hinge", "")
-                                generated_hinge = first_row.get("Generated Hinge", "")
-                                rel_dist = first_row.get("Rel Dist", 0.0)
-
-                                results.append({
-                                    "Story": story,
-                                    "Beam": beam,
-                                    "Element": element,
-                                    "Hinge": hinge,
-                                    "GeneratedHinge": generated_hinge,
-                                    "RelDist": rel_dist,
-                                    "LoadCase": case,
-                                    "R3Plastic": round(abs_max_r3, 8),  # Keep precision for radians
-                                    "MaxR3Plastic": round(max_r3, 8),
-                                    "MinR3Plastic": round(min_r3, 8),
-                                })
+            results.append({
+                "Story": row["Story"],
+                "Beam": row["Frame/Wall"],
+                "Element": row["Unique Name"],
+                "StepType": row.get("Step Type", ""),
+                "Hinge": row.get("Hinge", ""),
+                "GeneratedHinge": row.get("Generated Hinge", ""),
+                "RelDist": row.get("Rel Dist", 0.0),
+                "LoadCase": row["Output Case"],
+                "R3Plastic": r3_val,
+            })
 
         return pd.DataFrame(results)
+
+    @staticmethod
+    def process_beam_rotations_wide(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], beams: List[str]
+    ) -> pd.DataFrame:
+        """Process beam R3 plastic rotation data to wide format for export.
+
+        Matches old ETDB_Functions.get_beams_plastic_hinges format exactly.
+
+        Args:
+            df: Raw hinge state data DataFrame (row-based format)
+            load_cases: List of load case names
+            stories: List of story names (preserves source order)
+            beams: List of unique beam identifiers (Frame/Wall, preserves source order)
+
+        Returns:
+            Wide-format DataFrame preserving source Excel row structure:
+            [Story, Frame/Wall, Unique Name, Step Type, Hinge, Hinge ID, Rel Dist, <LC1>, <LC2>, ..., Avg, Max, Min]
+
+        Note:
+            R3 Plastic rotations are stored in radians. Each source row is preserved.
+        """
+        if df.empty or "R3 Plastic" not in df.columns:
+            return pd.DataFrame()
+
+        df = df.copy()
+
+        # Use first load case to get the unique row structure (like old script uses TH01)
+        first_case = load_cases[0] if load_cases else None
+        if not first_case:
+            return pd.DataFrame()
+
+        df_template = df[df["Output Case"] == first_case].copy().reset_index(drop=True)
+        if df_template.empty:
+            return pd.DataFrame()
+
+        # Build output DataFrame with metadata columns preserving source order
+        result_df = pd.DataFrame()
+        result_df["Story"] = df_template["Story"].values
+        result_df["Frame/Wall"] = df_template["Frame/Wall"].values
+        result_df["Unique Name"] = df_template["Unique Name"].values
+        result_df["Step Type"] = df_template["Step Type"].values
+        result_df["Hinge"] = df_template["Hinge"].values
+        result_df["Hinge ID"] = df_template["Generated Hinge"].values
+        result_df["Rel Dist"] = df_template["Rel Dist"].values
+
+        # Add a column for each load case with the R3 Plastic values
+        for case in load_cases:
+            case_df = df[df["Output Case"] == case].reset_index(drop=True)
+            if case_df.empty or len(case_df) != len(result_df):
+                result_df[case] = None
+            else:
+                result_df[case] = pd.to_numeric(case_df["R3 Plastic"], errors="coerce").values
+
+        # Add summary columns (Avg, Max, Min) across load case columns
+        lc_cols = [c for c in result_df.columns if c in load_cases]
+        if lc_cols:
+            result_df["Avg"] = result_df[lc_cols].mean(axis=1)
+            result_df["Max"] = result_df[lc_cols].max(axis=1)
+            result_df["Min"] = result_df[lc_cols].min(axis=1)
+
+        return result_df
 
     @staticmethod
     def calculate_statistics(df: pd.DataFrame, value_column: str) -> Dict[str, float]:

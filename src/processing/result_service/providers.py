@@ -65,10 +65,10 @@ class StandardDatasetProvider:
         self.project_id = project_id
         self.cache_repo = cache_repo
         self.story_provider = story_provider
-        self._cache: LRUCache[Tuple[str, str, int], Optional[ResultDataset]] = LRUCache(max_cache_size)
+        self._cache: LRUCache[Tuple[str, str, int, bool], Optional[ResultDataset]] = LRUCache(max_cache_size)
 
-    def get(self, result_type: str, direction: str, result_set_id: int) -> Optional[ResultDataset]:
-        cache_key = (result_type, direction, result_set_id)
+    def get(self, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False) -> Optional[ResultDataset]:
+        cache_key = (result_type, direction, result_set_id, is_pushover)
         if cache_key in self._cache:
             if CACHE_DEBUG:
                 logger.debug("cache_hit.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
@@ -93,6 +93,7 @@ class StandardDatasetProvider:
             result_set_id=result_set_id,
             cache_entries=cache_entries,
             story_provider=self.story_provider,
+            is_pushover=is_pushover,
         )
 
         if CACHE_DEBUG:
@@ -101,14 +102,17 @@ class StandardDatasetProvider:
         return dataset
 
     def invalidate(self, result_type: str, direction: str, result_set_id: int) -> None:
-        cache_key = (result_type, direction, result_set_id)
-        self._cache.pop(cache_key, None)
+        # Remove both pushover and non-pushover versions from cache
+        for is_pushover in [True, False]:
+            cache_key = (result_type, direction, result_set_id, is_pushover)
+            self._cache.pop(cache_key, None)
 
     def clear(self) -> None:
         self._cache.clear()
 
     def clear_for_result_set(self, result_set_id: int) -> None:
         """Remove cached datasets belonging to a specific result set."""
+        # Cache key is (result_type, direction, result_set_id, is_pushover), so result_set_id is at index 2
         keys_to_delete = [k for k in list(self._cache.keys()) if k[2] == result_set_id]
         for key in keys_to_delete:
             self._cache.pop(key, None)
@@ -121,7 +125,7 @@ class ElementDatasetProvider:
         self.project_id = project_id
         self.element_cache_repo = element_cache_repo
         self.story_provider = story_provider
-        self._cache: LRUCache[Tuple[int, str, str, int], Optional[ResultDataset]] = LRUCache(max_cache_size)
+        self._cache: LRUCache[Tuple[int, str, str, int, bool], Optional[ResultDataset]] = LRUCache(max_cache_size)
 
     def get(
         self,
@@ -129,23 +133,45 @@ class ElementDatasetProvider:
         result_type: str,
         direction: str,
         result_set_id: int,
+        is_pushover: bool = False,
     ) -> Optional[ResultDataset]:
         if not self.element_cache_repo:
             return None
 
-        cache_key = (element_id, result_type, direction, result_set_id)
+        cache_key = (element_id, result_type, direction, result_set_id, is_pushover)
         if cache_key in self._cache:
             if CACHE_DEBUG:
                 logger.debug("cache_hit.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
             return self._cache.get_item(cache_key)
 
-        full_result_type = f"{result_type}_{direction}" if direction else result_type
-        cache_entries = self.element_cache_repo.get_cache_for_display(
-            project_id=self.project_id,
-            element_id=element_id,
-            result_type=full_result_type,
-            result_set_id=result_set_id,
-        )
+        # Resolve cache key (element cache stores more specific result_type names)
+        fallback_types = [f"{result_type}_{direction}" if direction else result_type]
+        if not direction:
+            if result_type == "BeamRotations":
+                fallback_types.append("BeamRotations_R3Plastic")
+            elif result_type == "ColumnRotations":
+                # Prefer R3 if not explicitly requested
+                fallback_types.extend(["ColumnRotations_R3", "ColumnRotations_R2"])
+            elif result_type == "ColumnAxials":
+                fallback_types.extend(["ColumnAxials_Min", "ColumnAxials_Max"])
+
+        cache_entries = None
+        chosen_direction = direction
+        for rt in fallback_types:
+            cache_entries = self.element_cache_repo.get_cache_for_display(
+                project_id=self.project_id,
+                element_id=element_id,
+                result_type=rt,
+                result_set_id=result_set_id,
+            )
+            if cache_entries:
+                if not direction:
+                    # Derive a direction label from the resolved cache type (after first underscore)
+                    parts = rt.split("_", 1)
+                    if len(parts) > 1:
+                        chosen_direction = parts[1]
+                full_result_type = rt
+                break
 
         if not cache_entries:
             if CACHE_DEBUG:
@@ -157,10 +183,11 @@ class ElementDatasetProvider:
             project_id=self.project_id,
             element_id=element_id,
             result_type=result_type,
-            direction=direction,
+            direction=chosen_direction,
             result_set_id=result_set_id,
             cache_entries=cache_entries,
             story_provider=self.story_provider,
+            is_pushover=is_pushover,
         )
 
         if CACHE_DEBUG:
@@ -169,14 +196,17 @@ class ElementDatasetProvider:
         return dataset
 
     def invalidate(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
-        cache_key = (element_id, result_type, direction, result_set_id)
-        self._cache.pop(cache_key, None)
+        # Remove both pushover and non-pushover versions from cache
+        for is_pushover in [True, False]:
+            cache_key = (element_id, result_type, direction, result_set_id, is_pushover)
+            self._cache.pop(cache_key, None)
 
     def clear(self) -> None:
         self._cache.clear()
 
     def clear_for_result_set(self, result_set_id: int) -> None:
         """Remove cached datasets belonging to a specific result set."""
+        # Cache key is (element_id, result_type, direction, result_set_id, is_pushover), so result_set_id is at index 3
         keys_to_delete = [k for k in list(self._cache.keys()) if k[3] == result_set_id]
         for key in keys_to_delete:
             self._cache.pop(key, None)
@@ -188,13 +218,13 @@ class JointDatasetProvider:
     def __init__(self, project_id: int, joint_cache_repo, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
         self.project_id = project_id
         self.joint_cache_repo = joint_cache_repo
-        self._cache: LRUCache[Tuple[str, int], Optional[ResultDataset]] = LRUCache(max_cache_size)
+        self._cache: LRUCache[Tuple[str, int, bool], Optional[ResultDataset]] = LRUCache(max_cache_size)
 
-    def get(self, result_type: str, result_set_id: int) -> Optional[ResultDataset]:
+    def get(self, result_type: str, result_set_id: int, is_pushover: bool = False) -> Optional[ResultDataset]:
         if not self.joint_cache_repo:
             return None
 
-        cache_key = (result_type, result_set_id)
+        cache_key = (result_type, result_set_id, is_pushover)
         if cache_key in self._cache:
             if CACHE_DEBUG:
                 logger.debug("cache_hit.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
@@ -231,8 +261,9 @@ class JointDatasetProvider:
         non_data_cols = ["Shell Object", "Unique Name"]
         load_case_columns = [col for col in df.columns if col not in non_data_cols]
 
+        # Add summary columns only for NLTHA, not Pushover
         summary_columns: List[str] = []
-        if load_case_columns and not df.empty:
+        if load_case_columns and not df.empty and not is_pushover:
             df["Average"] = df[load_case_columns].mean(axis=1)
             df["Maximum"] = df[load_case_columns].max(axis=1)
             df["Minimum"] = df[load_case_columns].min(axis=1)
@@ -259,14 +290,17 @@ class JointDatasetProvider:
         return dataset
 
     def invalidate(self, result_type: str, result_set_id: int) -> None:
-        cache_key = (result_type, result_set_id)
-        self._cache.pop(cache_key, None)
+        # Remove both pushover and non-pushover versions from cache
+        for is_pushover in [True, False]:
+            cache_key = (result_type, result_set_id, is_pushover)
+            self._cache.pop(cache_key, None)
 
     def clear(self) -> None:
         self._cache.clear()
 
     def clear_for_result_set(self, result_set_id: int) -> None:
         """Remove cached datasets belonging to a specific result set."""
+        # Cache key is (result_type, result_set_id, is_pushover), so result_set_id is at index 1
         keys_to_delete = [k for k in list(self._cache.keys()) if k[1] == result_set_id]
         for key in keys_to_delete:
             self._cache.pop(key, None)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
+from sqlalchemy import or_
 
 from config.result_config import get_config
 from database.element_result_repository import ElementResultQueryRepository
@@ -75,10 +76,10 @@ class ResultDataService:
     # ------------------------------------------------------------------
 
     def get_standard_dataset(
-        self, result_type: str, direction: str, result_set_id: int
+        self, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False
     ) -> Optional[ResultDataset]:
         provider = self._dataset_providers[ResultCategory.GLOBAL]
-        return provider.get(result_type, direction, result_set_id)
+        return provider.get(result_type, direction, result_set_id, is_pushover=is_pushover)
 
     def invalidate_standard_dataset(
         self, result_type: str, direction: str, result_set_id: int
@@ -91,10 +92,10 @@ class ResultDataService:
     # ------------------------------------------------------------------
 
     def get_element_dataset(
-        self, element_id: int, result_type: str, direction: str, result_set_id: int
+        self, element_id: int, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False
     ) -> Optional[ResultDataset]:
         provider = self._dataset_providers[ResultCategory.ELEMENT]
-        return provider.get(element_id, result_type, direction, result_set_id)
+        return provider.get(element_id, result_type, direction, result_set_id, is_pushover=is_pushover)
 
     def invalidate_element_dataset(
         self, element_id: int, result_type: str, direction: str, result_set_id: int
@@ -107,10 +108,10 @@ class ResultDataService:
     # ------------------------------------------------------------------
 
     def get_joint_dataset(
-        self, result_type: str, result_set_id: int
+        self, result_type: str, result_set_id: int, is_pushover: bool = False
     ) -> Optional[ResultDataset]:
         provider = self._dataset_providers[ResultCategory.JOINT]
-        return provider.get(result_type, result_set_id)
+        return provider.get(result_type, result_set_id, is_pushover=is_pushover)
 
     def invalidate_joint_dataset(self, result_type: str, result_set_id: int) -> None:
         provider = self._dataset_providers[ResultCategory.JOINT]
@@ -182,6 +183,7 @@ class ResultDataService:
             base_result_type=base_result_type,
             project_id=self.project_id,
             element_id=element_id,
+            result_set_id=result_set_id,
         )
 
         if not query_result:
@@ -223,10 +225,10 @@ class ResultDataService:
 
             if max_val is not None:
                 key = f"Max_{load_case_name}_{direction}" if direction else f"Max_{load_case_name}"
-                row[key] = abs(max_val) * model_info.multiplier
+                row[key] = max_val * model_info.multiplier
             if min_val is not None:
                 key = f"Min_{load_case_name}_{direction}" if direction else f"Min_{load_case_name}"
-                row[key] = abs(min_val) * model_info.multiplier
+                row[key] = min_val * model_info.multiplier
 
         if not data_by_story:
             return None
@@ -280,7 +282,7 @@ class ResultDataService:
             return None
 
         data_rows: List[Dict[str, object]] = []
-        for rotation, load_case, story, element in records:
+        for rotation, load_case, story, element, _ in records:
             value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
             if value is None:
                 continue
@@ -312,14 +314,17 @@ class ResultDataService:
         from database.models import ColumnRotation, LoadCase, Story, Element, ResultCategory
 
         records = (
-            self.session.query(ColumnRotation, LoadCase, Story, Element)
+            self.session.query(ColumnRotation, LoadCase, Story, Element, ResultCategory)
             .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
             .join(Story, ColumnRotation.story_id == Story.id)
             .join(Element, ColumnRotation.element_id == Element.id)
-            .join(ResultCategory, ColumnRotation.result_category_id == ResultCategory.id)
+            .outerjoin(ResultCategory, ColumnRotation.result_category_id == ResultCategory.id)
             .filter(
                 Story.project_id == self.project_id,
-                ResultCategory.result_set_id == result_set_id,
+                or_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.result_set_id.is_(None),
+                ),
             )
             .all()
         )
@@ -328,17 +333,14 @@ class ResultDataService:
             return None
 
         data_rows: List[Dict[str, object]] = []
-        for rotation, load_case, story, element in records:
+        for rotation, load_case, story, element, _ in records:
             # For pushover data, max_rotation and min_rotation are None, use rotation field
             # For NLTHA envelope data, use max_rotation or min_rotation
             if rotation.max_rotation is not None or rotation.min_rotation is not None:
                 # NLTHA envelope data
                 value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
             else:
-                # Pushover data (or NLTHA single case) - use rotation field
-                # Only include in "Max" call to avoid duplicates
-                if max_min != "Max":
-                    continue
+                # Pushover data (or NLTHA single case) - use rotation field for both calls
                 value = rotation.rotation
 
             if value is None:
@@ -365,40 +367,58 @@ class ResultDataService:
     def get_all_beam_rotations_dataset(
         self, result_set_id: int, max_min: str = "Max"
     ) -> Optional[pd.DataFrame]:
-        """Return beam rotation points (all elements) for scatter visuals."""
+        """Return beam rotation points (all elements) for scatter visuals.
+
+        Args:
+            result_set_id: ID of the result set
+            max_min: "Max" or "Min" to filter by step_type
+
+        Returns:
+            DataFrame with columns: Element, Story, LoadCase, Rotation, StoryOrder, StoryIndex
+        """
         if not self.session or not self.element_repo:
             return None
 
         from database.models import BeamRotation, LoadCase, Story, Element, ResultCategory
 
-        records = (
-            self.session.query(BeamRotation, LoadCase, Story, Element)
+        # Build base query
+        query = (
+            self.session.query(BeamRotation, LoadCase, Story, Element, ResultCategory)
             .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
             .join(Story, BeamRotation.story_id == Story.id)
             .join(Element, BeamRotation.element_id == Element.id)
-            .join(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
+            .outerjoin(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
             .filter(
                 Story.project_id == self.project_id,
-                ResultCategory.result_set_id == result_set_id,
+                or_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.result_set_id.is_(None),
+                ),
             )
-            .all()
         )
+
+        # Filter by step_type if column exists and has values
+        # This handles both new data (with step_type) and legacy data (without)
+        records = query.all()
 
         if not records:
             return None
 
         data_rows: List[Dict[str, object]] = []
-        for rotation, load_case, story, element in records:
-            # For pushover data, max_r3_plastic and min_r3_plastic are None, use r3_plastic field
-            # For NLTHA envelope data, use max_r3_plastic or min_r3_plastic
-            if rotation.max_r3_plastic is not None or rotation.min_r3_plastic is not None:
-                # NLTHA envelope data
+        for rotation, load_case, story, element, _ in records:
+            # Check if this record has step_type set
+            step_type = getattr(rotation, 'step_type', None)
+
+            # If step_type is set, filter by it
+            if step_type is not None and step_type != "":
+                if step_type != max_min:
+                    continue  # Skip records that don't match requested step type
+                value = rotation.r3_plastic
+            # For legacy data without step_type, use max_r3_plastic/min_r3_plastic if available
+            elif rotation.max_r3_plastic is not None or rotation.min_r3_plastic is not None:
                 value = rotation.max_r3_plastic if max_min == "Max" else rotation.min_r3_plastic
             else:
-                # Pushover data (or NLTHA single case) - use r3_plastic field
-                # Only include in "Max" call to avoid duplicates
-                if max_min != "Max":
-                    continue
+                # No step_type and no max/min fields - include in both Max and Min datasets
                 value = rotation.r3_plastic
 
             if value is None:
@@ -429,14 +449,17 @@ class ResultDataService:
         from database.models import BeamRotation, LoadCase, Story, Element, ResultCategory
 
         records = (
-            self.session.query(BeamRotation, LoadCase, Story, Element)
+            self.session.query(BeamRotation, LoadCase, Story, Element, ResultCategory)
             .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
             .join(Story, BeamRotation.story_id == Story.id)
             .join(Element, BeamRotation.element_id == Element.id)
-            .join(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
+            .outerjoin(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
             .filter(
                 Story.project_id == self.project_id,
-                ResultCategory.result_set_id == result_set_id,
+                or_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.result_set_id.is_(None),
+                ),
             )
             .order_by(Story.sort_order, Element.name, LoadCase.name)
             .all()
@@ -445,10 +468,10 @@ class ResultDataService:
         if not records:
             return None
 
-        load_cases = sorted({lc.name for _, lc, _, _ in records})
+        load_cases = sorted({lc.name for _, lc, *_, in records})
         data_dict: Dict[Tuple[str, str, str, float], Dict[str, object]] = {}
 
-        for rotation, load_case, story, element in records:
+        for rotation, load_case, story, element, *_ in records:
             key = (story.name, element.name, rotation.generated_hinge or "", rotation.rel_dist or 0.0)
             entry = data_dict.setdefault(
                 key,
@@ -467,11 +490,20 @@ class ResultDataService:
         if df.empty:
             return None
 
-        load_case_cols = [col for col in df.columns if col in load_cases]
+        # Reorder columns: metadata first, then load cases in sorted order, then summary
+        meta_cols = ["Story", "Frame/Wall", "Unique Name", "Hinge", "Generated Hinge", "Rel Dist"]
+        load_case_cols = [lc for lc in load_cases if lc in df.columns]
+
         if load_case_cols:
             df["Avg"] = df[load_case_cols].mean(axis=1)
             df["Max"] = df[load_case_cols].max(axis=1)
             df["Min"] = df[load_case_cols].min(axis=1)
+
+        # Reorder columns
+        ordered_cols = [c for c in meta_cols if c in df.columns] + load_case_cols
+        if "Avg" in df.columns:
+            ordered_cols += ["Avg", "Max", "Min"]
+        df = df[ordered_cols]
 
         return df
 

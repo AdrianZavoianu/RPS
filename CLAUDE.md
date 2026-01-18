@@ -2,7 +2,7 @@
 
 **RPS (Results Processing System)** - Structural engineering results processor (ETABS/SAP2000)
 **Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
-**Status**: Production-ready (v2.19 - December 2024 - ResultsTreeBrowser Decomposition)
+**Status**: Production-ready (v2.21 - January 2025 - PDF Report Generation)
 
 ---
 
@@ -59,14 +59,15 @@ class MyRepository(BaseRepository[MyModel]):
         return self.session.query(self.model).filter(...).all()
 ```
 
-### Data Model (24 tables)
+### Data Model (25 tables)
 - **Catalog**: CatalogProject (1 table)
 - **Per-Project**: Project, Story, LoadCase, ResultSet, ComparisonSet, Element (6 tables)
 - **Global Results**: StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement (4 tables)
 - **Element Results**: WallShear, QuadRotation, ColumnShear, ColumnAxial, ColumnRotation, BeamRotation (6 tables)
 - **Foundation Results**: SoilPressure, VerticalDisplacement (2 tables)
 - **Cache**: GlobalResultsCache, ElementResultsCache, JointResultsCache, AbsoluteMaxMinDrift (4 tables)
-- **Future**: TimeHistoryData, ResultCategory (2 tables)
+- **Time-Series**: TimeSeriesGlobalCache (1 table) - NEW in v2.20
+- **Future**: ResultCategory (1 table)
 
 ---
 
@@ -118,7 +119,7 @@ class MyRepository(BaseRepository[MyModel]):
 - **Base Story Selection**: Specify base story for shear force extraction (typically foundation or first floor)
 - **Direction Support**: Automatically detects X/Y direction from case names (_X+, _Y+, etc.)
 - **Auto-Sizing**: Table auto-fits to content height, no scrolling or container borders
-- Location: `gui/pushover_import_dialog.py`, `gui/result_views/pushover_curve_view.py`, `processing/pushover_parser.py`
+- Location: `gui/pushover_import_dialog.py`, `gui/result_views/pushover_curve_view.py`, `processing/pushover_curve_parser.py`
 
 **Parser Features** (`PushoverParser`):
 - Parse displacement data from "Joint Displacements" sheet
@@ -220,6 +221,65 @@ class MyRepository(BaseRepository[MyModel]):
 - Vertical displacements stored as `"VerticalDisplacements_Min"` (not `"VerticalDisplacements"`)
 - Views query for `_Min` suffix - mismatch will cause display errors
 
+### Time-Series Analysis System (v2.20)
+
+**Import Workflow:**
+1. Create result set via "Load NLTHA Data" (standard envelope import)
+2. Click "Load Time Series" in NLTHA tab
+3. Select existing result set from dropdown
+4. Browse to time-history Excel file(s)
+5. Select load cases to import (checkboxes appear after file selection)
+6. Import stores time series data in `TimeSeriesGlobalCache` table
+
+**Data Source**: Excel files with sheets:
+- "Story Drifts" - Inter-story drifts over time
+- "Story Forces" - Story shear forces over time
+- "Joint Displacements" - Floor displacements over time
+- "Diaphragm Accelerations" - Floor accelerations over time
+
+**Parser Features** (`TimeHistoryParser`):
+- Extracts time series for each story and direction (X/Y)
+- Identifies load case name from sheet data
+- Preserves story order from Excel (top-to-bottom = high sort_order)
+- Returns `TimeHistoryParseResult` with all result types
+
+**Importer Features** (`TimeHistoryImporter`):
+- Stores time series in JSON columns (`time_steps`, `values`)
+- Associates with existing result set via dropdown selection
+- Supports multiple load cases per file
+- Progress callbacks for UI feedback
+
+**Animated View** (`TimeSeriesAnimatedView`):
+- **Layout**: 4 building profile plots in single row (Displacements | Drifts | Accelerations | Shears)
+- **Animation**: Playback controls (Play/Pause, Reset, Slider, Speed 1-10x)
+- **Envelopes**: Max (red) and Min (blue) envelope lines shown on each plot
+- **Current Profile**: Animated cyan line showing values at current time step
+- **Base Acceleration**: Full-width time series plot below main plots
+  - Shows base story acceleration over entire time range
+  - Red vertical marker indicates current time position
+  - Teal shaded region shows elapsed time
+- **Unit Conversion**: Accelerations automatically converted to g (÷ 9810 mm/s²)
+
+**Tree Structure**:
+```
+└── Result Set (e.g., DES)
+    ├── Envelopes
+    │   └── (standard envelope results)
+    └── Time-Series
+        └── TH02 (load case name)
+            └── Global
+                ├── X Direction
+                └── Y Direction
+```
+
+**File Locations**:
+- Parser: `processing/time_history_parser.py`
+- Importer: `processing/time_history_importer.py`
+- Dialog: `gui/time_history_import_dialog.py`
+- View: `gui/result_views/time_series_animated_view.py`
+- Tree builders: `gui/tree_browser/nltha_builders.py` (add_time_series_global_section)
+- Click handlers: `gui/tree_browser/click_handlers.py` (_handle_time_series_global)
+
 ### Comparison System
 - **Create Comparison**: Compare multiple result sets (DES vs MCE vs SLE)
 - **Multi-Series Plots**: All result sets overlaid on same building profile with color-coded legend
@@ -315,7 +375,8 @@ Follow DESIGN.md:
 - `processing/selective_data_importer.py` - Load case filtering
 - `processing/excel_parser.py` - Excel sheet parsing
 - `processing/result_transformers.py` - Data transformation (Excel → ORM)
-- `processing/pushover_parser.py` - Pushover curve Excel parser (v2.10)
+- `processing/pushover_curve_parser.py` - Pushover curve Excel parser (v2.10)
+- `processing/pushover_curve_importer.py` - Pushover curve importer (v2.10)
 - `processing/pushover_global_parser.py` - Pushover global results parser (v2.11)
 - `processing/pushover_soil_pressure_parser.py` - Pushover soil pressures parser (v2.13)
 - `processing/pushover_vert_displacement_parser.py` - Pushover vertical displacements parser (v2.13)
@@ -730,7 +791,74 @@ Follow DESIGN.md:
 - Per-sheet conflict resolution
 - Project structure cleanup
 
+### v2.21 - PDF Report Generation (Jan 2025)
+- **PDF Report System**: Complete PDF report generation for NLTHA global results
+  - `ReportWindow` dialog accessible from project detail window
+  - `ReportView` main interface with checkbox tree (left) and A4 preview (right)
+  - `ReportCheckboxTree` for selecting report sections (Global Results → Drifts/Forces/etc. → X/Y)
+  - `ReportPreviewWidget` for real-time A4 page preview with custom painting
+  - `PDFGenerator` for high-quality PDF export using QPrinter
+- **Report Layout**:
+  - Header: Colorized RPS logo + project name + separator line
+  - Section title with gap below
+  - Data table: Story column + load case columns (up to 11) + summary columns (Avg/Max/Min)
+  - Building profile plot: Light gray background, nice rounded tick values, legend below X-axis
+  - Footer: Right-aligned page number
+- **Plot Features**:
+  - "Story" Y-axis label (rotated vertical)
+  - X-axis label from config's `y_label` with units (e.g., "Drift X [%]", "Story Shear VX (kN)")
+  - Nice tick values using magnitude-based rounding algorithm
+  - Color-coded lines for each load case + dashed average line
+  - Legend with shorthand labels below axis name
+- **Performance**: Debounced preview updates (300ms) and checkbox signals (100ms) with dataset caching
+- **One Section Per Page**: Each direction (Drifts X, Drifts Y, etc.) on its own page for clarity
+- **Print Support**: Print dialog integration via `QPrintDialog`
+- Location: `gui/reporting/` package (report_window.py, report_view.py, report_preview_widget.py, report_checkbox_tree.py, pdf_generator.py)
+
+### v2.20 - Time-Series Animated Views (Jan 2025)
+- **Time-Series Import System**: Complete time-history data import and visualization
+  - `TimeHistoryImportDialog` for file selection and load case filtering
+  - `TimeHistoryParser` extracts time series from Excel sheets (Story Drifts, Story Forces, Joint Displacements, Diaphragm Accelerations)
+  - `TimeHistoryImporter` stores data in `TimeSeriesGlobalCache` table with JSON columns
+  - Result set SELECTION from existing NLTHA result sets (not creation)
+- **Animated View** (`TimeSeriesAnimatedView`):
+  - 4 building profile plots in single row: Displacements | Drifts | Accelerations | Shears
+  - Playback controls: Play/Pause, Reset, Speed (1-10x), Time slider
+  - Max (red) and Min (blue) envelope lines on each plot
+  - Current profile: Animated cyan line showing values at current time step
+  - Floor ordering: Ground floor at bottom, Roof at top (ETABS exports top-to-bottom)
+  - Accelerations automatically converted to g (÷ 9810 mm/s²)
+- **Base Acceleration Time Series**: Full-width plot below main plots
+  - Shows base story acceleration over entire time range
+  - Red vertical marker indicates current time position
+  - Teal shaded region (`LinearRegionItem`) shows elapsed time
+  - Height: 112px (reduced 25% from original 150px)
+- **Tree Structure**:
+  ```
+  └── Result Set (e.g., DES)
+      ├── Envelopes
+      │   └── (standard envelope results)
+      └── Time-Series
+          └── TH02 (load case name)
+              └── Global
+                  ├── X Direction
+                  └── Y Direction
+  ```
+- **Signal Flow**:
+  - Load case name encoded in direction parameter: `"X:TH02"`
+  - Click handlers parse composite direction and emit to view loaders
+  - `SelectionState` extended with `load_case_name` field
+- **Database Model**: `TimeSeriesGlobalCache` table
+  - JSON columns: `time_steps`, `values` (arrays)
+  - Fields: `result_set_id`, `result_type`, `direction`, `story`, `story_sort_order`, `load_case_name`
+- **Story Ordering Fix**: Changed DB query from `.asc()` to `.desc()` on `story_sort_order`
+  - ETABS exports stories top-to-bottom (sort_order=0 is Roof)
+  - Descending order gives Ground floor first for correct plot display
+- **Array Normalization**: Pads shorter value arrays to max length
+  - Different stories may have different array lengths
+  - Padded with last value to ensure homogeneous shape for numpy operations
+
 ---
 
-**Last Updated**: 2024-12-07
-**Version**: 2.16
+**Last Updated**: 2025-01-15
+**Version**: 2.21

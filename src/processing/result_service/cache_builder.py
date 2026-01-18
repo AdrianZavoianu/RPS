@@ -21,6 +21,7 @@ def build_standard_dataset(
     result_set_id: int,
     cache_entries: Iterable[object],
     story_provider: StoryProvider,
+    is_pushover: bool = False,
 ) -> Optional[ResultDataset]:
     cache_entries = list(cache_entries)
     if not cache_entries:
@@ -54,7 +55,8 @@ def build_standard_dataset(
 
     transformer_key = f"{result_type}_{direction}" if direction else result_type
     transformer = get_transformer(transformer_key)
-    transformed_df = transformer.transform(raw_df)
+    # Skip summary columns for Pushover analysis
+    transformed_df = transformer.transform(raw_df, skip_summary=is_pushover)
 
     numeric_df = transformed_df.apply(pd.to_numeric, errors="coerce")
 
@@ -105,6 +107,7 @@ def build_element_dataset(
     result_set_id: int,
     cache_entries: Iterable[object],
     story_provider: StoryProvider,
+    is_pushover: bool = False,
 ) -> Optional[ResultDataset]:
     cache_entries = list(cache_entries)
     if not cache_entries:
@@ -137,14 +140,17 @@ def build_element_dataset(
     raw_df = pd.DataFrame(result_dicts)
     numeric_df = raw_df.apply(pd.to_numeric, errors="coerce")
 
-    numeric_df["Avg"] = numeric_df.mean(axis=1)
-    numeric_df["Max"] = numeric_df.max(axis=1)
-    numeric_df["Min"] = numeric_df.min(axis=1)
+    # Add summary columns only for NLTHA, not Pushover
+    summary_columns: List[str] = []
+    if not is_pushover:
+        numeric_df["Avg"] = numeric_df.mean(axis=1)
+        numeric_df["Max"] = numeric_df.max(axis=1)
+        numeric_df["Min"] = numeric_df.min(axis=1)
+        summary_columns = [col for col in SUMMARY_COLUMNS if col in numeric_df.columns]
 
     transformer_key = f"{result_type}_{direction}" if direction else result_type
     config = get_config(transformer_key)
 
-    summary_columns = [col for col in SUMMARY_COLUMNS if col in numeric_df.columns]
     value_columns = [col for col in numeric_df.columns if col not in summary_columns]
 
     if config.multiplier != 1.0:

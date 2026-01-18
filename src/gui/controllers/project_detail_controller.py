@@ -7,6 +7,7 @@ from typing import Dict, Optional
 
 from config.analysis_types import AnalysisType, normalize_analysis_type
 from services.pushover_context import build_pushover_mapping, strip_direction_suffixes
+from .types import CacheRepositoryProtocol
 
 
 @dataclass
@@ -16,12 +17,13 @@ class SelectionState:
     direction: str = "X"
     element_id: int = 0
     active_context: AnalysisType = AnalysisType.NLTHA
+    load_case_name: Optional[str] = None  # For time series data
 
 
 class ProjectDetailController:
     """Encapsulates selection and context state for ProjectDetailWindow."""
 
-    def __init__(self, project_id: int, cache_repo) -> None:
+    def __init__(self, project_id: int, cache_repo: CacheRepositoryProtocol) -> None:
         self.project_id = project_id
         self.cache_repo = cache_repo
         self.selection = SelectionState()
@@ -44,6 +46,7 @@ class ProjectDetailController:
         result_set_id: Optional[int] = None,
         direction: Optional[str] = None,
         element_id: Optional[int] = None,
+        load_case_name: Optional[str] = None,
     ) -> None:
         if result_type is not None:
             self.selection.result_type = result_type
@@ -53,6 +56,8 @@ class ProjectDetailController:
             self.selection.direction = direction
         if element_id is not None:
             self.selection.element_id = element_id
+        if load_case_name is not None:
+            self.selection.load_case_name = load_case_name
 
     # ---- Pushover shorthand mappings ------------------------------------
 

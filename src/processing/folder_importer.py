@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -13,6 +14,9 @@ from .excel_parser import ExcelParser
 from .data_importer import DataImporter
 from .base_importer import BaseFolderImporter
 from .import_stats import ImportStatsAggregator
+from . import import_logging
+
+logger = logging.getLogger(__name__)
 
 TARGET_SHEETS: Dict[str, List[str]] = {
     "Story Drifts": ["Story Drifts"],
@@ -73,6 +77,14 @@ class FolderImporter(BaseFolderImporter):
 
         self._report_progress("Processing files...", 0, len(self.excel_files))
 
+        import_logging.log_import_start(
+            logger=logger,
+            project_name=self.project_name,
+            result_set_name=self.result_set_name,
+            file_name=f"{self.folder_path}/*",
+            result_types=self.result_types,
+        )
+
         for idx, excel_file in enumerate(self.excel_files, 1):
             try:
                 self._report_progress(
@@ -124,6 +136,13 @@ class FolderImporter(BaseFolderImporter):
 
             except Exception as exc:  # collect error and continue
                 stats["errors"].append(f"{excel_file.name}: {exc}")
+                import_logging.log_import_failure(
+                    logger=logger,
+                    project_name=self.project_name,
+                    result_set_name=self.result_set_name,
+                    file_name=excel_file.name,
+                    error=exc,
+                )
 
         if stats["project"]:
             session = self._session_factory()
@@ -146,6 +165,22 @@ class FolderImporter(BaseFolderImporter):
         stats.setdefault("errors", [])
         if agg_errors:
             stats["errors"].extend(agg_errors)
+
+        stats["phase_timings"] = []  # Folder imports aggregate per-file timings elsewhere if needed
+        import_logging.log_phase_timings(
+            logger=logger,
+            project_name=self.project_name,
+            result_set_name=self.result_set_name,
+            file_name=f"{self.folder_path}/*",
+            phase_timings=stats["phase_timings"],
+        )
+        import_logging.log_import_complete(
+            logger=logger,
+            project_name=self.project_name,
+            result_set_name=self.result_set_name,
+            file_name=f"{self.folder_path}/*",
+            stats=stats,
+        )
 
         self._report_progress("Import complete", len(self.excel_files), len(self.excel_files))
         return stats

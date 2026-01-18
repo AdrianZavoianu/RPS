@@ -13,6 +13,7 @@ from database.base import get_project_db_path, init_project_db, get_project_sess
 from database.catalog_base import init_catalog_db, get_catalog_session
 from database.catalog_repository import CatalogProjectRepository
 from database.repository import ProjectRepository, ResultSetRepository
+from database.session import project_session_factory
 from utils.slug import slugify
 
 
@@ -31,12 +32,10 @@ class ProjectContext:
     created_at: Optional[datetime] = None
 
     def session(self):
-        return get_project_session(self.db_path)
+        return project_session_factory(self.db_path)()
 
     def session_factory(self):
-        def factory():
-            return get_project_session(self.db_path)
-        return factory
+        return project_session_factory(self.db_path)
 
 
 @dataclass

@@ -12,10 +12,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
-    QStyle,
     QVBoxLayout,
     QWidget,
 )
+
+from gui.icon_utils import load_svg_icon
 
 
 class ProjectGridWidget(QWidget):
@@ -218,9 +219,9 @@ class ProjectGridWidget(QWidget):
         delete_button = QPushButton()
         delete_button.setObjectName("cardDeleteAction")
         delete_button.setToolTip("Delete project")
-        delete_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-        delete_button.setIconSize(QSize(14, 14))
-        delete_button.setFixedSize(28, 28)
+        delete_button.setIcon(load_svg_icon("trash", 18, "#8b949e"))
+        delete_button.setIconSize(QSize(18, 18))
+        delete_button.setFixedSize(32, 32)
         delete_button.clicked.connect(lambda _, name=data["name"]: self._on_delete(name))
         button_layout.addWidget(delete_button)
 

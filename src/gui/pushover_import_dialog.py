@@ -13,8 +13,8 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from .design_tokens import FormStyles
 from .ui_helpers import create_styled_button, create_styled_label
 from .styles import COLORS
-from processing.pushover_importer import PushoverImporter
-from processing.pushover_parser import PushoverParser
+from processing.pushover_curve_importer import PushoverImporter
+from processing.pushover_curve_parser import PushoverParser
 
 
 class PushoverCurveImportWorker(QThread):

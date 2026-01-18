@@ -46,7 +46,8 @@ class PushoverCurveView(QWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
 
-        self.table = QTableWidget()
+        from gui.components.results_table_header import ClickableTableWidget
+        self.table = ClickableTableWidget()
         # Remove native frame; rely only on explicit borders
         self.table.setFrameStyle(QFrame.Shape.NoFrame)
         self.table.setLineWidth(0)
@@ -134,12 +135,10 @@ class PushoverCurveView(QWidget):
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('#0a0c10')
 
-        # Set plot area background to slightly lighter shade
+        # Set plot area background to slightly lighter shade (match NLTHA styling)
         view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-
-        # Add border to plot area
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
+        view_box.setBackgroundColor('#0c1016')
+        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
 
         # Set axis labels
         self.plot_widget.setLabel('left', 'Base Shear', units='kN',
@@ -147,14 +146,15 @@ class PushoverCurveView(QWidget):
         self.plot_widget.setLabel('bottom', 'Displacement', units='mm',
                                   color='#d1d5db', **{'font-size': '12pt'})
 
-        # Grid with proper visibility
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.5)
+        # Grid with subtle visibility
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.35)
 
-        # Style the axes
-        self.plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('left').setTextPen('#d1d5db')
-        self.plot_widget.getAxis('bottom').setTextPen('#d1d5db')
+        # Style the axes to match other result plots
+        subtle_axis = pg.mkPen('#1a1f26', width=1)
+        self.plot_widget.getAxis('left').setPen(subtle_axis)
+        self.plot_widget.getAxis('bottom').setPen(subtle_axis)
+        self.plot_widget.getAxis('left').setTextPen('#cdd3dd')
+        self.plot_widget.getAxis('bottom').setTextPen('#cdd3dd')
 
         # Disable auto-SI prefix scaling
         self.plot_widget.getAxis('left').enableAutoSIPrefix(False)

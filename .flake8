@@ -1,0 +1,14 @@
+[flake8]
+max-line-length = 100
+extend-ignore = E501,W503,E203,E266,E402
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    alembic/versions,
+    Old_scripts,
+    *.pyc,
+per-file-ignores =
+    __init__.py:F401
+    conftest.py:F401,F811

@@ -18,6 +18,7 @@ from database.models import (
     LoadCase,
 )
 from processing.pushover_soil_pressure_parser import PushoverSoilPressureParser
+from .import_utils import require_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class PushoverSoilPressureImporter:
             parser = PushoverSoilPressureParser(self.file_path)
 
             # Check if Soil Pressures sheet exists
-            if not parser.validate_sheet_exists('Soil Pressures'):
+            if not require_sheets(['Soil Pressures'], parser.validate_sheet_exists):
                 logger.warning("Soil Pressures sheet not found, skipping")
                 return stats
 

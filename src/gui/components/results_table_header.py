@@ -51,7 +51,8 @@ class PerimeterBorderDelegate(QStyledItemDelegate):
         if row == row_count - 1:
             painter.save()
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.fillRect(rect.left(), rect.bottom(), rect.width() + 1, 1, self._border_color)
+            width = rect.width()
+            painter.fillRect(rect.left(), rect.bottom(), min(width + 1, self.parent().viewport().width() - rect.left()), 1, self._border_color)
             painter.restore()
 
 
@@ -86,19 +87,15 @@ class ClickableTableWidget(QTableWidget):
             painter.setPen(Qt.PenStyle.NoPen)
 
             # Calculate content dimensions
-            content_height = 0
-            for i in range(self.rowCount()):
-                content_height += self.rowHeight(i)
-
-            content_width = 0
-            for i in range(self.columnCount()):
-                content_width += self.columnWidth(i)
+            content_height = sum(self.rowHeight(i) for i in range(self.rowCount()))
+            content_width = sum(self.columnWidth(i) for i in range(self.columnCount()))
+            visible_width = min(content_width, self.viewport().width())
 
             # Draw 1px left border
             painter.fillRect(0, 0, 1, content_height, self._border_color)
 
-            # Draw 1px right border
-            painter.fillRect(content_width - 1, 0, 1, content_height, self._border_color)
+            # Draw 1px right border (cap at viewport width to avoid overflow)
+            painter.fillRect(visible_width - 1, 0, 1, content_height, self._border_color)
 
             painter.end()
 
@@ -148,20 +145,19 @@ class SelectableHeaderView(QHeaderView):
         # Paint all sections normally
         super().paintEvent(event)
 
-        # Draw right border on the header's right edge
+        # Draw right border on the header's right edge (cap at viewport width to avoid overflow)
         table = self.parent()
         if isinstance(table, QTableWidget) and table.columnCount() > 0:
             painter = QPainter(self.viewport())
             painter.setPen(Qt.PenStyle.NoPen)
 
-            # Calculate total width
-            total_width = 0
-            for i in range(table.columnCount()):
-                total_width += self.sectionSize(i)
+            # Calculate total width and cap to viewport to avoid painting beyond visible area
+            total_width = sum(self.sectionSize(i) for i in range(table.columnCount()))
+            visible_width = min(total_width, self.viewport().width())
 
             # Draw 1px right border at edge
             border_color = QColor("#1e2329")
-            painter.fillRect(total_width - 1, 0, 1, self.height(), border_color)
+            painter.fillRect(visible_width - 1, 0, 1, self.height(), border_color)
             painter.end()
 
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
@@ -197,9 +193,10 @@ class SelectableHeaderView(QHeaderView):
             if is_first:
                 painter.fillRect(rect.left(), rect.top(), 1, rect.height() + 1, border_color)
 
-            # Right border - 1px for internal column separators only
+            # Right border - 1px for internal column separators only (cap at viewport width)
             if not is_last:
-                painter.fillRect(rect.right(), rect.top(), 1, rect.height() + 1, border_color)
+                border_x = min(rect.right(), self.viewport().width() - 1)
+                painter.fillRect(border_x, rect.top(), 1, rect.height() + 1, border_color)
 
             # Draw text
             font = painter.font()

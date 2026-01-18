@@ -38,15 +38,16 @@ class ComparisonAllRotationsWidget(QWidget):
 
         # Set plot area background
         view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
+        view_box.setBackgroundColor('#0c1016')
+        view_box.setBorder(None)
 
         # Configure plot appearance
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.5)
-        self.plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        self.plot_widget.getAxis('left').setTextPen('#d1d5db')
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.35)
+        subtle_axis = pg.mkPen('#151b22', width=1)
+        self.plot_widget.getAxis('bottom').setPen(subtle_axis)
+        self.plot_widget.getAxis('left').setPen(subtle_axis)
+        self.plot_widget.getAxis('bottom').setTextPen('#cdd3dd')
+        self.plot_widget.getAxis('left').setTextPen('#cdd3dd')
 
         # Disable interactions
         self.plot_widget.setMenuEnabled(False)

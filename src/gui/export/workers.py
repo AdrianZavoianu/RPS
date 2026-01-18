@@ -7,6 +7,7 @@ from datetime import datetime
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from services.export_service import ExportService, ExportOptions
+from services.export_utils import extract_direction, extract_base_type, get_result_config
 
 
 class ComprehensiveExportWorker(QThread):
@@ -113,12 +114,14 @@ class ComprehensiveExportWorker(QThread):
                         # Determine if this is a global, element, or joint result
                         is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
                         is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
+                        is_pushover = self.analysis_context == 'Pushover'
 
                         if is_element:
                             # Get combined element data
                             df = export_service.get_element_export_dataframe(
                                 result_type=result_type,
-                                result_set_id=result_set_id
+                                result_set_id=result_set_id,
+                                is_pushover=is_pushover
                             )
 
                             if df is None or df.empty:
@@ -135,7 +138,8 @@ class ComprehensiveExportWorker(QThread):
                             # result_type already includes _Min suffix from _get_selected_result_types()
                             dataset = self.result_service.get_joint_dataset(
                                 result_type=result_type,
-                                result_set_id=result_set_id
+                                result_set_id=result_set_id,
+                                is_pushover=is_pushover
                             )
 
                             if dataset is None or dataset.data is None or dataset.data.empty:
@@ -150,14 +154,15 @@ class ComprehensiveExportWorker(QThread):
 
                         else:
                             # Get global result data
-                            config = export_service._get_result_config(result_type)
-                            direction = export_service._extract_direction(result_type, config)
-                            base_type = export_service._extract_base_type(result_type)
+                            config = get_result_config(result_type)
+                            direction = extract_direction(result_type, config)
+                            base_type = extract_base_type(result_type)
 
                             dataset = self.result_service.get_standard_dataset(
                                 result_type=base_type,
                                 direction=direction,
-                                result_set_id=result_set_id
+                                result_set_id=result_set_id,
+                                is_pushover=is_pushover
                             )
 
                             if dataset is None or dataset.data is None or dataset.data.empty:
@@ -166,7 +171,10 @@ class ComprehensiveExportWorker(QThread):
 
                             # Write to sheet with result set name prefix
                             sheet_name = f"{result_set_name}_{result_type}"[:31]
-                            dataset.data.to_excel(writer, sheet_name=sheet_name, index=False)
+                            export_df = export_service.prepare_dataset_for_export(dataset, result_type)
+                            (export_df if export_df is not None else dataset.data).to_excel(
+                                writer, sheet_name=sheet_name, index=False
+                            )
                             exported_count += 1
 
                     except Exception as e:
@@ -281,12 +289,14 @@ class ComprehensiveExportWorker(QThread):
                             # Determine if this is a global, element, or joint result
                             is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
                             is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
+                            is_pushover = self.analysis_context == 'Pushover'
 
                             if is_element:
                                 # Get combined element data
                                 df = export_service.get_element_export_dataframe(
                                     result_type=result_type,
-                                    result_set_id=result_set_id
+                                    result_set_id=result_set_id,
+                                    is_pushover=is_pushover
                                 )
 
                                 if df is None or df.empty:
@@ -301,7 +311,8 @@ class ComprehensiveExportWorker(QThread):
                                 # Get joint result data
                                 dataset = self.result_service.get_joint_dataset(
                                     result_type=result_type,
-                                    result_set_id=result_set_id
+                                    result_set_id=result_set_id,
+                                    is_pushover=is_pushover
                                 )
 
                                 if dataset is None or dataset.data is None or dataset.data.empty:
@@ -315,14 +326,15 @@ class ComprehensiveExportWorker(QThread):
 
                             else:
                                 # Get global result data
-                                config = export_service._get_result_config(result_type)
-                                direction = export_service._extract_direction(result_type, config)
-                                base_type = export_service._extract_base_type(result_type)
+                                config = get_result_config(result_type)
+                                direction = extract_direction(result_type, config)
+                                base_type = extract_base_type(result_type)
 
                                 dataset = self.result_service.get_standard_dataset(
                                     result_type=base_type,
                                     direction=direction,
-                                    result_set_id=result_set_id
+                                    result_set_id=result_set_id,
+                                    is_pushover=is_pushover
                                 )
 
                                 if dataset is None or dataset.data is None or dataset.data.empty:
@@ -330,7 +342,10 @@ class ComprehensiveExportWorker(QThread):
 
                                 # Sheet name: result type (truncate to 31 chars)
                                 sheet_name = result_type[:31]
-                                dataset.data.to_excel(writer, sheet_name=sheet_name, index=False)
+                                export_df = export_service.prepare_dataset_for_export(dataset, result_type)
+                                (export_df if export_df is not None else dataset.data).to_excel(
+                                    writer, sheet_name=sheet_name, index=False
+                                )
                                 sheets_written += 1
 
                         except Exception as e:

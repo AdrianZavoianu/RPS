@@ -83,6 +83,22 @@ def create_styled_label(text: str, style: LabelStyle) -> QLabel:
     return label
 
 
+def create_tab_button(text: str, active: bool = False) -> QPushButton:
+    """Create a tab-like push button with underline accent styling."""
+    btn = QPushButton(text)
+    btn.setCheckable(True)
+    btn.setChecked(active)
+    btn.setFixedHeight(32)
+    btn.setMinimumWidth(80)
+    return btn
+
+
+def create_text_link_button(text: str) -> QPushButton:
+    """Create a text link style button for lightweight actions."""
+    btn = QPushButton(text)
+    return btn
+
+
 def show_dialog_with_blur(dialog: QDialog, parent: Optional[QWidget] = None) -> int:
     """
     Show a modal dialog with blur overlay on parent window.

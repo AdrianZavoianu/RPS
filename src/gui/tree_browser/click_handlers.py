@@ -67,6 +67,10 @@ def on_item_clicked(
         _handle_comparison_element_result(browser, data)
     elif item_type == "comparison_all_rotations":
         _handle_comparison_all_rotations(browser, data)
+    elif item_type == "comparison_all_column_rotations":
+        _handle_comparison_all_column_rotations(browser, data)
+    elif item_type == "comparison_all_beam_rotations":
+        _handle_comparison_all_beam_rotations(browser, data)
     elif item_type == "comparison_all_joints":
         _handle_comparison_all_joints(browser, data)
 
@@ -104,6 +108,10 @@ def on_item_clicked(
     elif item_type == "pushover_vertical_displacement_table":
         _handle_pushover_vertical_displacement_table(browser, data)
 
+    # Time-Series clicks
+    elif item_type == "time_series_global":
+        _handle_time_series_global(browser, data)
+
 
 # ============================================================================
 # NLTHA Result Handlers
@@ -125,7 +133,8 @@ def _handle_maxmin_results(browser: "ResultsTreeBrowser", data: dict) -> None:
     result_set_id = data.get("result_set_id")
     category = data.get("category")
     result_type = data.get("result_type")
-    browser.selection_changed.emit(result_set_id, category, result_type, "", 0)
+    element_id = data.get("element_id", 0)
+    browser.selection_changed.emit(result_set_id, category, result_type, "", element_id)
 
 
 def _handle_element_maxmin_results(browser: "ResultsTreeBrowser", data: dict) -> None:
@@ -222,11 +231,26 @@ def _handle_comparison_all_rotations(browser: "ResultsTreeBrowser", data: dict) 
     browser.comparison_selected.emit(comparison_set_id, result_type, "All")
 
 
+def _handle_comparison_all_column_rotations(browser: "ResultsTreeBrowser", data: dict) -> None:
+    """Handle comparison all column rotations view click."""
+    comparison_set_id = data.get("comparison_set_id")
+    result_type = data.get("result_type")
+    browser.comparison_selected.emit(comparison_set_id, result_type, "AllColumns")
+
+
+def _handle_comparison_all_beam_rotations(browser: "ResultsTreeBrowser", data: dict) -> None:
+    """Handle comparison all beam rotations view click."""
+    comparison_set_id = data.get("comparison_set_id")
+    result_type = data.get("result_type")
+    browser.comparison_selected.emit(comparison_set_id, result_type, "AllBeams")
+
+
 def _handle_comparison_all_joints(browser: "ResultsTreeBrowser", data: dict) -> None:
     """Handle comparison all joints click."""
     comparison_set_id = data.get("comparison_set_id")
     result_type = data.get("result_type")
     browser.comparison_selected.emit(comparison_set_id, result_type, "AllJoints")
+    return
 
 
 # ============================================================================
@@ -403,3 +427,26 @@ def _handle_pushover_vertical_displacement_table(browser: "ResultsTreeBrowser", 
 
     logger.debug("Browser: pushover_vertical_displacement_table clicked - result_type=%s", "VerticalDisplacementsTable")
     browser.selection_changed.emit(result_set_id, category, "VerticalDisplacementsTable", "", -6)
+
+
+# ============================================================================
+# Time-Series Handlers
+# ============================================================================
+
+
+def _handle_time_series_global(browser: "ResultsTreeBrowser", data: dict) -> None:
+    """Handle Time-Series Global view click.
+
+    Emits signal to show animated building profile with all four result types.
+    The load_case_name is encoded in the direction parameter as "direction:load_case_name"
+    and will be parsed by the event handler.
+    """
+    result_set_id = data.get("result_set_id")
+    category = data.get("category")  # "Time-Series"
+    direction = data.get("direction", "X")
+    load_case_name = data.get("load_case_name", "")
+
+    logger.debug("Browser: time_series_global clicked - direction=%s, load_case=%s", direction, load_case_name)
+    # Encode load_case_name in direction parameter as "direction:load_case_name"
+    direction_with_load_case = f"{direction}:{load_case_name}" if load_case_name else direction
+    browser.selection_changed.emit(result_set_id, category, "TimeSeriesGlobal", direction_with_load_case, 0)

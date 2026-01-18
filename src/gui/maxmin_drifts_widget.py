@@ -29,6 +29,8 @@ from config.visual_config import (
 )
 from utils.plot_builder import PlotBuilder
 from gui.components.legend import InteractiveLegendItem, create_static_legend_item
+from gui.icon_utils import load_svg_icon
+from gui.components.results_table_header import ClickableTableWidget
 from .styles import COLORS
 
 if TYPE_CHECKING:
@@ -100,11 +102,11 @@ class MaxMinDriftsWidget(QWidget):
 
         # Plots tab
         self.plots_tab = self._create_plots_tab()
-        self.tabs.addTab(self.plots_tab, "📊 Plots")
+        self.tabs.addTab(self.plots_tab, load_svg_icon("chart", 16, COLORS['muted']), "Plots")
 
         # Tables tab
         self.tables_tab = self._create_tables_tab()
-        self.tabs.addTab(self.tables_tab, "📋 Tables")
+        self.tabs.addTab(self.tables_tab, load_svg_icon("table", 16, COLORS['muted']), "Tables")
 
         layout.addWidget(self.tabs)
 
@@ -230,8 +232,9 @@ class MaxMinDriftsWidget(QWidget):
         x_container = self._create_direction_tables("X")
         layout.addWidget(x_container)
 
-        # Y Direction container (Min and Max side-by-side)
+        # Y Direction container (Min and Max side-by-side) - not used for directionless datasets
         y_container = self._create_direction_tables("Y")
+        y_container.hide()
         layout.addWidget(y_container)
 
         layout.addStretch()  # Push content to top
@@ -295,14 +298,14 @@ class MaxMinDriftsWidget(QWidget):
         # Label for Min/Max
         label_widget = QLabel(label)
         label_widget.setStyleSheet(f"""
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 600;
             color: {COLORS['text']};
         """)
         layout.addWidget(label_widget)
 
         # Table
-        table = QTableWidget()
+        table = ClickableTableWidget()
         table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: #0a0c10;
@@ -375,6 +378,7 @@ class MaxMinDriftsWidget(QWidget):
 
         # Store references for tracking
         table._hovered_row = -1
+        table._label_widget = label_widget
 
         # Install event filter for hover effects AND clicks
         table.viewport().installEventFilter(self)
@@ -409,6 +413,13 @@ class MaxMinDriftsWidget(QWidget):
         self.current_display_name = dataset.meta.display_name
         base_result_type = dataset.source_type or self._infer_base_result_type(dataset.meta.result_type)
         self.current_base_type = base_result_type
+        column_axials = base_result_type == "ColumnAxials"
+
+        # For column axials we never want direction titles; replace immediately with the dataset name
+        if column_axials and self.x_tables_label:
+            self.x_tables_label.setText(self.current_display_name or "Max/Min Column Axials")
+        if column_axials and self.y_tables_label:
+            self.y_tables_label.setText("")
 
         # REVERSE story order for plotting: bottom floors at bottom (y=0), top floors at top (y=max)
         # Excel has top-to-bottom, but we want bottom-to-top for plots
@@ -419,8 +430,8 @@ class MaxMinDriftsWidget(QWidget):
         story_names = list(reversed(story_names_excel))  # Reverse for plotting
         available_directions = tuple(dataset.directions or ("X", "Y"))
 
-        # Check if this is directionless data (e.g., QuadRotations)
-        is_directionless = len(available_directions) == 1 and available_directions[0] == ""
+        # Check if this is directionless data (e.g., QuadRotations, ColumnAxials)
+        is_directionless = column_axials or (len(available_directions) == 1 and available_directions[0] == "")
 
         if is_directionless:
             # For directionless data, show single plot in X position, completely hide Y
@@ -436,7 +447,11 @@ class MaxMinDriftsWidget(QWidget):
 
             # Update label to remove direction indicator
             if self.x_tables_label:
-                self.x_tables_label.setText(f"{self.current_display_name}")
+                self.x_tables_label.setText(self.current_display_name or "Column Axials")
+            # Explicitly clear the Y label and container for directionless data
+            if self.y_tables_label:
+                self.y_tables_label.setText("")
+            self._set_direction_visibility("Y", False)
         else:
             # Map V2/V3 to X/Y for display (element results use V2/V3, global uses X/Y)
             direction_map = self._create_direction_map(available_directions)
@@ -458,6 +473,12 @@ class MaxMinDriftsWidget(QWidget):
 
         if not any(direction_visibility.values()):
             self.clear_data()
+        elif column_axials:
+            # Force X label to dataset name for column axials and hide Y title if present
+            if self.x_tables_label:
+                self.x_tables_label.setText(self.current_display_name or "Column Axials")
+            if self.y_tables_label:
+                self.y_tables_label.setText("")
 
     def _load_direction_data(self, df: pd.DataFrame, direction: str, story_names: list, base_result_type: str, display_direction: str = None) -> bool:
         """Load data for a specific direction.
@@ -501,9 +522,13 @@ class MaxMinDriftsWidget(QWidget):
         # Plot and populate tables using display_direction for widget selection
         if display_direction == 'X':
             self._plot_maxmin_data(self.x_plot, self.x_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config, display_direction)
+            self._show_table_widget(self.x_min_table, "Min")
+            self._show_table_widget(self.x_max_table, "Max")
             self._populate_min_max_tables(self.x_min_table, self.x_max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config)
         else:
             self._plot_maxmin_data(self.y_plot, self.y_legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type, config, display_direction)
+            self._show_table_widget(self.y_min_table, "Min")
+            self._show_table_widget(self.y_max_table, "Max")
             self._populate_min_max_tables(self.y_min_table, self.y_max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config)
 
         return True
@@ -545,6 +570,12 @@ class MaxMinDriftsWidget(QWidget):
         # Collect all drift values for range calculation
         all_values = []
 
+        # Detect whether Min columns already include sign (element-level forces/axials)
+        signed_min_values = any(
+            col in df.columns and (pd.to_numeric(df[col], errors="coerce") < 0).any()
+            for col in min_cols
+        )
+
         # Match Max and Min columns by load case
         load_cases_plotted = []
 
@@ -578,7 +609,11 @@ class MaxMinDriftsWidget(QWidget):
 
             # Get values
             max_values = df[max_col].values.tolist()
-            min_values = (-df[min_col].values).tolist()  # Negated for negative side
+            if signed_min_values:
+                min_values = df[min_col].values.tolist()
+            else:
+                # Magnitude-only datasets need to be mirrored to the negative side
+                min_values = (-df[min_col].values).tolist()
 
             y_positions = list(story_indices)
 
@@ -638,9 +673,10 @@ class MaxMinDriftsWidget(QWidget):
             all_values.extend(avg_values)
             self._add_static_legend_item(legend_layout, AVERAGE_SERIES_COLOR, "Avg Max", Qt.PenStyle.SolidLine)
 
-        min_avg_series = self._compute_average_series(df, min_cols, absolute=True)
+        min_avg_series = self._compute_average_series(df, min_cols, absolute=not signed_min_values)
         if min_avg_series is not None:
-            avg_values = [-val for val in min_avg_series.tolist()]
+            raw_avg_values = min_avg_series.tolist()
+            avg_values = raw_avg_values if signed_min_values else [-val for val in raw_avg_values]
             y_positions = list(story_indices)
             if include_base_anchor:
                 avg_values = [0.0] + avg_values
@@ -700,6 +736,133 @@ class MaxMinDriftsWidget(QWidget):
 
         # Populate Min table
         self._populate_single_table(min_table, df, min_cols, story_names, direction, base_result_type, config.color_scheme, is_max=False)
+
+    def _populate_axial_combined_table(self, table, df, max_cols, min_cols, story_names, base_result_type, color_scheme: str):
+        """Populate a single table with both Max and Min axial values (no X/Y split)."""
+        from utils.color_utils import get_gradient_color
+        from utils.data_utils import parse_percentage_value
+        from PyQt6.QtGui import QColor
+
+        if table is None:
+            return
+
+        table.clear()
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # Pair load cases that have both Max and Min columns
+        pairs = []
+        for max_col in sorted(max_cols):
+            load_case_full = max_col.replace("Max_", "")
+            min_col = f"Min_{load_case_full}"
+            if min_col in min_cols:
+                parts = load_case_full.split("_")
+                load_case = parts[-1] if len(parts) > 1 else load_case_full
+                pairs.append((load_case, max_col, min_col))
+
+        if not pairs or not story_names:
+            return
+
+        column_count = 1 + len(pairs) * 2 + 1  # Story + (Max/Min per LC) + Avg
+        table.setRowCount(len(story_names))
+        table.setColumnCount(column_count)
+
+        headers = ["Story"]
+        for load_case, _, _ in pairs:
+            headers.extend([f"{load_case} Max", f"{load_case} Min"])
+        headers.append("Avg")
+        table.setHorizontalHeaderLabels(headers)
+
+        # Gradient range based on absolute values
+        all_values = []
+        for _, max_col, min_col in pairs:
+            for idx in range(len(story_names)):
+                for col in (max_col, min_col):
+                    value = df[col].iloc[idx]
+                    if isinstance(value, str):
+                        numeric_value = parse_percentage_value(value)
+                    else:
+                        numeric_value = float(value)
+                    all_values.append(abs(numeric_value))
+
+        all_values = [v for v in all_values if v != 0.0]
+        if all_values:
+            min_val = min(all_values)
+            max_val = max(all_values)
+        else:
+            min_val = max_val = 0
+
+        for row_idx, story_name in enumerate(story_names):
+            row_values = []
+            story_item = QTableWidgetItem(story_name)
+            story_item.setFlags(story_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            story_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            story_color = QColor("#d1d5db")
+            story_item.setForeground(story_color)
+            story_item._original_color = story_color
+            table.setItem(row_idx, 0, story_item)
+
+            for pair_idx, (_, max_col, min_col) in enumerate(pairs):
+                for offset, col in enumerate((max_col, min_col)):
+                    value = df[col].iloc[row_idx]
+                    if isinstance(value, str):
+                        numeric_value = parse_percentage_value(value)
+                    else:
+                        numeric_value = float(value)
+
+                    display_text = self._format_maxmin_number(numeric_value, base_result_type)
+                    item = QTableWidgetItem(display_text)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    abs_value = abs(numeric_value)
+                    if abs_value != 0.0 and min_val != max_val and min_val != 0:
+                        color_hex = get_gradient_color(abs_value, min_val, max_val, color_scheme)
+                        gradient_color = QColor(color_hex)
+                        item.setForeground(gradient_color)
+                        item._original_color = gradient_color
+                    else:
+                        default_color = QColor("#d1d5db")
+                        item.setForeground(default_color)
+                        item._original_color = default_color
+
+                    table.setItem(row_idx, 1 + pair_idx * 2 + offset, item)
+                    row_values.append(numeric_value)
+
+            avg_value = self._calculate_row_average(row_values)
+            avg_item = self._create_average_item(avg_value, base_result_type)
+            table.setItem(row_idx, column_count - 1, avg_item)
+
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        for i in range(1, table.columnCount()):
+            table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+
+        self._resize_table_to_content(table)
+
+    def _hide_table_widget(self, table):
+        """Hide a table and its container (used for single-table layouts)."""
+        if not table:
+            return
+        table.setVisible(False)
+        parent = table.parent()
+        if parent:
+            parent.setVisible(False)
+            parent.setMaximumWidth(0)
+            parent.setMaximumHeight(0)
+
+    def _show_table_widget(self, table, label_text: str = None):
+        """Show a table and restore its container sizing."""
+        if not table:
+            return
+        table.setVisible(True)
+        if label_text in {"Min", "Max"}:
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        parent = table.parent()
+        if parent:
+            parent.setVisible(True)
+            parent.setMaximumWidth(16777215)
+            parent.setMaximumHeight(16777215)
+        if label_text and hasattr(table, "_label_widget"):
+            table._label_widget.setText(label_text)
 
     def _populate_single_table(self, table, df, cols, story_names, direction, base_result_type: str, color_scheme: str, is_max):
         """Populate a single table (Min or Max) with color gradients on text."""
@@ -911,7 +1074,7 @@ class MaxMinDriftsWidget(QWidget):
                 widget.deleteLater()
 
     def _base_type_decimals(self, base_type: str) -> int:
-        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0, "WallShears": 0, "ColumnShears": 0, "ColumnRotations": 2, "QuadRotations": 2}
+        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0, "WallShears": 0, "ColumnShears": 0, "ColumnAxials": 4, "ColumnRotations": 2, "QuadRotations": 2}
         return mapping.get(base_type, 2)
 
     def _format_maxmin_number(self, value: float, base_type: str) -> str:
@@ -1114,7 +1277,11 @@ class MaxMinDriftsWidget(QWidget):
 
         label = self.x_tables_label if display_direction == 'X' else self.y_tables_label
         if label:
-            label.setText(f"{data_direction} Direction - {self.current_base_type}")
+            if self.current_base_type == "ColumnAxials":
+                # Column axials are directionless; omit X/Y titles
+                label.setText(self.current_display_name or "Column Axials")
+            else:
+                label.setText(f"{data_direction} Direction - {self.current_base_type}")
 
     @staticmethod
     def _create_direction_map(available_directions: tuple) -> dict:

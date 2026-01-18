@@ -511,7 +511,9 @@ class ResultsPlotWidget(QWidget):
             self._add_legend_item(container, color, load_case)
 
         # Calculate and plot average line (bold, dashed)
-        if len(load_case_columns) > 1:
+        # Skip for pushover results (indicated by empty summary_columns)
+        show_average = len(load_case_columns) > 1 and len(dataset.summary_columns) > 0
+        if show_average:
             avg_series = numeric_df.mean(axis=1, skipna=True).fillna(0.0)
             avg_values = avg_series.tolist()
             y_positions = list(story_positions)

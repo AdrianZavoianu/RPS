@@ -1,0 +1,103 @@
+[project]
+name = "rps"
+version = "2.19.0"
+description = "Results Processing System - Structural engineering results processor for ETABS/SAP2000"
+requires-python = ">=3.10"
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.git
+    | \.pytest_cache
+    | __pycache__
+    | build
+    | dist
+    | alembic/versions
+    | Old_scripts
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+skip = [".git", "__pycache__", "build", "dist", "alembic/versions", "Old_scripts"]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = [
+    "E501",  # line too long (handled by black)
+    "W503",  # line break before binary operator (conflicts with black)
+    "E203",  # whitespace before ':' (conflicts with black)
+    "E266",  # too many leading '#' for block comment
+    "E402",  # module level import not at top of file (needed for some cases)
+]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "alembic/versions",
+    "Old_scripts",
+    "*.pyc",
+]
+per-file-ignores = [
+    "__init__.py:F401",  # imported but unused (re-exports)
+    "conftest.py:F401,F811",  # fixtures
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "Old_scripts/",
+    "alembic/",
+    "build/",
+    "dist/",
+]
+
+# Stricter settings for core modules
+[[tool.mypy.overrides]]
+module = [
+    "processing.result_service.*",
+    "services.*",
+    "database.repositories.*",
+]
+warn_unreachable = true
+strict_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "-ra",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/Old_scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

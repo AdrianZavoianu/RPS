@@ -13,20 +13,24 @@ ENV/
 
 # Pipenv
 pipenv-*
+Pipfile.lock
 
 # Build artifacts
 build/
 dist/
 *.egg-info/
+*.spec
 
-# PyInstaller (keep RPS.spec for build configuration)
-# *.spec
+# PyInstaller (RPS.spec is generated, don't track)
+RPS.spec
 
 # Test and coverage outputs
 .pytest_cache/
 .coverage
 .coverage.*
 htmlcov/
+.tox/
+.nox/
 
 # Logs and temp
 *.log
@@ -38,10 +42,15 @@ temp/
 .idea/
 .vscode/
 *.iml
+*.swp
+*.swo
+*~
 
 # OS generated files
 .DS_Store
 Thumbs.db
+Desktop.ini
+ehthumbs.db
 
 # Local databases and caches
 data/*.db
@@ -52,3 +61,30 @@ catalog.db
 
 # PyQt UI compiler cache
 *.pyqt6.qm
+
+# Excel temp files (open files)
+~$*.xlsx
+~$*.xls
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Test data (user-specific local files)
+# Keep test resources in tests/resources/ tracked
+/Typical NLTHA DES/
+/Typical NLTHA MCE/
+/Typical Pushover Results/
+/Typical TH Data/
+
+# Local settings (user-specific)
+.claude/settings.local.json
+
+# MyPy cache
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/

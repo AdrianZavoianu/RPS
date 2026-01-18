@@ -60,7 +60,15 @@
       "Bash(xargs:*)",
       "Bash(ping:*)",
       "Bash(if not exist \"C:\\SoftDev\\RPS\\data\" mkdir \"C:\\SoftDev\\RPS\\data\")",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(pytest:*)",
+      "WebFetch(domain:unpkg.com)",
+      "Bash(for:*)",
+      "Bash(do [ -f \"$f\" ])",
+      "Bash(while read f)",
+      "Bash(do grep -q \"^def \\|^class \" \"$f\")",
+      "Bash(head:*)",
+      "Bash(git mv:*)"
     ],
     "deny": [],
     "ask": []

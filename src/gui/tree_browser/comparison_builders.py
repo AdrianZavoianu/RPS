@@ -378,6 +378,14 @@ def _add_columns_section(
         })
         rotations_item.setExpanded(False)
 
+        all_item = QTreeWidgetItem(rotations_item)
+        all_item.setText(0, "    > All Rotations")
+        all_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_all_column_rotations",
+            "comparison_set_id": comparison_set.id,
+            "result_type": "ColumnRotations",
+        })
+
         # Add individual column elements
         for element in column_elements:
             element_item = QTreeWidgetItem(rotations_item)
@@ -426,6 +434,14 @@ def _add_beams_section(
             "result_type": "BeamRotations"
         })
         rotations_item.setExpanded(False)
+
+        all_item = QTreeWidgetItem(rotations_item)
+        all_item.setText(0, "    > All Rotations")
+        all_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_all_beam_rotations",
+            "comparison_set_id": comparison_set.id,
+            "result_type": "BeamRotations"
+        })
 
         # Add individual beam elements
         for element in beam_elements:

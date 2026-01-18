@@ -18,6 +18,7 @@ black = "*"
 flake8 = "*"
 pyinstaller = "*"
 pyqt6-tools = "*"
+pytest-cov = "*"
 
 [requires]
 python_version = "3.11"

@@ -1,11 +1,59 @@
 """Icon utilities for the RPS application."""
 
+import re
 from pathlib import Path
-from PyQt6.QtGui import QIcon, QPixmap, QPainter
-from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QImage
+from PyQt6.QtCore import Qt, QByteArray
+from PyQt6.QtSvg import QSvgRenderer
 
 # Icon paths
 ICONS_DIR = Path(__file__).parent.parent.parent / "resources" / "icons"
+
+
+def load_svg_icon(name: str, size: int = 24, color: str = None) -> QIcon:
+    """Load an SVG icon from resources/icons and optionally colorize it.
+
+    Args:
+        name: Icon name (without .svg extension)
+        size: Desired icon size in pixels
+        color: Hex color string to apply (replaces stroke color)
+
+    Returns:
+        QIcon: The loaded and optionally colorized icon
+    """
+    svg_path = ICONS_DIR / f"{name}.svg"
+    if not svg_path.exists():
+        return QIcon()
+
+    # Read SVG content
+    svg_content = svg_path.read_text(encoding='utf-8')
+
+    # Replace stroke color if specified
+    if color:
+        # Replace stroke="currentColor" or any stroke color
+        svg_content = re.sub(
+            r'stroke="[^"]*"',
+            f'stroke="{color}"',
+            svg_content
+        )
+
+    # Create renderer from modified SVG
+    svg_bytes = QByteArray(svg_content.encode('utf-8'))
+    renderer = QSvgRenderer(svg_bytes)
+
+    if not renderer.isValid():
+        return QIcon()
+
+    # Render to pixmap at desired size
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter)
+    painter.end()
+
+    return QIcon(pixmap)
 
 
 def get_app_icon() -> QIcon:
@@ -191,6 +239,181 @@ def create_settings_icon(size: int = 18, color: str = None) -> QIcon:
     painter.drawPath(path)
     painter.end()
 
+    return QIcon(pixmap)
+
+
+def create_trash_icon(size: int = 16, color: str = None) -> QIcon:
+    """Create a minimalist trash/delete icon.
+
+    Args:
+        size: Icon size in pixels
+        color: Hex color string (defaults to muted text color)
+
+    Returns:
+        QIcon: Trash icon
+    """
+    from PyQt6.QtGui import QColor, QPen, QPainterPath
+    from PyQt6.QtCore import QRectF
+
+    from .styles import COLORS
+
+    if color is None:
+        color = COLORS['muted']
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Thicker pen for clarity
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(1.5, size / 9))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    # Smaller margins for larger icon area
+    m = size * 0.1
+    w = size - 2 * m
+    h = size - 2 * m
+
+    # Lid (horizontal line across top)
+    lid_y = m + h * 0.18
+    painter.drawLine(int(m), int(lid_y), int(size - m), int(lid_y))
+
+    # Handle on top (centered small rectangle)
+    handle_w = w * 0.35
+    handle_x = m + (w - handle_w) / 2
+    handle_top = m
+    painter.drawLine(int(handle_x), int(lid_y), int(handle_x), int(handle_top))
+    painter.drawLine(int(handle_x), int(handle_top), int(handle_x + handle_w), int(handle_top))
+    painter.drawLine(int(handle_x + handle_w), int(handle_top), int(handle_x + handle_w), int(lid_y))
+
+    # Body (simple rounded rectangle below lid)
+    body_top = lid_y + h * 0.08
+    body_bottom = size - m
+    body_left = m + w * 0.08
+    body_right = size - m - w * 0.08
+
+    # Draw body as rounded rect
+    body_rect = QRectF(body_left, body_top, body_right - body_left, body_bottom - body_top)
+    painter.drawRoundedRect(body_rect, 2, 2)
+
+    # Two vertical lines inside (simpler, clearer)
+    slot_top = body_top + h * 0.15
+    slot_bottom = body_bottom - h * 0.12
+    slot_x1 = m + w * 0.38
+    slot_x2 = m + w * 0.62
+    painter.drawLine(int(slot_x1), int(slot_top), int(slot_x1), int(slot_bottom))
+    painter.drawLine(int(slot_x2), int(slot_top), int(slot_x2), int(slot_bottom))
+
+    painter.end()
+    return QIcon(pixmap)
+
+
+def create_plot_icon(size: int = 16, color: str = None) -> QIcon:
+    """Create a minimalist plot/chart icon.
+
+    Args:
+        size: Icon size in pixels
+        color: Hex color string (defaults to muted text color)
+
+    Returns:
+        QIcon: Plot icon
+    """
+    from PyQt6.QtGui import QColor, QPen
+    from PyQt6.QtCore import QPointF
+
+    from .styles import COLORS
+
+    if color is None:
+        color = COLORS['muted']
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    pen = QPen(QColor(color))
+    pen.setWidth(max(1, size // 10))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+
+    # Margins
+    m = size * 0.12
+
+    # Axes (L-shape)
+    painter.drawLine(int(m), int(m), int(m), int(size - m))  # Y axis
+    painter.drawLine(int(m), int(size - m), int(size - m), int(size - m))  # X axis
+
+    # Line chart going up
+    points = [
+        QPointF(m + (size - 2*m) * 0.1, size - m - (size - 2*m) * 0.2),
+        QPointF(m + (size - 2*m) * 0.35, size - m - (size - 2*m) * 0.5),
+        QPointF(m + (size - 2*m) * 0.6, size - m - (size - 2*m) * 0.35),
+        QPointF(m + (size - 2*m) * 0.9, size - m - (size - 2*m) * 0.8),
+    ]
+
+    for i in range(len(points) - 1):
+        painter.drawLine(points[i], points[i + 1])
+
+    painter.end()
+    return QIcon(pixmap)
+
+
+def create_table_icon(size: int = 16, color: str = None) -> QIcon:
+    """Create a minimalist table/grid icon.
+
+    Args:
+        size: Icon size in pixels
+        color: Hex color string (defaults to muted text color)
+
+    Returns:
+        QIcon: Table icon
+    """
+    from PyQt6.QtGui import QColor, QPen
+    from PyQt6.QtCore import QRectF
+
+    from .styles import COLORS
+
+    if color is None:
+        color = COLORS['muted']
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    pen = QPen(QColor(color))
+    pen.setWidth(max(1, size // 12))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    # Margins
+    m = size * 0.12
+    w = size - 2 * m
+    h = size - 2 * m
+
+    # Outer rectangle
+    painter.drawRect(QRectF(m, m, w, h))
+
+    # Horizontal lines (2 rows)
+    row_h = h / 3
+    painter.drawLine(int(m), int(m + row_h), int(size - m), int(m + row_h))
+    painter.drawLine(int(m), int(m + 2 * row_h), int(size - m), int(m + 2 * row_h))
+
+    # Vertical line (1 column divider)
+    col_x = m + w * 0.35
+    painter.drawLine(int(col_x), int(m), int(col_x), int(size - m))
+
+    painter.end()
     return QIcon(pixmap)
 
 

@@ -500,7 +500,7 @@ class SelectiveDataImporter(DataImporter):
         return stats
 
     def _import_column_axials(self, session, project_id: int) -> dict:
-        """Import column axial forces with load case filtering."""
+        """Import column axial forces with load case filtering (min and max)."""
         from database.repository import ElementRepository
         from database.models import ColumnAxial
         from .result_processor import ResultProcessor
@@ -554,6 +554,7 @@ class SelectiveDataImporter(DataImporter):
                     result_category_id=self.result_category_id,
                     location=row.get("Location"),
                     min_axial=row["MinAxial"],
+                    max_axial=row.get("MaxAxial"),
                     story_sort_order=helper._story_order.get(row["Story"]),
                 )
                 axial_objects.append(axial)
@@ -683,7 +684,7 @@ class SelectiveDataImporter(DataImporter):
 
             rotation_objects = []
 
-            for _, row in processed.iterrows():
+            for idx, row in processed.iterrows():
                 story = helper.get_story(row["Story"])
                 load_case = helper.get_load_case(row["LoadCase"])
                 element = beam_elements[row["Beam"]]
@@ -693,13 +694,14 @@ class SelectiveDataImporter(DataImporter):
                     element_id=element.id,
                     load_case_id=load_case.id,
                     result_category_id=self.result_category_id,
+                    step_type=row.get("StepType"),
                     hinge=row.get("Hinge"),
                     generated_hinge=row.get("GeneratedHinge"),
                     rel_dist=row.get("RelDist"),
                     r3_plastic=row["R3Plastic"],
                     max_r3_plastic=row.get("MaxR3Plastic"),
                     min_r3_plastic=row.get("MinR3Plastic"),
-                    story_sort_order=helper._story_order.get(row["Story"]),
+                    story_sort_order=idx,  # Use DataFrame index to preserve source order
                 )
                 rotation_objects.append(rotation)
 

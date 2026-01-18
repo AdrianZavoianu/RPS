@@ -71,70 +71,73 @@ def on_browser_selection_changed(
     # Special handling for pushover curves
     if category == "Pushover" and result_type == "Curves":
         case_name = direction  # Direction field contains the case name
-        view_loaders.load_pushover_curve(window, case_name)
+        view_loaders.load_pushover_curve(window, case_name, window.content_area)
         return
 
     # Special handling for all pushover curves
     if category == "Pushover" and result_type == "AllCurves":
         curve_direction = direction  # Direction field contains X or Y
-        view_loaders.load_all_pushover_curves(window, curve_direction)
+        view_loaders.load_all_pushover_curves(window, curve_direction, window.content_area)
         return
 
     if result_type and result_set_id:
         if result_type == "AllQuadRotations":
-            window._hide_all_views()
-            window.all_rotations_widget.show()
-            view_loaders.load_all_rotations(window, result_set_id)
+            window.content_area.show_all_rotations()
+            view_loaders.load_all_rotations(window, result_set_id, window.content_area)
         elif result_type == "AllColumnRotations":
-            window._hide_all_views()
-            window.all_rotations_widget.show()
-            view_loaders.load_all_column_rotations(window, result_set_id)
+            window.content_area.show_all_rotations()
+            view_loaders.load_all_column_rotations(window, result_set_id, window.content_area)
         elif result_type == "AllBeamRotations":
-            window._hide_all_views()
-            window.all_rotations_widget.show()
-            view_loaders.load_all_beam_rotations(window, result_set_id)
+            window.content_area.show_all_rotations()
+            view_loaders.load_all_beam_rotations(window, result_set_id, window.content_area)
         elif result_type == "BeamRotationsTable":
-            window._hide_all_views()
-            window.beam_rotations_table.show()
-            view_loaders.load_beam_rotations_table(window, result_set_id)
+            window.content_area.show_beam_table()
+            view_loaders.load_beam_rotations_table(window, result_set_id, window.content_area)
         elif result_type.startswith("MaxMin") and element_id > 0:
-            window._hide_all_views()
-            window.maxmin_widget.show()
+            window.content_area.show_maxmin()
             base_type = window._extract_base_result_type(result_type)
-            view_loaders.load_element_maxmin_dataset(window, element_id, result_set_id, base_type)
+            view_loaders.load_element_maxmin_dataset(
+                window,
+                element_id,
+                result_set_id,
+                window.content_area,
+                base_type,
+            )
         elif result_type.startswith("MaxMin"):
-            window._hide_all_views()
-            window.maxmin_widget.show()
+            window.content_area.show_maxmin()
             base_type = window._extract_base_result_type(result_type)
-            view_loaders.load_maxmin_dataset(window, result_set_id, base_type)
+            view_loaders.load_maxmin_dataset(window, result_set_id, window.content_area, base_type)
         elif result_type == "AllSoilPressures":
-            window._hide_all_views()
-            window.soil_pressure_plot_widget.show()
-            view_loaders.load_all_soil_pressures(window, result_set_id)
+            window.content_area.show_soil_pressure()
+            view_loaders.load_all_soil_pressures(window, result_set_id, window.content_area)
         elif result_type == "SoilPressuresTable":
-            window._hide_all_views()
-            window.beam_rotations_table.show()
-            view_loaders.load_soil_pressures_table(window, result_set_id)
+            window.content_area.show_beam_table()
+            view_loaders.load_soil_pressures_table(window, result_set_id, window.content_area)
         elif result_type == "AllVerticalDisplacements":
-            window._hide_all_views()
-            window.soil_pressure_plot_widget.show()
-            view_loaders.load_all_vertical_displacements(window, result_set_id)
+            window.content_area.show_soil_pressure()
+            view_loaders.load_all_vertical_displacements(window, result_set_id, window.content_area)
         elif result_type == "VerticalDisplacementsTable":
-            window._hide_all_views()
-            window.beam_rotations_table.show()
-            view_loaders.load_vertical_displacements_table(window, result_set_id)
+            window.content_area.show_beam_table()
+            view_loaders.load_vertical_displacements_table(window, result_set_id, window.content_area)
+        elif result_type == "TimeSeriesGlobal":
+            # Time series animated view with 4 plots
+            # Direction is encoded as "direction:load_case_name"
+            if ":" in direction:
+                actual_direction, load_case_name = direction.split(":", 1)
+            else:
+                actual_direction = direction
+                load_case_name = None
+            window.controller.update_selection(load_case_name=load_case_name)
+            view_loaders.load_time_series_global(window, actual_direction, load_case_name, window.content_area)
         elif element_id > 0:
-            window._hide_all_views()
-            window.standard_view.show()
-            view_loaders.load_element_dataset(window, element_id, result_type, direction, result_set_id)
+            window.content_area.show_standard()
+            view_loaders.load_element_dataset(window, element_id, result_type, direction, result_set_id, window.content_area)
         else:
-            window._hide_all_views()
-            window.standard_view.show()
-            view_loaders.load_standard_dataset(window, result_type, direction, result_set_id)
+            window.content_area.show_standard()
+            view_loaders.load_standard_dataset(window, result_type, direction, result_set_id, window.content_area)
     else:
-        window.content_title.setText("Select a result type")
-        window._hide_all_views()
-        window.standard_view.show()
+        window.content_area.content_title.setText("Select a result type")
+        window.content_area.show_standard()
         window.standard_view.clear()
 
 
@@ -165,12 +168,22 @@ def on_comparison_selected(
 
         # Check if this is "All Rotations" view
         if direction == "All" and result_type == "QuadRotations":
-            view_loaders.load_comparison_all_rotations(window, comparison_set)
+            view_loaders.load_comparison_all_rotations(window, comparison_set, window.content_area)
+            return
+
+        # Check if this is "All Column Rotations" view
+        if direction == "AllColumns" and result_type == "ColumnRotations":
+            view_loaders.load_comparison_all_column_rotations(window, comparison_set, window.content_area)
+            return
+
+        # Check if this is "All Beam Rotations" view
+        if direction == "AllBeams" and result_type == "BeamRotations":
+            view_loaders.load_comparison_all_beam_rotations(window, comparison_set, window.content_area)
             return
 
         # Check if this is "All Joints" view (soil pressures, vertical displacements)
         if direction == "AllJoints" and result_type in ["SoilPressures", "VerticalDisplacements"]:
-            view_loaders.load_comparison_joint_scatter(window, comparison_set, result_type)
+            view_loaders.load_comparison_joint_scatter(window, comparison_set, result_type, window.content_area)
             return
 
         # Load comparison dataset
@@ -184,12 +197,11 @@ def on_comparison_selected(
         if not dataset:
             window.content_title.setText(f"> Comparison: {result_type} {direction}")
             window.statusBar().showMessage("No comparison data available")
-            window._hide_all_views()
+            window.content_area.hide_all()
             return
 
         # Show comparison view
-        window._hide_all_views()
-        window.comparison_view.show()
+        window.content_area.show_comparison()
 
         # Load data into comparison view
         window.comparison_view.set_dataset(dataset)
@@ -262,12 +274,11 @@ def on_comparison_element_selected(
         if not dataset:
             window.content_title.setText(f"> Comparison: {element.name} - {result_type}")
             window.statusBar().showMessage("No comparison data available")
-            window._hide_all_views()
+            window.content_area.hide_all()
             return
 
         # Show comparison view
-        window._hide_all_views()
-        window.comparison_view.show()
+        window.content_area.show_comparison()
 
         # Load data into comparison view
         window.comparison_view.set_dataset(dataset)

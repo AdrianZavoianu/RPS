@@ -1,6 +1,6 @@
 # RPS Architecture (Condensed)
 
-**Version**: 2.14 | **Date**: 2024-12-02
+**Version**: 2.21 | **Date**: 2025-01-15
 
 > **Full details in code comments and docstrings. This doc covers key patterns only.**
 
@@ -12,7 +12,54 @@
 
 **Stack**: PyQt6 (UI) + PyQtGraph (plots) + SQLite (data) + SQLAlchemy (ORM) + Pandas (processing)
 
-**Architecture**: Layered (UI → Service → Repository → Database)
+**Architecture**: Layered (UI -> Service -> Repository -> Database)
+
+**Layering guardrails (v2.14+)**
+- UI/widgets do not talk directly to repositories; controllers/services own data access.
+- Services/controllers should obtain sessions via `database.session.project_session_factory`/`catalog_session_factory` (or pass factories into helpers) to keep initialization and disposal consistent; shared commit/rollback context: `database.session.session_scope`.
+- Controller dependencies are typed (`gui.controllers.types`) so views inject only the minimal interfaces they need (cache repo, result service) instead of concrete implementations.
+- Repository hygiene check: `python scripts/check_repo_hygiene.py` flags stray top-level folders (e.g., accidental extracted paths).
+- Export pipeline is modular: `export_utils` (parsing/config), `export_writer`, `export_metadata`, `export_excel_sections`, `export_discovery`, `export_import_data`, `export_formatting`, `export_pushover`.
+
+**New in v2.21**:
+- **PDF Report Generation**: Complete PDF report system for NLTHA global results
+  - `ReportWindow` modal dialog with checkbox tree (left 30%) and A4 preview (right 70%)
+  - `ReportCheckboxTree` parses available result types from `GlobalResultsCache` and extracts directions from JSON matrix keys
+  - `ReportPreviewWidget` renders A4 pages at 2.5x scale (525×743px) with custom QPainter drawing
+  - `PDFGenerator` produces high-resolution PDF output at 300 DPI using QPrinter
+  - Print support via `QPrintDialog` integration
+- **Report Features**:
+  - One section per page for optimal readability
+  - Header with colorized RPS logo mask, project name, separator line
+  - Data tables with Story + load cases (up to 11) + summary columns
+  - Building profile plots with light gray background, nice rounded tick values
+  - "Story" Y-axis label, X-axis label from config's `y_label` with units
+  - Color-coded load case lines with legend below X-axis
+  - Right-aligned page numbers
+- **Performance Optimizations**:
+  - Debounced checkbox signals (100ms) and preview updates (300ms)
+  - Local dataset caching to avoid repeated database queries
+  - Efficient QPainter rendering with proper font scaling
+
+**New in v2.20**:
+- **Time-Series Animated Views**: Complete time-history data visualization for NLTHA analysis
+  - `TimeSeriesAnimatedView` displays 4 building profile plots in horizontal row (Displacements, Drifts, Accelerations, Shears)
+  - Playback controls with adjustable speed (1-10x), play/pause, reset, and time slider
+  - Max/Min envelope lines (red/blue) with animated current profile (cyan)
+  - Base acceleration time series plot with elapsed time shading (`LinearRegionItem`) and time marker
+  - Accelerations automatically converted to g (÷ 9810 mm/s²)
+- **Time-Series Import**: `TimeHistoryImporter` stores time series in `TimeSeriesGlobalCache` table with JSON columns
+  - `TimeHistoryParser` extracts data from Excel sheets (Story Drifts, Forces, Displacements, Accelerations)
+  - Result set SELECTION from dropdown (not creation) to associate with existing NLTHA data
+- **Story Ordering**: ETABS exports stories top-to-bottom, so query uses `.desc()` on `story_sort_order` to display Ground floor at bottom
+- **Array Normalization**: Value arrays padded to max length for homogeneous numpy operations
+
+**New in v2.15**:
+- **UI polish**: All rotations (global/comparison) plus soil pressure and vertical displacement plots now share the borderless clean style with corrected axis labels; large results tables (beam rotations, soil pressures, vertical displacements) use `ClickableTableWidget` + clipped headers to keep left borders and prevent the last column from overflowing.
+- **Column Axial Max/Min simplification**: Direction titles removed (dataset name shown instead), only one Max and one Min table rendered, values formatted to four decimals, and signed-min handling ensures negative envelopes render correctly in plots and tables.
+- **Pushover curve view**: Adopts the NLTHA plot styling, fixes missing left table border, and ensures navigating to curves clears any previously displayed plots/tables.
+- **Pushover rotations data**: Beam and column rotation scatter/table queries now include NULL `ResultCategory` rows and fall back to raw rotation fields for pushover, so Max/Min and table views populate reliably.
+- **Navigation cleanup**: Switching to pushover curves hides prior content; vertical displacement plots now show the correct axis labels instead of soil pressures.
 
 **New in v2.14**:
 - **Context-Aware Export System**: Export dialog automatically filters result sets and types based on NLTHA/Pushover tab context. NLTHA tab shows only NLTHA result sets (no Curves option), Pushover tab shows only Pushover result sets with Curves + results. Independent selection allows exporting curves only, results only, or both.
@@ -51,7 +98,7 @@
 
 ---
 
-## 2. Data Model (26 Tables)
+## 2. Data Model (27 Tables)
 
 ### Catalog Database (`data/catalog.db`)
 - `catalog_projects` - Project metadata + DB paths
@@ -75,14 +122,15 @@
 - `pushover_cases` - Capacity curves (step data) for each pushover case
 - `pushover_curve_points` - Individual curve data points (displacement, base shear)
 
-**Cache** (4 tables):
+**Cache** (5 tables):
 - `global_results_cache` - Wide format for fast querying (story-based)
 - `element_results_cache` - Wide format for elements
 - `joint_results_cache` - Wide format for foundation/joint results (NEW in v2.5)
 - `absolute_maxmin_drifts` - Pre-computed max/min envelopes
+- `time_series_global_cache` - Time series data with JSON arrays (NEW in v2.20)
 
-**Future** (2 tables):
-- `time_history_data`, `result_categories`
+**Future** (1 table):
+- `result_categories`
 
 ### ComparisonSet Model
 **Purpose**: Store configurations for comparing multiple result sets
@@ -228,6 +276,95 @@
 - Tree browser checks for `_Min` suffix when determining section visibility
 - Views query for `_Min` suffix when loading data
 - Mismatch between importer and view will cause data display failures (empty views)
+
+### Time-Series Results Model (v2.20)
+
+**TimeSeriesGlobalCache**:
+- Stores complete time series for story-level results (Drifts, Forces, Displacements, Accelerations)
+- Fields: `id`, `project_id`, `result_set_id`, `result_type`, `direction`, `story`, `story_sort_order`, `load_case_name`
+- JSON columns: `time_steps` (array of floats), `values` (array of floats)
+- One record per story/direction/result_type/load_case combination
+
+**Data Source**: Excel files with sheets:
+- "Story Drifts" - Inter-story drifts over time (% or mm)
+- "Story Forces" - Story shear forces over time (kN)
+- "Joint Displacements" - Floor displacements over time (mm)
+- "Diaphragm Accelerations" - Floor accelerations over time (mm/s²)
+
+**Import Workflow**:
+1. User clicks "Load Time Series" in NLTHA tab
+2. Opens `TimeHistoryImportDialog`
+3. Select existing result set from dropdown (SELECTION, not creation)
+4. Browse to Excel file(s)
+5. Load case names extracted and shown as checkboxes
+6. Import stores time series in `TimeSeriesGlobalCache`
+
+**Parser** (`TimeHistoryParser`):
+- Extracts time series for each story and direction (X/Y)
+- Identifies load case name from sheet data (e.g., "TH02", "TH07")
+- Preserves story order from Excel (ETABS exports top-to-bottom)
+- Returns `TimeHistoryParseResult` with all result types
+
+**Importer** (`TimeHistoryImporter`):
+- Stores time series in JSON columns (`time_steps`, `values`)
+- Associates with existing result set via dropdown selection
+- Supports multiple load cases per file
+- Progress callbacks for UI feedback
+
+**Story Ordering** (CRITICAL):
+- ETABS exports stories top-to-bottom: `story_sort_order=0` is Roof, highest value is Ground
+- Query uses `.desc()` on `story_sort_order` to get Ground floor first
+- Plots display Ground at y=0 (bottom), Roof at y=max (top)
+
+**Animated View** (`TimeSeriesAnimatedView`):
+- **Layout**: 4 building profile plots in horizontal row
+  - Displacements (mm) | Drifts (%) | Accelerations (g) | Shears (kN)
+- **Animation**: QTimer-based playback at configurable speed (1-10x)
+- **Envelope Lines**: Max (red) and Min (blue) envelope lines on each plot
+- **Current Profile**: Animated cyan line showing values at current time step
+- **Base Acceleration Plot**: Full-width time series below main plots
+  - Red vertical `InfiniteLine` marker for current time
+  - Teal `LinearRegionItem` for elapsed time shading
+  - Height: 112px (reduced 25% from original 150px)
+- **Unit Conversion**: Accelerations converted from mm/s² to g (÷ 9810)
+
+**Signal Flow**:
+- Load case name encoded in direction parameter: `"X:TH02"`
+- Click handlers in `click_handlers.py` parse composite direction
+- `SelectionState` extended with `load_case_name` field
+- View loaders in `view_loaders.py` extract direction and load_case_name
+
+**Array Handling**:
+- Different stories may have slightly different value array lengths
+- Arrays normalized to max length by padding with last value
+- Ensures homogeneous shape for numpy operations
+
+**Tree Structure**:
+```
+└── Result Set (e.g., DES)
+    ├── Envelopes
+    │   └── Global Results (Drifts, Forces, etc.)
+    │   └── Elements (Walls, Columns, Beams)
+    │   └── Joints (Soil Pressures, Vertical Displacements)
+    └── Time-Series
+        └── TH02 (load case name)
+            └── Global
+                ├── X Direction
+                └── Y Direction
+        └── TH07 (another load case)
+            └── Global
+                ├── X Direction
+                └── Y Direction
+```
+
+**File Locations**:
+- Parser: `processing/time_history_parser.py`
+- Importer: `processing/time_history_importer.py`
+- Dialog: `gui/time_history_import_dialog.py`
+- View: `gui/result_views/time_series_animated_view.py`
+- Tree builders: `gui/tree_browser/nltha_builders.py` (`add_time_series_global_section`)
+- Click handlers: `gui/tree_browser/click_handlers.py` (`_handle_time_series_global`)
+- View loaders: `gui/project_detail/view_loaders.py` (`load_time_series_global`)
 
 ### Key Fields
 - **Story ordering**: `sort_order` (global), `story_sort_order` (per-result)
@@ -1023,7 +1160,7 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 - Single-user desktop app (no concurrent access)
 - SQLite limits (no server-side processing)
 - Element results limited to piers (future: full 3D model)
-- No time-history visualization yet
+- Time-series currently global results only (future: element-level time series)
 
 ---
 
@@ -1035,6 +1172,92 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 ---
 
 ## 16. Version History Summary
+
+### v2.21 (January 15, 2025) - PDF Report Generation
+**PDF Report System**:
+- Complete PDF report generation for NLTHA global results (Drifts, Forces, Accelerations, Displacements)
+- `ReportWindow` modal dialog with splitter layout: checkbox tree (30%) | A4 preview (70%)
+- `ReportView` main interface with result set dropdown, Select All/Clear buttons, Print/Export PDF buttons
+- `ReportCheckboxTree` hierarchical selection: Global Results → Result Type → X/Y Direction
+  - Parses available types from `GlobalResultsCache` table
+  - Extracts directions from JSON `results_matrix` keys (detects `_X`, `_Y`, `_UX`, `_UY`, `_VX`, `_VY` suffixes)
+  - Tri-state checkboxes with auto-propagation to parents/children
+- `ReportPreviewWidget` real-time A4 page preview with custom QPainter rendering
+  - A4 at 2.5x scale: 525×743 pixels
+  - Dynamic section height allocation across multiple pages
+  - Scrollable preview area for multi-page reports
+
+**Report Layout**:
+- **Header**: Colorized RPS logo mask (dark teal #1f5c6a) + project name (right-aligned) + separator line
+- **Section Title**: Result type with direction (e.g., "Story Drifts - X Direction") with 6px gap below
+- **Data Table**: Story column + up to 11 load case columns + 3 summary columns (Avg/Max/Min)
+  - Header row with gray background
+  - Alternating row colors for readability
+  - Proper decimal formatting from config
+- **Building Profile Plot**:
+  - Light gray background (#f8f9fa) with border
+  - Nice rounded tick values using magnitude-based algorithm
+  - "Story" Y-axis label (rotated -90°)
+  - X-axis label from config's `y_label` with units (e.g., "Drift X [%]", "Story Shear VX (kN)")
+  - Color-coded lines for each load case (12 distinct colors)
+  - Dashed brown average line
+  - Legend below X-axis name with shorthand labels
+- **Footer**: Right-aligned page number
+
+**PDF Generator**:
+- `PDFGenerator` class using `QPrinter` for high-quality output
+- 300 DPI resolution for print-quality PDFs
+- One section per page for optimal readability
+- Proper font scaling for PDF output (8-12pt fonts)
+- Print dialog support via `QPrintDialog`
+- Export to file with auto-generated filename (project name + timestamp)
+
+**Performance**:
+- Debounced checkbox signals (100ms) to prevent rapid re-renders
+- Debounced preview updates (300ms) to wait for user to finish clicking
+- Local dataset caching in `ReportView._cached_sections` dictionary
+- Cache key: (result_type, direction, result_set_id)
+
+**File Locations**:
+- `gui/reporting/report_window.py` - Modal dialog container
+- `gui/reporting/report_view.py` - Main interface with tree and preview
+- `gui/reporting/report_checkbox_tree.py` - Hierarchical section selection
+- `gui/reporting/report_preview_widget.py` - A4 page preview with QPainter
+- `gui/reporting/pdf_generator.py` - PDF export using QPrinter
+
+### v2.20 (January 10, 2025) - Time-Series Animated Views
+**Time-Series Import & Visualization**:
+- Complete time-history data import system with `TimeHistoryParser` and `TimeHistoryImporter`
+- `TimeSeriesGlobalCache` table with JSON columns for storing time series arrays
+- Result set SELECTION from dropdown (not creation) to associate with existing NLTHA data
+- Excel sheet parsing: Story Drifts, Story Forces, Joint Displacements, Diaphragm Accelerations
+
+**Animated View** (`TimeSeriesAnimatedView`):
+- 4 building profile plots in horizontal row: Displacements | Drifts | Accelerations | Shears
+- Playback controls: Play/Pause, Reset, Speed (1-10x), Time slider
+- Max (red) and Min (blue) envelope lines with animated current profile (cyan)
+- Base acceleration time series plot below main plots (full width, 112px height)
+  - Red vertical marker for current time
+  - Teal shaded region for elapsed time (`LinearRegionItem`)
+- Accelerations automatically converted to g (÷ 9810 mm/s²)
+
+**Technical Fixes**:
+- Story ordering: Changed query from `.asc()` to `.desc()` on `story_sort_order` (ETABS exports top-to-bottom)
+- Array normalization: Pads shorter value arrays to max length for homogeneous numpy operations
+- Signal flow: Load case name encoded in direction parameter (`"X:TH02"`)
+- `SelectionState` extended with `load_case_name` field
+
+**Tree Structure**:
+- Time-Series section at same level as Envelopes
+- Load case names as expandable nodes (TH02, TH07, etc.)
+- Global → X/Y Direction navigation
+
+### v2.15 (December 12, 2025) - UI polish & pushover data fixes
+- Rotation and foundation plots now share a borderless style with subtle axes; vertical displacement plots use correct labels. Large tables (beam rotations, soil pressures, vertical displacements, pushover curves) use `ClickableTableWidget` plus clipped headers to keep left borders and stop the last column from overflowing.
+- Column Axial Max/Min views are directionless: only one Max and one Min table render with dataset-name titles and four-decimal cell formatting; signed-min detection keeps negative envelopes visible in plots and tables.
+- Pushover curve view matches NLTHA styling, clears old content when opened, and restores the left border on the table.
+- Pushover rotations (beam/column) queries allow NULL `ResultCategory` rows and fall back to raw rotation fields for pushover datasets, so scatter/table views populate consistently.
+- Navigation cleanup ensures switching to pushover curves hides earlier views, preventing stale tables/plots from lingering.
 
 ### v2.12 (November 26, 2024) - Pushover Load Case Mapping & UX Improvements
 **Load Case Shorthand Mapping**:
@@ -1282,4 +1505,4 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 ---
 
 **End of Architecture Documentation**
-**Last Updated**: December 2, 2024 | **Version**: 2.14
+**Last Updated**: January 15, 2025 | **Version**: 2.21

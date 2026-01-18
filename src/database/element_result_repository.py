@@ -3,14 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional, Tuple, Type
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database.models import (
     BeamRotation,
+    ColumnAxial,
     ColumnRotation,
     ColumnShear,
     LoadCase,
     QuadRotation,
+    ResultCategory,
     Story,
     WallShear,
 )
@@ -45,6 +48,13 @@ class ElementResultQueryRepository:
             direction_attr="direction",
             multiplier=1.0,
         ),
+        "ColumnAxials": ElementResultModelInfo(
+            model=ColumnAxial,
+            max_attr="max_axial",
+            min_attr="min_axial",
+            direction_attr=None,
+            multiplier=1.0,
+        ),
         "ColumnRotations": ElementResultModelInfo(
             model=ColumnRotation,
             max_attr="max_rotation",
@@ -76,7 +86,11 @@ class ElementResultQueryRepository:
         return cls._MODEL_REGISTRY.keys()
 
     def fetch_records(
-        self, base_result_type: str, project_id: int, element_id: int
+        self,
+        base_result_type: str,
+        project_id: int,
+        element_id: int,
+        result_set_id: Optional[int] = None,
     ) -> Optional[Tuple[Iterable[Tuple[Any, LoadCase, Story]], ElementResultModelInfo]]:
         model_info = self._MODEL_REGISTRY.get(base_result_type)
         if not model_info:
@@ -86,11 +100,19 @@ class ElementResultQueryRepository:
             self.session.query(model_info.model, LoadCase, Story)
             .join(LoadCase, model_info.model.load_case_id == LoadCase.id)
             .join(Story, model_info.model.story_id == Story.id)
+            .outerjoin(ResultCategory, model_info.model.result_category_id == ResultCategory.id)
             .filter(
                 Story.project_id == project_id,
                 model_info.model.element_id == element_id,
             )
         )
+
+        if result_set_id is not None:
+            query = query.filter(
+                or_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.result_set_id.is_(None),
+                )
+            )
         records = query.all()
         return records, model_info
-

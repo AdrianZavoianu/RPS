@@ -353,19 +353,36 @@ class ResultsTableWidget(QWidget):
         story_column_width = 52  # Reduced for 10px font
         data_column_width = self._column_width_for_type()
 
+        base_type = self._base_result_type()
+
         for col_idx in range(column_count):
             if col_idx == 0:
                 self.table.setColumnWidth(col_idx, story_column_width)
             else:
                 self.table.setColumnWidth(col_idx, data_column_width)
 
-        table_width = story_column_width + max(0, column_count - 1) * data_column_width
+        # Use header length to match visible section widths (prevents right overflow)
+        header = self.table.horizontalHeader()
+        content_width = header.length()
+        scrollbar = self.table.verticalScrollBar()
+        scrollbar_width = scrollbar.sizeHint().width() if scrollbar.isVisible() else 0
+        table_width = content_width + scrollbar_width
+
+        # Cap overall table width for wide datasets to leave room for plots
+        max_table_width = None
+        if base_type == "ColumnAxials":
+            # Allow enough room for 11 TH cases plus Avg/Max/Min without clipping
+            max_table_width = 820
+
+        visible_width = table_width
+        if max_table_width:
+            visible_width = min(table_width, max_table_width)
 
         # Set minimum width to content width - table should not scroll
-        self.table.setMinimumWidth(table_width)
-        self.table.setMaximumWidth(table_width)
-        self.setMinimumWidth(table_width)
-        self.setMaximumWidth(table_width)
+        self.table.setMinimumWidth(visible_width)
+        self.table.setMaximumWidth(visible_width)
+        self.setMinimumWidth(visible_width)
+        self.setMaximumWidth(visible_width)
 
     def _format_value(self, value, config) -> str:
         """Format numeric table value with unit string."""
@@ -665,6 +682,8 @@ class ResultsTableWidget(QWidget):
             return 52
         if base == "QuadRotations":
             return 50
+        if base == "ColumnAxials":
+            return 52  # match story shear proportions while fitting 4-digit signed values
         return 46
 
     def _base_result_type(self) -> str:

@@ -117,19 +117,19 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
     if joints_item.childCount() == 0:
         envelopes_item.removeChild(joints_item)
 
-    # Time-Series category (placeholder)
-    timeseries_item = QTreeWidgetItem(result_set_item)
-    timeseries_item.setText(0, "◆ Time-Series")
-    timeseries_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "category",
-        "result_set_id": result_set.id,
-        "category": "Time-Series"
-    })
-    timeseries_item.setExpanded(False)
+    # Time-Series category (only show if data exists)
+    if browser._has_time_series_data(result_set.id):
+        timeseries_item = QTreeWidgetItem(result_set_item)
+        timeseries_item.setText(0, "◆ Time-Series")
+        timeseries_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category",
+            "result_set_id": result_set.id,
+            "category": "Time-Series"
+        })
+        timeseries_item.setExpanded(False)
 
-    placeholder = QTreeWidgetItem(timeseries_item)
-    placeholder.setText(0, "└ Coming soon")
-    placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+        # Add Time-Series Global section
+        add_time_series_global_section(browser, timeseries_item, result_set.id)
 
 
 def add_drifts_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int, expand_first_path: bool = True) -> None:
@@ -431,7 +431,7 @@ def add_columns_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetI
         add_column_shears_section(browser, columns_parent, result_set_id, column_elements)
 
     if has_axials:
-        add_column_min_axials_section(browser, columns_parent, result_set_id, column_elements)
+        add_column_axials_section(browser, columns_parent, result_set_id, column_elements)
 
     if has_rotations:
         add_column_rotations_section(browser, columns_parent, result_set_id, column_elements)
@@ -508,15 +508,15 @@ def add_column_shears_section(
         })
 
 
-def add_column_min_axials_section(
+def add_column_axials_section(
     browser: "ResultsTreeBrowser",
     parent_item: QTreeWidgetItem,
     result_set_id: int,
     column_elements: List,
 ) -> None:
-    """Add Column Min Axials subsection."""
+    """Add Column Axials subsection with Min/Max/MinMax views."""
     axials_parent = QTreeWidgetItem(parent_item)
-    axials_parent.setText(0, "  › Min Axials")
+    axials_parent.setText(0, "  › Axials")
     axials_parent.setData(0, Qt.ItemDataRole.UserRole, {
         "type": "column_result_type_parent",
         "result_set_id": result_set_id,
@@ -535,11 +535,46 @@ def add_column_min_axials_section(
         col_item = QTreeWidgetItem(axials_parent)
         col_item.setText(0, f"    › {element.name}")
         col_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "element_parent",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "element_id": element.id,
+            "element_name": element.name
+        })
+        col_item.setExpanded(True)
+
+        # Min Axial (compression)
+        min_item = QTreeWidgetItem(col_item)
+        min_item.setText(0, "      ├ Min")
+        min_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "result_type",
             "result_set_id": result_set_id,
             "category": "Envelopes",
             "result_type": "ColumnAxials",
-            "direction": "P",
+            "direction": "Min",
+            "element_id": element.id
+        })
+
+        # Max Axial (tension)
+        max_item = QTreeWidgetItem(col_item)
+        max_item.setText(0, "      ├ Max")
+        max_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "result_type",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "ColumnAxials",
+            "direction": "Max",
+            "element_id": element.id
+        })
+
+        # Max/Min envelope view
+        maxmin_item = QTreeWidgetItem(col_item)
+        maxmin_item.setText(0, "      └ Max/Min")
+        maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "maxmin_results",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "MaxMinColumnAxials",
             "element_id": element.id
         })
 
@@ -760,3 +795,66 @@ def add_vertical_displacements_section(browser: "ResultsTreeBrowser", parent_ite
         "category": "Envelopes",
         "result_type": "VerticalDisplacementsTable"
     })
+
+
+def add_time_series_global_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+    """Add Time Series section with load cases as subsections.
+
+    Structure:
+    └── Time-Series
+        └── TH02 (load case name)
+            └── Global
+                ├── X Direction (animated: Displacements, Drifts, Accelerations, Shears)
+                └── Y Direction (animated: Displacements, Drifts, Accelerations, Shears)
+    """
+    # Get available load cases for this result set
+    time_series_load_cases = browser.time_series_load_cases.get(result_set_id, [])
+
+    if not time_series_load_cases:
+        return
+
+    for load_case_name in time_series_load_cases:
+        # Load case item
+        load_case_item = QTreeWidgetItem(parent_item)
+        load_case_item.setText(0, f"› {load_case_name}")
+        load_case_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "time_series_load_case",
+            "result_set_id": result_set_id,
+            "category": "Time-Series",
+            "load_case_name": load_case_name
+        })
+        load_case_item.setExpanded(True)
+
+        # Global Results section under load case
+        global_item = QTreeWidgetItem(load_case_item)
+        global_item.setText(0, "◇ Global")
+        global_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "category_type",
+            "result_set_id": result_set_id,
+            "category": "Time-Series",
+            "category_type": "Global",
+            "load_case_name": load_case_name
+        })
+        global_item.setExpanded(True)
+
+        # X Direction
+        x_item = QTreeWidgetItem(global_item)
+        x_item.setText(0, "  ├ X Direction")
+        x_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "time_series_global",
+            "result_set_id": result_set_id,
+            "category": "Time-Series",
+            "load_case_name": load_case_name,
+            "direction": "X"
+        })
+
+        # Y Direction
+        y_item = QTreeWidgetItem(global_item)
+        y_item.setText(0, "  └ Y Direction")
+        y_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "time_series_global",
+            "result_set_id": result_set_id,
+            "category": "Time-Series",
+            "load_case_name": load_case_name,
+            "direction": "Y"
+        })

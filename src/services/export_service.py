@@ -1,9 +1,8 @@
-"""
-Export service for RPS projects.
+"""Export service for RPS projects.
 
 Provides export functionality for result data in Excel and CSV formats.
 """
-
+import logging
 from typing import Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass
@@ -11,8 +10,24 @@ from datetime import datetime
 import json
 import pandas as pd
 
+from utils.timing import PhaseTimer
 from config.result_config import RESULT_CONFIGS
+from services.export_utils import (
+    extract_direction,
+    extract_base_type,
+    build_filename,
+    get_result_config,
+)
+from services.export_writer import ExportWriter
+from services.export_metadata import ExportMetadataBuilder
+from services.export_excel_sections import write_readme_sheet, write_metadata_sheets
+from services.export_discovery import ExportDiscovery
+from services.export_import_data import ImportDataBuilder
+from services.export_formatting import apply_excel_formatting
+from services.export_pushover import PushoverExporter
 from database.models import GlobalResultsCache
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -55,6 +70,26 @@ class ExportService:
         """
         self.context = project_context
         self.result_service = result_service
+        self._raw_value_types = {"Drifts", "QuadRotations", "ColumnRotations", "BeamRotations"}
+
+    def prepare_dataset_for_export(self, dataset, result_type: str):
+        """Return a copy of dataset data with percentage multipliers removed for export."""
+        if dataset is None or dataset.data is None:
+            return None
+
+        base_type = extract_base_type(result_type)
+        if base_type not in self._raw_value_types:
+            return dataset.data
+
+        multiplier = getattr(getattr(dataset, "config", None), "multiplier", 1.0) or 1.0
+        if multiplier in (0, 1.0):
+            return dataset.data
+
+        df = dataset.data.copy(deep=True)
+        numeric_cols = df.select_dtypes(include="number").columns
+        if len(numeric_cols) > 0:
+            df[numeric_cols] = df[numeric_cols] / multiplier
+        return df
 
     def export_result_type(
         self,
@@ -71,86 +106,41 @@ class ExportService:
             ValueError: If result_type is unknown
             IOError: If file cannot be written
         """
+        timer = PhaseTimer(
+            {"result_type": options.result_type, "result_set_id": options.result_set_id}
+        )
+        writer = ExportWriter(progress_callback)
+
         # Step 1: Validate result type and get configuration
-        config = RESULT_CONFIGS.get(options.result_type)
-        if not config:
-            raise ValueError(f"Unknown result type: {options.result_type}")
+        config = get_result_config(options.result_type)
 
         # Step 2: Extract direction and base type (handles directionless results)
-        direction = self._extract_direction(options.result_type, config)
-        base_type = self._extract_base_type(options.result_type)
+        direction = extract_direction(options.result_type, config)
+        base_type = extract_base_type(options.result_type)
 
-        if progress_callback:
-            progress_callback("Loading data...", 1, 3)
+        writer.progress_callback("Loading data...", 1, 3)
 
         # Step 3: Get dataset using correct ResultDataService API (no element_id parameter!)
-        dataset = self.result_service.get_standard_dataset(
-            result_type=base_type,
-            direction=direction,
-            result_set_id=options.result_set_id
+        with timer.measure("load_dataset"):
+            dataset = self.result_service.get_standard_dataset(
+                result_type=base_type,
+                direction=direction,
+                result_set_id=options.result_set_id
+            )
+
+        with timer.measure("write_output"):
+            df_to_write = self.prepare_dataset_for_export(dataset, options.result_type)
+            if df_to_write is None:
+                df_to_write = dataset.data
+            writer.write_dataset(df_to_write, options.output_path, options.format)
+
+        logger.info(
+            "export_result_type.complete",
+            extra={
+                "output_path": str(options.output_path),
+                "timings": timer.as_list(),
+            },
         )
-
-        if progress_callback:
-            progress_callback("Writing file...", 2, 3)
-
-        # Step 4: Write to file based on format
-        if options.format == "excel":
-            dataset.data.to_excel(options.output_path, index=False, engine='openpyxl')
-        else:  # csv
-            dataset.data.to_csv(options.output_path, index=False)
-
-        if progress_callback:
-            progress_callback("Export complete!", 3, 3)
-
-    def _extract_direction(self, result_type: str, config) -> str:
-        """Extract direction from result type name.
-
-        Handles directionless results (QuadRotations, MinAxial) by returning empty string.
-
-        Args:
-            result_type: Full result type name (e.g., "Drifts_X", "QuadRotations")
-            config: ResultConfig for this result type
-
-        Returns:
-            Direction string (e.g., "X", "V2") or empty string for directionless
-
-        Examples:
-            "Drifts_X" → "X"
-            "WallShears_V2" → "V2"
-            "QuadRotations" → ""
-            "MinAxial" → ""
-        """
-        # Directionless results have empty direction_suffix
-        if not config.direction_suffix:
-            return ""
-
-        # Extract direction from result_type name (last part after underscore)
-        if "_" in result_type:
-            return result_type.split("_")[-1]
-
-        # Fallback to config's direction suffix
-        return config.direction_suffix
-
-    def _extract_base_type(self, result_type: str) -> str:
-        """Extract base result type from full result type name.
-
-        Args:
-            result_type: Full result type name (e.g., "Drifts_X", "QuadRotations")
-
-        Returns:
-            Base type name without direction
-
-        Examples:
-            "Drifts_X" → "Drifts"
-            "WallShears_V2" → "WallShears"
-            "QuadRotations" → "QuadRotations"
-        """
-        # Split on last underscore to separate direction
-        if "_" in result_type:
-            return result_type.rsplit("_", 1)[0]
-
-        # No underscore means no direction (already base type)
-        return result_type
 
     def get_available_result_types(self, result_set_id: int) -> list[str]:
         """Get list of available result types for a result set.
@@ -177,45 +167,20 @@ class ExportService:
         return sorted(set(available))
 
     def build_filename(self, result_type: str, format: str) -> str:
-        """Build filename matching Old_scripts naming convention.
-
-        Args:
-            result_type: Full result type name (e.g., "Drifts_X")
-            format: Output format ("excel" or "csv")
-
-        Returns:
-            Filename with appropriate extension
-
-        Examples:
-            build_filename("Drifts_X", "excel") → "Drifts_X.xlsx"
-            build_filename("QuadRotations", "csv") → "QuadRotations.csv"
-        """
-        ext = "xlsx" if format == "excel" else "csv"
-        return f"{result_type}.{ext}"
+        """Build filename matching Old_scripts naming convention."""
+        return build_filename(result_type, format)
 
     def _get_result_config(self, result_type: str):
-        """Get result config for a result type.
+        """Get result config for a result type."""
+        return get_result_config(result_type)
 
-        Args:
-            result_type: Full result type name (e.g., "Drifts_X")
-
-        Returns:
-            ResultTypeConfig instance
-
-        Raises:
-            ValueError: If result type is unknown
-        """
-        config = RESULT_CONFIGS.get(result_type)
-        if not config:
-            raise ValueError(f"Unknown result type: {result_type}")
-        return config
-
-    def get_element_export_dataframe(self, result_type: str, result_set_id: int):
+    def get_element_export_dataframe(self, result_type: str, result_set_id: int, is_pushover: bool = False):
         """Get combined DataFrame for all elements of a result type.
 
         Args:
-            result_type: Full result type (e.g., "WallShears_V2", "QuadRotations")
+            result_type: Full result type (e.g., "WallShears_V2", "QuadRotations", "BeamRotations")
             result_set_id: Result set ID
+            is_pushover: If True, skip summary columns (Average, Maximum, Minimum)
 
         Returns:
             pd.DataFrame with all elements combined, or None if no data
@@ -224,11 +189,16 @@ class ExportService:
         from database.models import ElementResultsCache, Element, Story
         from database.repository import ElementCacheRepository
 
+        # Special handling for BeamRotations - use wide format with all source rows
+        if result_type.startswith("BeamRotations"):
+            return self._get_beam_rotations_wide_dataframe(result_set_id, is_pushover)
+
         # Get all elements with data for this result type
         with self.context.session() as session:
             element_cache_repo = ElementCacheRepository(session)
 
             # Query all cache entries for this result type
+            # Order by cache entry id to preserve source Excel order
             entries = session.query(
                 ElementResultsCache, Element, Story
             ).join(
@@ -239,8 +209,7 @@ class ExportService:
                 ElementResultsCache.result_set_id == result_set_id,
                 ElementResultsCache.result_type == result_type
             ).order_by(
-                Element.name,  # Group by element
-                ElementResultsCache.story_sort_order.desc()  # Stories bottom to top
+                ElementResultsCache.id
             ).all()
 
             if not entries:
@@ -256,6 +225,122 @@ class ExportService:
                 rows.append(row)
 
             df = pd.DataFrame(rows)
+
+            # Add summary columns (Average, Maximum, Minimum) - only for NLTHA, not Pushover
+            if not df.empty and not is_pushover:
+                non_data_cols = ["Element", "Story"]
+                load_case_columns = [col for col in df.columns if col not in non_data_cols]
+
+                if load_case_columns:
+                    df["Average"] = df[load_case_columns].mean(axis=1)
+                    df["Maximum"] = df[load_case_columns].max(axis=1)
+                    df["Minimum"] = df[load_case_columns].min(axis=1)
+
+            return df
+
+    def _get_beam_rotations_wide_dataframe(self, result_set_id: int, is_pushover: bool = False):
+        """Get beam rotations in wide format matching ETDB_Functions.get_beams_plastic_hinges.
+
+        Format: Story | Frame/Wall | Unique Name | Step Type | Hinge | Hinge ID | Rel Dist | <LC1> | <LC2> | ... | Avg | Max | Min
+        Preserves all source rows including both Max/Min step types and both Rel Dist 0/1.
+        """
+        import pandas as pd
+        from sqlalchemy import text
+        from database.models import BeamRotation, Element, Story, LoadCase, ResultCategory
+
+        with self.context.session() as session:
+            # Check if step_type column exists (for backward compatibility with old DBs)
+            try:
+                has_step_type = True
+                session.execute(text("SELECT step_type FROM beam_rotations LIMIT 1"))
+            except Exception:
+                has_step_type = False
+
+            # Query all beam rotations for this result set, ordered by BeamRotation.id to preserve source order
+            query = session.query(
+                BeamRotation, Element, Story, LoadCase
+            ).join(
+                Element, BeamRotation.element_id == Element.id
+            ).join(
+                Story, BeamRotation.story_id == Story.id
+            ).join(
+                LoadCase, BeamRotation.load_case_id == LoadCase.id
+            ).join(
+                ResultCategory, BeamRotation.result_category_id == ResultCategory.id
+            ).filter(
+                ResultCategory.result_set_id == result_set_id
+            ).order_by(
+                BeamRotation.id  # Use record ID to preserve insertion order
+            )
+
+            results = query.all()
+            if not results:
+                return None
+
+            # Get unique load cases in lexicographical order (TH01, TH02, ...)
+            load_cases = sorted({lc.name for br, elem, story, lc in results})
+
+            if not load_cases:
+                return None
+
+            # Build row data using composite key (element, story, hinge, rel_dist, step_type)
+            # This groups by unique hinge location
+            row_data = {}  # {row_key: {col_name: value, ...}}
+            row_order = []  # Track order of first appearance
+
+            for br, elem, story, lc in results:
+                step_type_val = ""
+                if has_step_type:
+                    try:
+                        step_type_val = br.step_type or ""
+                    except Exception:
+                        pass
+
+                # Create composite key for unique row identification
+                row_key = (
+                    elem.id,
+                    story.id,
+                    br.hinge or "",
+                    br.generated_hinge or "",
+                    br.rel_dist if br.rel_dist is not None else 0.0,
+                    step_type_val
+                )
+
+                if row_key not in row_data:
+                    row_order.append(row_key)
+                    row_data[row_key] = {
+                        "Story": story.name,
+                        "Frame/Wall": elem.name,
+                        "Unique Name": br.generated_hinge or "",
+                        "Step Type": step_type_val,
+                        "Hinge": br.hinge or "",
+                        "Hinge ID": br.generated_hinge or "",
+                        "Rel Dist": br.rel_dist if br.rel_dist is not None else 0.0,
+                    }
+
+                row_data[row_key][lc.name] = br.r3_plastic
+
+            if not row_data:
+                return None
+
+            # Build DataFrame in order of first appearance
+            rows = []
+            for key in row_order:
+                rows.append(row_data[key])
+
+            df = pd.DataFrame(rows)
+
+            # Reorder columns: metadata first, then load cases, then summary
+            meta_cols = ["Story", "Frame/Wall", "Unique Name", "Step Type", "Hinge", "Hinge ID", "Rel Dist"]
+            lc_cols = [c for c in load_cases if c in df.columns]
+            df = df[[c for c in meta_cols if c in df.columns] + lc_cols]
+
+            # Add summary columns
+            if lc_cols:
+                df["Avg"] = df[lc_cols].mean(axis=1)
+                df["Max"] = df[lc_cols].max(axis=1)
+                df["Min"] = df[lc_cols].min(axis=1)
+
             return df
 
     # ===== PROJECT EXPORT TO EXCEL =====
@@ -280,13 +365,15 @@ class ExportService:
         from openpyxl import load_workbook
         from openpyxl.styles import Font
 
+        timer = PhaseTimer({"project": self.context.slug})
         total_steps = 10
 
         # Step 1: Gather metadata
         if progress_callback:
             progress_callback("Gathering project metadata...", 1, total_steps)
 
-        metadata = self._gather_project_metadata()
+        with timer.measure("metadata"):
+            metadata = ExportMetadataBuilder(self.context, self.result_service).build_metadata()
 
         # Step 2: Create Excel writer
         if progress_callback:
@@ -296,34 +383,51 @@ class ExportService:
             # Step 3: Write README sheet
             if progress_callback:
                 progress_callback("Writing README sheet...", 3, total_steps)
-            self._write_readme_sheet(writer, metadata)
+            with timer.measure("readme"):
+                write_readme_sheet(writer, metadata, self.APP_VERSION)
 
             # Step 4: Write metadata sheets
             if progress_callback:
                 progress_callback("Writing metadata sheets...", 4, total_steps)
-            self._write_metadata_sheets(writer, metadata)
+            with timer.measure("metadata_sheets"):
+                write_metadata_sheets(writer, metadata)
 
             # Step 5-8: Write result data sheets
             if progress_callback:
                 progress_callback("Writing result data sheets...", 5, total_steps)
 
-            result_sheets = self._write_result_data_sheets(
-                writer, metadata, options,
-                lambda msg, curr, tot: progress_callback(msg, 5 + curr, total_steps) if progress_callback else None
-            )
+            with timer.measure("result_sheets"):
+                result_sheets = self._write_result_data_sheets(
+                    writer,
+                    metadata,
+                    options,
+                    (lambda msg, curr, tot: progress_callback(msg, 5 + curr, total_steps))
+                    if progress_callback
+                    else None,
+                )
 
             # Step 9: Write IMPORT_DATA sheet
             if progress_callback:
                 progress_callback("Writing import metadata...", 9, total_steps)
-            self._write_import_data_sheet(writer, metadata, result_sheets)
+            with timer.measure("import_data"):
+                ImportDataBuilder(self.context, self.APP_VERSION).write_import_data_sheet(writer, metadata, result_sheets)
 
         # Step 10: Apply formatting (reopen with openpyxl)
         if progress_callback:
             progress_callback("Applying formatting...", 10, total_steps)
-        self._apply_excel_formatting(options.output_path)
+        with timer.measure("formatting"):
+            apply_excel_formatting(options.output_path)
 
         if progress_callback:
             progress_callback("Export complete!", total_steps, total_steps)
+
+        logger.info(
+            "export_project_excel.complete",
+            extra={
+                "output_path": str(options.output_path),
+                "timings": timer.as_list(),
+            },
+        )
 
     def _gather_project_metadata(self) -> dict:
         """Gather all project metadata for export."""
@@ -383,96 +487,6 @@ class ExportService:
                 'elements': elements,
             }
 
-    def _write_readme_sheet(self, writer, metadata: dict) -> None:
-        """Write README sheet with project overview."""
-        catalog = metadata['catalog_project']
-        summary = metadata['summary']
-
-        # Build README content
-        readme_lines = [
-            ["PROJECT INFORMATION"],
-            ["==================="],
-            [""],
-            ["Project Name:", catalog.name],
-            ["Description:", catalog.description or ""],
-            ["Created:", catalog.created_at.strftime("%Y-%m-%d %H:%M:%S")],
-            ["Exported:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
-            ["RPS Version:", self.APP_VERSION],
-            [""],
-            ["DATABASE SUMMARY"],
-            ["================"],
-            [""],
-            ["Result Sets:", summary.result_sets],
-            ["Load Cases:", summary.load_cases],
-            ["Stories:", summary.stories],
-            ["Elements:", len(metadata['elements'])],
-            [""],
-            ["IMPORT INSTRUCTIONS"],
-            ["==================="],
-            [""],
-            ["To import this project into RPS:"],
-            ["1. Open RPS application"],
-            ["2. Click 'Import Project' on Projects page"],
-            ["3. Select this Excel file"],
-            ["4. Review project summary"],
-            ["5. Click 'Import'"],
-            [""],
-            ["The hidden 'IMPORT_DATA' sheet contains metadata required for re-import."],
-            ["Do NOT delete or modify this sheet."],
-        ]
-
-        df = pd.DataFrame(readme_lines)
-        df.to_excel(writer, sheet_name="README", index=False, header=False)
-
-    def _write_metadata_sheets(self, writer, metadata: dict) -> None:
-        """Write metadata sheets (Result Sets, Load Cases, Stories, Elements)."""
-        # Result Sets sheet
-        result_sets_data = [
-            {
-                "Name": rs.name,
-                "Description": rs.description or "",
-                "Created At": rs.created_at.strftime("%Y-%m-%d %H:%M:%S") if rs.created_at else "",
-            }
-            for rs in metadata['result_sets']
-        ]
-        if result_sets_data:
-            pd.DataFrame(result_sets_data).to_excel(writer, sheet_name="Result Sets", index=False)
-
-        # Load Cases sheet
-        load_cases_data = [
-            {
-                "Name": lc.name,
-                "Description": lc.description or "",
-            }
-            for lc in metadata['load_cases']
-        ]
-        if load_cases_data:
-            pd.DataFrame(load_cases_data).to_excel(writer, sheet_name="Load Cases", index=False)
-
-        # Stories sheet
-        stories_data = [
-            {
-                "Name": s.name,
-                "Sort Order": s.sort_order,
-                "Elevation": s.elevation or 0.0,
-            }
-            for s in metadata['stories']
-        ]
-        if stories_data:
-            pd.DataFrame(stories_data).to_excel(writer, sheet_name="Stories", index=False)
-
-        # Elements sheet
-        elements_data = [
-            {
-                "Name": e.name,
-                "Unique Name": e.unique_name or "",
-                "Element Type": e.element_type,
-            }
-            for e in metadata['elements']
-        ]
-        if elements_data:
-            pd.DataFrame(elements_data).to_excel(writer, sheet_name="Elements", index=False)
-
     def _write_result_data_sheets(
         self,
         writer,
@@ -487,94 +501,22 @@ class ExportService:
         """
         from database.models import ElementResultsCache
 
-        result_sheets = {'global': [], 'element': []}
-
-        # Determine which result sets to export
+        # Determine which result sets to export (first only for now)
         if options.result_set_ids:
             result_sets = [rs for rs in metadata['result_sets'] if rs.id in options.result_set_ids]
         else:
             result_sets = metadata['result_sets']
 
-        # For simplicity, export first result set only
         if not result_sets:
-            return result_sheets
+            return {'global': [], 'element': []}
 
         result_set = result_sets[0]
-
-        # Discover available result types from NORMALIZED tables (source of truth)
-        with self.context.session() as session:
-            from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
-
-            # Export Drifts (read from story_drifts table)
-            directions = session.query(StoryDrift.direction).distinct().all()
-            for direction, in directions:
-                config_key = f"Drifts_{direction}"
-                df = self._get_normalized_drift_dataframe(session, result_set.id, direction)
-                if df is not None and not df.empty:
-                    sheet_name = config_key[:31]
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    result_sheets['global'].append(config_key)
-                    if progress_callback:
-                        progress_callback(f"Exported {config_key}", 0, 1)
-
-            # Export Accelerations (read from story_accelerations table)
-            directions = session.query(StoryAcceleration.direction).distinct().all()
-            for direction, in directions:
-                config_key = f"Accelerations_{direction}"
-                df = self._get_normalized_acceleration_dataframe(session, result_set.id, direction)
-                if df is not None and not df.empty:
-                    sheet_name = config_key[:31]
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    result_sheets['global'].append(config_key)
-                    if progress_callback:
-                        progress_callback(f"Exported {config_key}", 0, 1)
-
-            # Export Forces (read from story_forces table)
-            directions = session.query(StoryForce.direction).distinct().all()
-            for direction, in directions:
-                config_key = f"Forces_{direction}"
-                df = self._get_normalized_force_dataframe(session, result_set.id, direction)
-                if df is not None and not df.empty:
-                    sheet_name = config_key[:31]
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    result_sheets['global'].append(config_key)
-                    if progress_callback:
-                        progress_callback(f"Exported {config_key}", 0, 1)
-
-            # Export Displacements (read from story_displacements table)
-            directions = session.query(StoryDisplacement.direction).distinct().all()
-            for direction, in directions:
-                config_key = f"Displacements_{direction}"
-                df = self._get_normalized_displacement_dataframe(session, result_set.id, direction)
-                if df is not None and not df.empty:
-                    sheet_name = config_key[:31]
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    result_sheets['global'].append(config_key)
-                    if progress_callback:
-                        progress_callback(f"Exported {config_key}", 0, 1)
-
-            # Element results (still use cache for elements)
-            element_types = session.query(ElementResultsCache.result_type).filter(
-                ElementResultsCache.result_set_id == result_set.id
-            ).distinct().all()
-
-            for result_type, in element_types:
-                # Get combined element data
-                df = self.get_element_export_dataframe(result_type, result_set.id)
-
-                if df is not None and not df.empty:
-                    sheet_name = result_type[:31]
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    result_sheets['element'].append(result_type)
-
-                    if progress_callback:
-                        progress_callback(f"Exported {result_type}", 0, 1)
-
-        return result_sheets
+        discovery = ExportDiscovery(self.context.session, self.context)
+        return discovery.discover_and_write(writer, result_set.id, result_sets, progress_callback)
 
     def _get_normalized_drift_dataframe(self, session, result_set_id: int, direction: str) -> pd.DataFrame:
         """Get drift data from story_drifts table."""
-        from database.models import StoryDrift, Story, LoadCase
+        from database.models import StoryDrift, Story, LoadCase, ResultCategory
 
         query = session.query(
             Story.name.label('Story'),
@@ -584,8 +526,11 @@ class ExportService:
             Story, StoryDrift.story_id == Story.id
         ).join(
             LoadCase, StoryDrift.load_case_id == LoadCase.id
+        ).join(
+            ResultCategory, StoryDrift.result_category_id == ResultCategory.id
         ).filter(
-            StoryDrift.direction == direction
+            StoryDrift.direction == direction,
+            ResultCategory.result_set_id == result_set_id
         ).order_by(
             StoryDrift.story_sort_order,
             LoadCase.name
@@ -606,7 +551,7 @@ class ExportService:
 
     def _get_normalized_acceleration_dataframe(self, session, result_set_id: int, direction: str) -> pd.DataFrame:
         """Get acceleration data from story_accelerations table."""
-        from database.models import StoryAcceleration, Story, LoadCase
+        from database.models import StoryAcceleration, Story, LoadCase, ResultCategory
 
         query = session.query(
             Story.name.label('Story'),
@@ -616,8 +561,11 @@ class ExportService:
             Story, StoryAcceleration.story_id == Story.id
         ).join(
             LoadCase, StoryAcceleration.load_case_id == LoadCase.id
+        ).join(
+            ResultCategory, StoryAcceleration.result_category_id == ResultCategory.id
         ).filter(
-            StoryAcceleration.direction == direction
+            StoryAcceleration.direction == direction,
+            ResultCategory.result_set_id == result_set_id
         ).order_by(
             StoryAcceleration.story_sort_order,
             LoadCase.name
@@ -638,7 +586,7 @@ class ExportService:
 
     def _get_normalized_force_dataframe(self, session, result_set_id: int, direction: str) -> pd.DataFrame:
         """Get force data from story_forces table."""
-        from database.models import StoryForce, Story, LoadCase
+        from database.models import StoryForce, Story, LoadCase, ResultCategory
 
         query = session.query(
             Story.name.label('Story'),
@@ -648,8 +596,11 @@ class ExportService:
             Story, StoryForce.story_id == Story.id
         ).join(
             LoadCase, StoryForce.load_case_id == LoadCase.id
+        ).join(
+            ResultCategory, StoryForce.result_category_id == ResultCategory.id
         ).filter(
-            StoryForce.direction == direction
+            StoryForce.direction == direction,
+            ResultCategory.result_set_id == result_set_id
         ).order_by(
             StoryForce.story_sort_order,
             LoadCase.name
@@ -670,7 +621,7 @@ class ExportService:
 
     def _get_normalized_displacement_dataframe(self, session, result_set_id: int, direction: str) -> pd.DataFrame:
         """Get displacement data from story_displacements table."""
-        from database.models import StoryDisplacement, Story, LoadCase
+        from database.models import StoryDisplacement, Story, LoadCase, ResultCategory
 
         query = session.query(
             Story.name.label('Story'),
@@ -680,8 +631,11 @@ class ExportService:
             Story, StoryDisplacement.story_id == Story.id
         ).join(
             LoadCase, StoryDisplacement.load_case_id == LoadCase.id
+        ).join(
+            ResultCategory, StoryDisplacement.result_category_id == ResultCategory.id
         ).filter(
-            StoryDisplacement.direction == direction
+            StoryDisplacement.direction == direction,
+            ResultCategory.result_set_id == result_set_id
         ).order_by(
             StoryDisplacement.story_sort_order,
             LoadCase.name
@@ -700,82 +654,6 @@ class ExportService:
 
         return pd.DataFrame(list(data.values()))
 
-    def _write_import_data_sheet(self, writer, metadata: dict, result_sheets: dict) -> None:
-        """Write IMPORT_DATA sheet with complete database dump."""
-        with self.context.session() as session:
-            from database.models import (
-                StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement,
-                GlobalResultsCache, ElementResultsCache
-            )
-
-            # Build complete import data with ALL per-project database tables
-            import_data = {
-                "version": self.APP_VERSION,
-                "export_timestamp": datetime.now().isoformat(),
-                "project": {
-                    "name": metadata['catalog_project'].name,
-                    "slug": metadata['catalog_project'].slug,
-                    "description": metadata['catalog_project'].description or "",
-                    "created_at": metadata['catalog_project'].created_at.isoformat(),
-                },
-                "result_sets": [
-                    {
-                        "name": rs.name,
-                        "description": rs.description or "",
-                        "created_at": rs.created_at.isoformat() if rs.created_at else None,
-                    }
-                    for rs in metadata['result_sets']
-                ],
-                "result_categories": [
-                    {
-                        "category_name": rc.category_name,
-                        "result_set_name": next((rs.name for rs in metadata['result_sets'] if rs.id == rc.result_set_id), None),
-                        "category_type": rc.category_type,
-                    }
-                    for rc in metadata.get('result_categories', [])
-                ],
-                "load_cases": [
-                    {"name": lc.name, "description": lc.description or ""}
-                    for lc in metadata['load_cases']
-                ],
-                "stories": [
-                    {"name": s.name, "sort_order": s.sort_order, "elevation": s.elevation or 0.0}
-                    for s in metadata['stories']
-                ],
-                "elements": [
-                    {"name": e.name, "unique_name": e.unique_name or "", "element_type": e.element_type}
-                    for e in metadata['elements']
-                ],
-                "result_sheet_mapping": result_sheets,
-
-                # Complete normalized table dumps
-                "normalized_data": {
-                    "story_drifts": self._serialize_story_drifts(session),
-                    "story_accelerations": self._serialize_story_accelerations(session),
-                    "story_forces": self._serialize_story_forces(session),
-                    "story_displacements": self._serialize_story_displacements(session),
-                    "absolute_maxmin_drifts": self._serialize_absolute_maxmin_drifts(session),
-                    "quad_rotations": self._serialize_quad_rotations(session),
-                    "wall_shears": self._serialize_wall_shears(session),
-                },
-
-                # Complete cache table dumps
-                "cache_data": {
-                    "global_results_cache": self._serialize_global_cache(session),
-                    "element_results_cache": self._serialize_element_cache(session),
-                }
-            }
-
-            # Write as compact JSON, split into chunks to avoid Excel cell limit (32,767 chars)
-            json_str = json.dumps(import_data, separators=(',', ':'))
-
-            # Split into chunks of 30,000 characters
-            chunk_size = 30000
-            chunks = [json_str[i:i+chunk_size] for i in range(0, len(json_str), chunk_size)]
-
-            # Write each chunk as a row
-            df = pd.DataFrame(chunks, columns=["import_metadata"])
-            df.to_excel(writer, sheet_name="IMPORT_DATA", index=False)
 
     def _serialize_story_drifts(self, session) -> list:
         """Serialize all story_drifts table data."""
@@ -1064,26 +942,6 @@ class ExportService:
             for r in results
         ]
 
-    def _apply_excel_formatting(self, file_path: Path) -> None:
-        """Apply formatting to Excel workbook (bold headers, hide IMPORT_DATA sheet)."""
-        from openpyxl import load_workbook
-        from openpyxl.styles import Font
-
-        wb = load_workbook(file_path)
-
-        # Format README sheet
-        if "README" in wb.sheetnames:
-            ws = wb["README"]
-            for row in ws.iter_rows(min_row=1, max_row=1):
-                for cell in row:
-                    cell.font = Font(bold=True, size=14)
-
-        # Hide IMPORT_DATA sheet
-        if "IMPORT_DATA" in wb.sheetnames:
-            wb["IMPORT_DATA"].sheet_state = "hidden"
-
-        wb.save(file_path)
-
     # ===== PUSHOVER CURVES EXPORT =====
 
     def export_pushover_curves(
@@ -1092,82 +950,5 @@ class ExportService:
         output_path: Path,
         progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> None:
-        """Export all pushover curves for a result set to Excel.
-
-        Creates Excel file with one sheet per pushover case, matching the format
-        of the old ETPS_Pushover.py script.
-
-        Each sheet contains:
-        - Step Number
-        - Base Shear (kN)
-        - Displacement (mm)
-
-        Args:
-            result_set_id: ID of the result set containing pushover cases
-            output_path: Path to output Excel file
-            progress_callback: Optional callback(message, current, total) for progress updates
-
-        Raises:
-            ValueError: If no pushover cases found for result set
-            IOError: If file cannot be written
-        """
-        from database.repository import PushoverCaseRepository
-
-        # Query all pushover cases for this result set
-        with self.context.session() as session:
-            pushover_repo = PushoverCaseRepository(session)
-            cases = pushover_repo.get_by_result_set(result_set_id)
-
-            if not cases:
-                raise ValueError(f"No pushover cases found for result set ID {result_set_id}")
-
-            # Collect all curve data BEFORE creating Excel file
-            curves_to_export = []
-            total_steps = len(cases)
-
-            for idx, case in enumerate(cases):
-                if progress_callback:
-                    progress_callback(f"Loading {case.name}...", idx + 1, total_steps)
-
-                # Get curve data points for this case
-                curve_points = pushover_repo.get_curve_data(case.id)
-
-                if not curve_points:
-                    continue  # Skip empty curves
-
-                # Build data dictionary
-                data = {
-                    'Step Number': [pt.step_number for pt in curve_points],
-                    'Base Shear (kN)': [pt.base_shear for pt in curve_points],
-                    'Displacement (mm)': [pt.displacement for pt in curve_points]
-                }
-
-                curves_to_export.append({
-                    'case_name': case.name,
-                    'data': data
-                })
-
-            # Check if we have any data to export BEFORE creating the file
-            if not curves_to_export:
-                raise ValueError(
-                    f"No curve data found for any pushover cases in result set ID {result_set_id}. "
-                    "The pushover cases exist but have no data points. "
-                    "Please re-import the pushover curves to ensure data is loaded correctly."
-                )
-
-            # Now create Excel file with all collected data
-            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                for idx, curve_info in enumerate(curves_to_export):
-                    if progress_callback:
-                        progress_callback(f"Writing {curve_info['case_name']}...", idx + 1, len(curves_to_export))
-
-                    df = pd.DataFrame(curve_info['data'])
-
-                    # Use full case name for sheet name (truncate to 31 chars for Excel limit)
-                    sheet_name = curve_info['case_name'][:31]
-
-                    # Write to Excel
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-            if progress_callback:
-                progress_callback("Export complete!", len(curves_to_export), len(curves_to_export))
+        """Export all pushover curves for a result set to Excel."""
+        PushoverExporter(self.context).export_curves(result_set_id, output_path, progress_callback)

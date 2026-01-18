@@ -33,6 +33,7 @@ class ResultsTreeBrowser(QWidget):
         self.available_result_types = {}
         self.comparison_sets = []
         self.pushover_cases = {}
+        self.time_series_load_cases = {}  # Dict[result_set_id, List[str]] of load case names
         self.setup_ui()
 
     def _has_data_for(self, result_set_id: int, result_type: str) -> bool:
@@ -47,6 +48,16 @@ class ResultsTreeBrowser(QWidget):
             return True
 
         return result_type in result_types_for_set
+
+    def _has_time_series_data(self, result_set_id: int) -> bool:
+        """Check if time series data exists for a result set."""
+        if not self.available_result_types:
+            return False  # No data loaded yet
+
+        result_types_for_set = self.available_result_types.get(result_set_id, set())
+
+        # Check for TimeSeriesGlobal marker in result types
+        return "TimeSeriesGlobal" in result_types_for_set
 
     def setup_ui(self):
         """Setup the browser UI."""
@@ -175,7 +186,7 @@ class ResultsTreeBrowser(QWidget):
         if hasattr(self, 'fade_overlay'):
             self.fade_overlay.update_indicators()
 
-    def populate_tree(self, result_sets, stories, elements=None, available_result_types=None, comparison_sets=None, pushover_cases=None):
+    def populate_tree(self, result_sets, stories, elements=None, available_result_types=None, comparison_sets=None, pushover_cases=None, time_series_load_cases=None):
         """Populate tree with project structure.
 
         Args:
@@ -185,15 +196,17 @@ class ResultsTreeBrowser(QWidget):
             available_result_types: Dict mapping result_set_id to set of available result types (optional)
             comparison_sets: List of ComparisonSet model instances (optional)
             pushover_cases: Dict mapping result_set_id to list of PushoverCase instances (optional)
+            time_series_load_cases: Dict mapping result_set_id to list of load case names (optional)
         """
         self.tree.clear()
-        
+
         # Update fade indicators after populating
         QTimer.singleShot(50, self._update_fade_indicators)
         self.elements = elements or []
         self.available_result_types = available_result_types or {}
         self.comparison_sets = comparison_sets or []
         self.pushover_cases = pushover_cases or {}
+        self.time_series_load_cases = time_series_load_cases or {}
 
         if not result_sets and not self.comparison_sets:
             # Show empty state at top level

@@ -18,6 +18,7 @@ from database.models import (
     LoadCase,
 )
 from processing.pushover_vert_displacement_parser import PushoverVertDisplacementParser
+from .import_utils import require_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,11 @@ class PushoverVertDisplacementImporter:
             parser = PushoverVertDisplacementParser(self.file_path)
 
             # Check if required sheets exist
-            if not parser.validate_sheet_exists('Joint Displacements'):
+            if not require_sheets(['Joint Displacements'], parser.validate_sheet_exists):
                 logger.warning("Joint Displacements sheet not found, skipping")
                 return stats
 
-            if not parser.validate_sheet_exists('Fou'):
+            if not require_sheets(['Fou'], parser.validate_sheet_exists):
                 logger.warning("Fou sheet not found, skipping")
                 return stats
 

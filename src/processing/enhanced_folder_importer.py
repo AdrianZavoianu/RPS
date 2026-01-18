@@ -1,5 +1,6 @@
 """Enhanced folder importer with load case selection and conflict resolution."""
 
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type
@@ -20,6 +21,9 @@ from .selective_data_importer import SelectiveDataImporter
 from .folder_importer import TARGET_SHEETS
 from .base_importer import BaseFolderImporter
 from .import_stats import ImportStatsAggregator
+from . import import_logging
+
+logger = logging.getLogger(__name__)
 
 # Lazy import to avoid circular dependency (processing -> gui)
 # These are injected via parameters or imported only when needed
@@ -139,6 +143,14 @@ class EnhancedFolderImporter(BaseFolderImporter):
         if not self.excel_files:
             raise ValueError(f"No Excel files found in folder: {self.folder_path}")
 
+        import_logging.log_import_start(
+            logger=logger,
+            project_name=self.project_name,
+            result_set_name=self.result_set_name,
+            file_name=f"{self.folder_path}/*",
+            result_types=self.result_types,
+        )
+
         # Phase 1: Pre-scan all files for load cases and foundation joints
         self._report_progress("Scanning files for load cases...", 0, len(self.excel_files))
         if self.prescan_result:
@@ -149,13 +161,29 @@ class EnhancedFolderImporter(BaseFolderImporter):
             file_load_cases, self.foundation_joints = self._prescan_load_cases()
 
         if not file_load_cases:
-            return {
+            stats = {
                 "project": None,
                 "files_processed": 0,
                 "files_total": len(self.excel_files),
                 "load_cases": 0,
-                "errors": ["No load cases found in any files"]
+                "errors": ["No load cases found in any files"],
+                "phase_timings": [],
             }
+            import_logging.log_phase_timings(
+                logger=logger,
+                project_name=self.project_name,
+                result_set_name=self.result_set_name,
+                file_name=f"{self.folder_path}/*",
+                phase_timings=stats["phase_timings"],
+            )
+            import_logging.log_import_complete(
+                logger=logger,
+                project_name=self.project_name,
+                result_set_name=self.result_set_name,
+                file_name=f"{self.folder_path}/*",
+                stats=stats,
+            )
+            return stats
 
         # Use pre-selected load cases if provided (from main thread)
         if self.selected_load_cases is None:
@@ -168,9 +196,24 @@ class EnhancedFolderImporter(BaseFolderImporter):
             selected_load_cases = self.selected_load_cases
 
         # Phase 5: Import with selections and resolutions
-        return self._import_with_selection_and_resolution(
+        stats = self._import_with_selection_and_resolution(
             file_load_cases, selected_load_cases, self.conflict_resolution
         )
+        import_logging.log_phase_timings(
+            logger=logger,
+            project_name=self.project_name,
+            result_set_name=self.result_set_name,
+            file_name=f"{self.folder_path}/*",
+            phase_timings=stats.get("phase_timings", []),
+        )
+        import_logging.log_import_complete(
+            logger=logger,
+            project_name=self.project_name,
+            result_set_name=self.result_set_name,
+            file_name=f"{self.folder_path}/*",
+            stats=stats,
+        )
+        return stats
 
     def _prescan_load_cases(self) -> Tuple[Dict[str, Dict[str, List[str]]], List[str]]:
         """
@@ -401,6 +444,13 @@ class EnhancedFolderImporter(BaseFolderImporter):
 
             except Exception as e:
                 stats["errors"].append(f"{file_name}: {str(e)}")
+                import_logging.log_import_failure(
+                    logger=logger,
+                    project_name=self.project_name,
+                    result_set_name=self.result_set_name,
+                    file_name=file_name,
+                    error=e,
+                )
 
         # Get final load case and story counts
         if stats["project"]:

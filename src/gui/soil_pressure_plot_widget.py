@@ -25,28 +25,24 @@ class SoilPressurePlotWidget(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #2c313a;
-                background-color: #0a0c10;
-                border-radius: 4px;
+                border: none;
+                background-color: transparent;
             }
             QTabBar::tab {
-                background-color: #161b22;
-                color: #d1d5db;
-                padding: 8px 16px;
-                border: 1px solid #2c313a;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                margin-right: 2px;
+                background-color: transparent;
+                color: #9ca3af;
+                padding: 8px 14px;
+                border: none;
+                margin-right: 6px;
             }
             QTabBar::tab:selected {
-                background-color: #0a0c10;
-                color: #4a7d89;
-                border-bottom: 2px solid #4a7d89;
+                background-color: transparent;
+                color: #67e8f9;
+                border-bottom: 2px solid #67e8f9;
             }
             QTabBar::tab:hover {
-                background-color: #1f2937;
-                color: #67e8f9;
+                background-color: transparent;
+                color: #cbd5e1;
             }
         """)
 
@@ -56,15 +52,16 @@ class SoilPressurePlotWidget(QWidget):
 
         # Set plot area background
         view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
+        view_box.setBackgroundColor('#0c1016')
+        view_box.setBorder(None)
 
         # Configure plot appearance
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.5)
-        self.plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        self.plot_widget.getAxis('left').setTextPen('#d1d5db')
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.35)
+        subtle_axis = pg.mkPen('#151b22', width=1)
+        self.plot_widget.getAxis('bottom').setPen(subtle_axis)
+        self.plot_widget.getAxis('left').setPen(subtle_axis)
+        self.plot_widget.getAxis('bottom').setTextPen('#cdd3dd')
+        self.plot_widget.getAxis('left').setTextPen('#cdd3dd')
 
         # Set axis labels
         self.plot_widget.setLabel('bottom', 'Load Case')
@@ -84,15 +81,15 @@ class SoilPressurePlotWidget(QWidget):
 
         # Set histogram area background
         hist_view_box = self.histogram_widget.getPlotItem().getViewBox()
-        hist_view_box.setBackgroundColor('#0f1419')
-        hist_view_box.setBorder(pg.mkPen('#2c313a', width=1))
+        hist_view_box.setBackgroundColor('#0c1016')
+        hist_view_box.setBorder(None)
 
         # Configure histogram appearance
-        self.histogram_widget.showGrid(x=True, y=True, alpha=0.5)
-        self.histogram_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        self.histogram_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
-        self.histogram_widget.getAxis('bottom').setTextPen('#d1d5db')
-        self.histogram_widget.getAxis('left').setTextPen('#d1d5db')
+        self.histogram_widget.showGrid(x=True, y=True, alpha=0.35)
+        self.histogram_widget.getAxis('bottom').setPen(subtle_axis)
+        self.histogram_widget.getAxis('left').setPen(subtle_axis)
+        self.histogram_widget.getAxis('bottom').setTextPen('#cdd3dd')
+        self.histogram_widget.getAxis('left').setTextPen('#cdd3dd')
 
         # Set axis labels
         self.histogram_widget.setLabel('bottom', 'Soil Pressure (kN/m²)')
@@ -112,16 +109,29 @@ class SoilPressurePlotWidget(QWidget):
 
         layout.addWidget(self.tabs)
 
-    def load_dataset(self, df: pd.DataFrame, load_cases: list):
+    def load_dataset(self, df: pd.DataFrame, load_cases: list, result_type: str = "SoilPressures"):
         """Load and display soil pressure data as scatter plot and histogram.
 
         Args:
             df: DataFrame with columns: Shell Object, Unique Name, and load case columns
             load_cases: List of load case column names
+            result_type: 'SoilPressures' or 'VerticalDisplacements' to drive axis labels
         """
         if df is None or df.empty or not load_cases:
             self.clear_data()
             return
+
+        # Update axis labels based on the dataset being rendered
+        if result_type == "VerticalDisplacements":
+            self.plot_widget.setLabel('bottom', 'Load Case')
+            self.plot_widget.setLabel('left', 'Vertical Displacement (mm)')
+            self.histogram_widget.setLabel('bottom', 'Vertical Displacement (mm)')
+            self.histogram_widget.setLabel('left', 'Count')
+        else:
+            self.plot_widget.setLabel('bottom', 'Load Case')
+            self.plot_widget.setLabel('left', 'Soil Pressure (kN/mı)')
+            self.histogram_widget.setLabel('bottom', 'Soil Pressure (kN/mı)')
+            self.histogram_widget.setLabel('left', 'Count')
 
         self.current_data = df
 

@@ -240,16 +240,6 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         ),
     ),
     ResultTypeSpec(
-        key="MinAxial",
-        direction_suffix="",
-        unit="kN",
-        decimal_places=0,
-        multiplier=1.0,
-        y_label="Min Axial Force (kN)",
-        plot_mode="building_profile",
-        color_scheme="blue_orange",
-    ),
-    ResultTypeSpec(
         key="ColumnAxials",
         direction_suffix="",
         unit="kN",
@@ -258,6 +248,18 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         y_label="Column Axial Force (kN)",
         plot_mode="building_profile",
         color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="Min",
+                direction_suffix="_Min",
+                y_label="Min Axial Force (kN)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="Max",
+                direction_suffix="_Max",
+                y_label="Max Axial Force (kN)",
+            ),
+        ),
     ),
     ResultTypeSpec(
         key="ColumnRotations",
@@ -349,7 +351,8 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
         'QuadRotations': 'Quad Rotations',
         'ColumnShears': 'Column Shears',
         'ColumnAxials': 'Column Axials',
-        'MinAxial': 'Min Axial',
+        'ColumnAxials_Min': 'Min Axial Force',
+        'ColumnAxials_Max': 'Max Axial Force',
         'ColumnRotations': 'Column Rotations',
         'BeamRotations': 'Beam Rotations',
         'SoilPressures_Min': 'Min Soil Pressures',
@@ -359,6 +362,14 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
     # Get display name
     display_name = display_names.get(result_type, result_type)
 
+    # Special handling for Column Axials: direction is used to pick Min/Max label, not appended
+    if result_type == "ColumnAxials" and direction in {"Min", "Max"}:
+        display_name = display_names.get(f"{result_type}_{direction}", display_name)
+        config = RESULT_CONFIGS.get(f"{result_type}_{direction}")
+        if config and config.unit:
+            return f"{display_name} [{config.unit}]"
+        return display_name
+
     # Get config to extract unit
     config_key = f"{result_type}_{direction}" if direction else result_type
     config = RESULT_CONFIGS.get(config_key)
@@ -367,13 +378,8 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
         # Fallback: try base config
         config = RESULT_CONFIGS.get(result_type)
 
-    if config and config.unit:
-        unit_str = f" [{config.unit}]"
-        if direction:
-            return f"{display_name}{unit_str} - {direction} Direction"
-        return f"{display_name}{unit_str}"
-
-    # Fallback: no unit available
+    # Build the formatted string with unit
+    unit_str = f" [{config.unit}]" if config and config.unit else ""
     if direction:
-        return f"{display_name} - {direction} Direction"
-    return display_name
+        return f"{display_name}{unit_str} - {direction} Direction"
+    return f"{display_name}{unit_str}" if unit_str else display_name
