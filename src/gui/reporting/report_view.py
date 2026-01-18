@@ -16,8 +16,11 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QFrame,
+    QApplication,
+    QProgressBar,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QCursor
 
 from gui.styles import COLORS
 from gui.ui_helpers import create_styled_label, create_styled_button
@@ -233,8 +236,44 @@ class ReportView(QWidget):
         # Header
         header = create_styled_label("Report Preview", "section")
         layout.addWidget(header)
+        
+        # Loading indicator - indeterminate progress bar with message
+        self._loading_container = QWidget()
+        loading_layout = QHBoxLayout(self._loading_container)
+        loading_layout.setContentsMargins(0, 4, 0, 4)
+        loading_layout.setSpacing(10)
+        
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 0)  # Indeterminate mode
+        self._progress_bar.setFixedHeight(16)
+        self._progress_bar.setFixedWidth(120)
+        self._progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {COLORS['border']};
+                border-radius: 4px;
+                background-color: {COLORS['card']};
+            }}
+            QProgressBar::chunk {{
+                background-color: {COLORS['accent']};
+                border-radius: 3px;
+            }}
+        """)
+        loading_layout.addWidget(self._progress_bar)
+        
+        loading_label = QLabel("Please wait, loading report data...")
+        loading_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text_secondary']};
+                font-size: 12px;
+            }}
+        """)
+        loading_layout.addWidget(loading_label)
+        loading_layout.addStretch()
+        
+        self._loading_container.hide()
+        layout.addWidget(self._loading_container)
 
-        # Placeholder for preview widget (will be replaced with ReportPreviewWidget)
+        # Preview widget
         from .report_preview_widget import ReportPreviewWidget
         self.preview_widget = ReportPreviewWidget(self.project_name)
         layout.addWidget(self.preview_widget, stretch=1)
@@ -299,56 +338,80 @@ class ReportView(QWidget):
             return
 
         sections = self.checkbox_tree.get_selected_sections(self._selected_result_set_id, self.analysis_context)
+        
+        if not sections:
+            self.preview_widget.set_sections([])
+            return
 
-        # Fetch datasets for each section (with caching)
-        for section in sections:
-            if section.category == "Global":
-                cache_key = ("Global", section.result_type, section.direction, section.result_set_id)
+        # Check if any sections need fetching (not cached)
+        needs_fetch = any(
+            (section.category == "Global" and ("Global", section.result_type, section.direction, section.result_set_id) not in self._cached_sections) or
+            (section.category == "Element" and ("Element", section.result_type, section.result_set_id) not in self._cached_sections) or
+            (section.category == "Joint" and ("Joint", section.result_type, section.result_set_id) not in self._cached_sections)
+            for section in sections
+        )
+        
+        # Show loading indicator if fetching is needed
+        if needs_fetch:
+            self._loading_container.show()
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+            QApplication.processEvents()
 
-                # Check local cache first
-                if cache_key in self._cached_sections:
-                    section.dataset = self._cached_sections[cache_key]
-                else:
-                    # Fetch and cache
-                    dataset = self.result_service.get_standard_dataset(
-                        section.result_type,
-                        section.direction,
-                        section.result_set_id
-                    )
-                    self._cached_sections[cache_key] = dataset
-                    section.dataset = dataset
+        try:
+            # Fetch datasets for each section (with caching)
+            for section in sections:
+                if section.category == "Global":
+                    cache_key = ("Global", section.result_type, section.direction, section.result_set_id)
 
-            elif section.category == "Element":
-                cache_key = ("Element", section.result_type, section.result_set_id)
-
-                if cache_key in self._cached_sections:
-                    section.element_data = self._cached_sections[cache_key]
-                else:
-                    # Fetch element rotation data based on type
-                    if section.result_type == "BeamRotations":
-                        element_data = self._fetch_beam_rotation_data(section.result_set_id)
-                    elif section.result_type == "ColumnRotations":
-                        element_data = self._fetch_column_rotation_data(section.result_set_id)
+                    # Check local cache first
+                    if cache_key in self._cached_sections:
+                        section.dataset = self._cached_sections[cache_key]
                     else:
-                        element_data = None
-                    self._cached_sections[cache_key] = element_data
-                    section.element_data = element_data
+                        # Fetch and cache
+                        dataset = self.result_service.get_standard_dataset(
+                            section.result_type,
+                            section.direction,
+                            section.result_set_id
+                        )
+                        self._cached_sections[cache_key] = dataset
+                        section.dataset = dataset
 
-            elif section.category == "Joint":
-                cache_key = ("Joint", section.result_type, section.result_set_id)
+                elif section.category == "Element":
+                    cache_key = ("Element", section.result_type, section.result_set_id)
 
-                if cache_key in self._cached_sections:
-                    section.joint_data = self._cached_sections[cache_key]
-                else:
-                    # Fetch joint data based on type
-                    if section.result_type == "SoilPressures_Min":
-                        joint_data = self._fetch_soil_pressure_data(section.result_set_id)
+                    if cache_key in self._cached_sections:
+                        section.element_data = self._cached_sections[cache_key]
                     else:
-                        joint_data = None
-                    self._cached_sections[cache_key] = joint_data
-                    section.joint_data = joint_data
+                        # Fetch element rotation data based on type
+                        if section.result_type == "BeamRotations":
+                            element_data = self._fetch_beam_rotation_data(section.result_set_id)
+                        elif section.result_type == "ColumnRotations":
+                            element_data = self._fetch_column_rotation_data(section.result_set_id)
+                        else:
+                            element_data = None
+                        self._cached_sections[cache_key] = element_data
+                        section.element_data = element_data
 
-        self.preview_widget.set_sections(sections)
+                elif section.category == "Joint":
+                    cache_key = ("Joint", section.result_type, section.result_set_id)
+
+                    if cache_key in self._cached_sections:
+                        section.joint_data = self._cached_sections[cache_key]
+                    else:
+                        # Fetch joint data based on type
+                        if section.result_type == "SoilPressures_Min":
+                            joint_data = self._fetch_soil_pressure_data(section.result_set_id)
+                        else:
+                            joint_data = None
+                        self._cached_sections[cache_key] = joint_data
+                        section.joint_data = joint_data
+
+            self.preview_widget.set_sections(sections)
+        finally:
+            # Hide loading indicator
+            if needs_fetch:
+                self._loading_container.hide()
+                QApplication.restoreOverrideCursor()
 
     def _fetch_beam_rotation_data(self, result_set_id: int) -> Optional[dict]:
         """Fetch beam rotation data for reporting.

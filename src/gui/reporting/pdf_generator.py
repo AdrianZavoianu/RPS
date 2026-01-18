@@ -34,7 +34,7 @@ A4_HEIGHT_MM = 297
 
 # Page margins in mm
 PAGE_MARGIN_MM = 15
-HEADER_HEIGHT_MM = 12
+HEADER_HEIGHT_MM = 9
 FOOTER_HEIGHT_MM = 10
 SECTION_SPACING_MM = 4
 
@@ -55,7 +55,7 @@ PLOT_COLORS = (
     "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669",
     "#0284c7", "#be185d",
 )
-AVERAGE_COLOR = "#92400e"
+AVERAGE_COLOR = "#c2410c"  # Strong orange-red for light backgrounds
 
 
 class PDFGenerator:
@@ -142,7 +142,8 @@ class PDFGenerator:
         printer.setPageOrientation(QPageLayout.Orientation.Portrait)
         printer.setResolution(300)
 
-        margins = QMarginsF(PAGE_MARGIN_MM, PAGE_MARGIN_MM, PAGE_MARGIN_MM, PAGE_MARGIN_MM)
+        # Left, Top, Right, Bottom margins - reduced top margin for tighter header
+        margins = QMarginsF(PAGE_MARGIN_MM, 8, PAGE_MARGIN_MM, PAGE_MARGIN_MM)
         printer.setPageMargins(margins, QPageLayout.Unit.Millimeter)
 
         return printer
@@ -162,7 +163,7 @@ class PDFGenerator:
         header_height = int(HEADER_HEIGHT_MM * mm_to_px)
         footer_height = int(FOOTER_HEIGHT_MM * mm_to_px)
 
-        content_top = header_height + int(4 * mm_to_px)
+        content_top = header_height + int(1 * mm_to_px)
         content_height = page_height - content_top - footer_height - int(4 * mm_to_px)
 
         # One section per page for proper sizing
@@ -412,7 +413,7 @@ class PDFGenerator:
         # Draw average line only for NLTHA (not Pushover)
         if not is_pushover:
             avg = numeric_df.mean(axis=1, skipna=True).fillna(0).tolist()
-            avg_width = max(2, int(0.6 * mm_to_px))
+            avg_width = max(3, int(1.0 * mm_to_px))  # Thicker for prominence
             painter.setPen(QPen(QColor(AVERAGE_COLOR), avg_width, Qt.PenStyle.DashLine))
             for i in range(len(avg) - 1):
                 painter.drawLine(int(to_px_x(avg[i])), int(to_px_y(i)),
@@ -818,6 +819,9 @@ class PDFGenerator:
             py = int(to_px_y(story_y))
             painter.drawEllipse(px - point_radius, py - point_radius, point_radius * 2, point_radius * 2)
 
+        # Reset brush to prevent blue fill on subsequent draws
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
         # Axes
         painter.setPen(QPen(QColor(PRINT_COLORS["text"]), 1))
         painter.drawLine(plot_x, plot_y, plot_x, plot_y + plot_h)
@@ -1145,6 +1149,9 @@ class PDFGenerator:
             py = int(to_px_y(story_y))
             painter.drawEllipse(px - point_radius, py - point_radius, point_radius * 2, point_radius * 2)
 
+        # Reset brush to prevent blue fill on subsequent draws
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
         # Axes
         painter.setPen(QPen(QColor(PRINT_COLORS["text"]), 1))
         painter.drawLine(plot_x, plot_y, plot_x, plot_y + plot_h)
@@ -1417,6 +1424,9 @@ class PDFGenerator:
             py = int(to_px_y(pressure))
             painter.drawEllipse(px - point_radius, py - point_radius, point_radius * 2, point_radius * 2)
 
+        # Reset brush to prevent blue fill on subsequent draws
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
         # Axes
         painter.setPen(QPen(QColor(PRINT_COLORS["text"]), 1))
         painter.drawLine(plot_x, plot_y, plot_x, plot_y + plot_h)
@@ -1437,7 +1447,7 @@ class PDFGenerator:
         painter.setPen(QColor(PRINT_COLORS["text"]))
         painter.translate(x + int(0.5 * mm_to_px), plot_y + plot_h // 2)
         painter.rotate(-90)
-        painter.drawText(int(-10 * mm_to_px), 0, int(20 * mm_to_px), int(3 * mm_to_px), Qt.AlignmentFlag.AlignCenter, "Pressure (kN/m²)")
+        painter.drawText(int(-15 * mm_to_px), 0, int(30 * mm_to_px), int(3 * mm_to_px), Qt.AlignmentFlag.AlignCenter, "Pressure (kN/m²)")
         painter.restore()
 
         # X-axis labels (load case names)

@@ -667,7 +667,7 @@ class MaxMinDriftsWidget(QWidget):
             avg_max_item = plot_widget.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.SolidLine),
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.SolidLine),
                 antialias=True,
             )
             all_values.extend(avg_values)
@@ -685,7 +685,7 @@ class MaxMinDriftsWidget(QWidget):
             avg_min_item = plot_widget.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine),
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine),
                 antialias=True,
             )
             all_values.extend(avg_values)

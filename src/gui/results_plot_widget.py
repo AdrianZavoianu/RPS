@@ -525,7 +525,7 @@ class ResultsPlotWidget(QWidget):
             self._average_plot_item = plot.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine)
             )
             self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Avg', pen_style=Qt.PenStyle.DashLine)
 
@@ -601,7 +601,7 @@ class ResultsPlotWidget(QWidget):
         # Always keep average line at full opacity and bold
         if hasattr(self, '_average_plot_item') and self._average_plot_item:
             self._average_plot_item.setPen(
-                pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
+                pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine)
             )
 
     def hover_load_case(self, load_case: str):
@@ -636,7 +636,7 @@ class ResultsPlotWidget(QWidget):
         # Keep average at full opacity
         if hasattr(self, '_average_plot_item') and self._average_plot_item:
             self._average_plot_item.setPen(
-                pg.mkPen(AVERAGE_SERIES_COLOR, width=4, style=Qt.PenStyle.DashLine)
+                pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine)
             )
 
     def clear_hover(self):

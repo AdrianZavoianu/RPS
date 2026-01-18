@@ -50,7 +50,7 @@ PLOT_COLORS = (
     "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669",
     "#0284c7", "#be185d",
 )
-AVERAGE_COLOR = "#92400e"
+AVERAGE_COLOR = "#c2410c"  # Strong orange-red for light backgrounds
 
 
 class ReportPageWidget(QWidget):
@@ -423,9 +423,9 @@ class ReportPageWidget(QWidget):
 
         # Draw average line only for NLTHA (not Pushover)
         if len(drawn_cols) > 1 and not is_pushover:
-            # Average
+            # Average - thicker line for prominence
             avg = numeric_df.mean(axis=1, skipna=True).fillna(0).tolist()
-            painter.setPen(QPen(QColor(AVERAGE_COLOR), 2, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(AVERAGE_COLOR), 3, Qt.PenStyle.DashLine))
             for i in range(len(avg) - 1):
                 painter.drawLine(int(to_px_x(avg[i])), int(to_px_y(i)),
                                int(to_px_x(avg[i + 1])), int(to_px_y(i + 1)))
@@ -808,6 +808,9 @@ class ReportPageWidget(QWidget):
             py = int(to_px_y(story_y))
             painter.drawEllipse(px - point_radius, py - point_radius, point_radius * 2, point_radius * 2)
 
+        # Reset brush to prevent blue fill on subsequent draws
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
         # Axes
         painter.setPen(QPen(QColor(PRINT_COLORS["text"]), 1))
         painter.drawLine(plot_x, plot_y, plot_x, plot_y + plot_h)
@@ -1140,6 +1143,9 @@ class ReportPageWidget(QWidget):
             py = int(to_px_y(story_y))
             painter.drawEllipse(px - point_radius, py - point_radius, point_radius * 2, point_radius * 2)
 
+        # Reset brush to prevent blue fill on subsequent draws
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
         # Axes
         painter.setPen(QPen(QColor(PRINT_COLORS["text"]), 1))
         painter.drawLine(plot_x, plot_y, plot_x, plot_y + plot_h)
@@ -1417,6 +1423,9 @@ class ReportPageWidget(QWidget):
             px = int(to_px_x(lc_idx) + jitter)
             py = int(to_px_y(pressure))
             painter.drawEllipse(px - point_radius, py - point_radius, point_radius * 2, point_radius * 2)
+
+        # Reset brush to prevent blue fill on subsequent draws
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
         # Axes
         painter.setPen(QPen(QColor(PRINT_COLORS["text"]), 1))
