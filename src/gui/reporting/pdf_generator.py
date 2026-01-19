@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 
 from gui.icon_utils import ICONS_DIR
-from config.visual_config import AVERAGE_SERIES_COLOR
+from .constants import PRINT_COLORS, PLOT_COLORS, AVERAGE_COLOR
 
 logger = logging.getLogger(__name__)
 
@@ -37,25 +37,6 @@ PAGE_MARGIN_MM = 15
 HEADER_HEIGHT_MM = 9
 FOOTER_HEIGHT_MM = 10
 SECTION_SPACING_MM = 4
-
-# Colors for print (light background) - matches preview widget
-PRINT_COLORS = {
-    "text": "#1f2937",
-    "text_muted": "#6b7280",
-    "border": "#d1d5db",
-    "grid": "#e5e7eb",
-    "header_bg": "#f3f4f6",
-    "row_alt": "#f9fafb",
-    "plot_bg": "#f8f9fa",
-}
-
-# Plot colors - high contrast for light background
-PLOT_COLORS = (
-    "#dc2626", "#2563eb", "#16a34a", "#ea580c", "#7c3aed",
-    "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669",
-    "#0284c7", "#be185d",
-)
-AVERAGE_COLOR = "#c2410c"  # Strong orange-red for light backgrounds
 
 
 class PDFGenerator:

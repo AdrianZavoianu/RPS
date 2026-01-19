@@ -81,3 +81,38 @@ def test_import_all_persists_story_drifts(sqlite_session_factory, tmp_path):
         assert sorted(round(drift.drift, 4) for drift in drifts) == [0.001, 0.002, 0.003, 0.004]
     finally:
         session.close()
+
+
+# --- Tests for sheet hint functionality ---
+
+class StubParserNoCall:
+    """Stub that raises if called - used to verify hint path is taken."""
+
+    def validate_sheet_exists(self, name: str) -> bool:
+        raise AssertionError("Should not call parser when hint provided")
+
+
+class StubSummary:
+    """Stub file summary with available sheets."""
+
+    def __init__(self, available_sheets):
+        self.available_sheets = available_sheets
+
+
+def test_sheet_availability_prefers_prescan_hint(tmp_path):
+    """When file_summary hint is provided, parser.validate_sheet_exists should not be called."""
+    dummy_file = tmp_path / "fake.xlsx"
+    dummy_file.write_text("", encoding="utf-8")
+
+    importer = DataImporter(
+        file_path=str(dummy_file),
+        project_name="P",
+        result_set_name="RS",
+        session_factory=lambda: None,
+        result_types=[],
+        file_summary=StubSummary({"Foo", "Bar"}),
+    )
+    importer.parser = StubParserNoCall()
+
+    assert importer._sheet_available("Foo") is True
+    assert importer._sheet_available("Missing") is False

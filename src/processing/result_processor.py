@@ -12,7 +12,7 @@ class ResultProcessor:
     def process_story_drifts(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process story drift data for a specific direction.
+        """Process story drift data for a specific direction - vectorized.
 
         Args:
             df: Raw drift data DataFrame
@@ -21,44 +21,43 @@ class ResultProcessor:
             direction: 'X' or 'Y'
 
         Returns:
-            Processed DataFrame with columns: [Story, LoadCase, Drift, MaxDrift, MinDrift]
+            Processed DataFrame with columns: [Story, LoadCase, Direction, Drift, MaxDrift, MinDrift]
         """
-        results = []
+        if df.empty or "Drift" not in df.columns:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Drift", "MaxDrift", "MinDrift"])
 
-        for story in stories:
-            for case in load_cases:
-                # Filter data for this story, case, and direction
-                filtered = df.loc[
-                    (df["Output Case"] == case)
-                    & (df["Direction"] == direction)
-                    & (df["Story"] == story)
-                ]
+        # Filter by direction once
+        df_dir = df[df["Direction"] == direction].copy()
+        if df_dir.empty:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Drift", "MaxDrift", "MinDrift"])
 
-                if not filtered.empty:
-                    # Get drift values
-                    drift_values = filtered["Drift"]
-                    abs_max_drift = drift_values.abs().max()
-                    max_drift = drift_values.max()
-                    min_drift = drift_values.min()
+        # Convert Drift to numeric
+        df_dir["Drift"] = pd.to_numeric(df_dir["Drift"], errors="coerce")
+        df_dir = df_dir.dropna(subset=["Drift"])
+        if df_dir.empty:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Drift", "MaxDrift", "MinDrift"])
 
-                    results.append(
-                        {
-                            "Story": story,
-                            "LoadCase": case,
-                            "Direction": direction,
-                            "Drift": round(abs_max_drift, 4),
-                            "MaxDrift": round(max_drift, 4),
-                            "MinDrift": round(min_drift, 4),
-                        }
-                    )
+        # Group by Story, Output Case and aggregate
+        grouped = df_dir.groupby(["Story", "Output Case"], as_index=False).agg({
+            "Drift": ["max", "min", lambda x: x.abs().max()]
+        })
 
-        return pd.DataFrame(results)
+        # Flatten multi-level column names
+        grouped.columns = ["Story", "LoadCase", "MaxDrift", "MinDrift", "Drift"]
+
+        # Round values
+        grouped["Drift"] = grouped["Drift"].round(4)
+        grouped["MaxDrift"] = grouped["MaxDrift"].round(4)
+        grouped["MinDrift"] = grouped["MinDrift"].round(4)
+        grouped["Direction"] = direction
+
+        return grouped[["Story", "LoadCase", "Direction", "Drift", "MaxDrift", "MinDrift"]]
 
     @staticmethod
     def process_story_accelerations(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process story acceleration data from 'Diaphragm Accelerations' sheet.
+        """Process story acceleration data from 'Diaphragm Accelerations' sheet - vectorized.
 
         Handles the format with separate Max/Min rows and Max UX/UY and Min UX/UY columns.
 
@@ -71,50 +70,52 @@ class ResultProcessor:
         Returns:
             Processed DataFrame with acceleration in g-units (converted from mm/sec²)
         """
-        results = []
-
-        # Column names for max and min values based on direction
         max_col = f'Max {direction}'
         min_col = f'Min {direction}'
 
-        for story in stories:
-            for case in load_cases:
-                # Filter Max row for this story and case
-                filtered_max = df.loc[
-                    (df["Output Case"] == case)
-                    & (df["Story"] == story)
-                    & (df["Step Type"] == "Max")
-                ]
+        if df.empty or max_col not in df.columns or min_col not in df.columns:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Acceleration", "MaxAcceleration", "MinAcceleration"])
 
-                # Filter Min row for this story and case
-                filtered_min = df.loc[
-                    (df["Output Case"] == case)
-                    & (df["Story"] == story)
-                    & (df["Step Type"] == "Min")
-                ]
+        df = df.copy()
 
-                if not filtered_max.empty and not filtered_min.empty:
-                    # Get the max value from Max row and convert to g (divide by 9810)
-                    max_value = filtered_max[max_col].max() / 9810
+        # Convert to numeric
+        df[max_col] = pd.to_numeric(df[max_col], errors="coerce")
+        df[min_col] = pd.to_numeric(df[min_col], errors="coerce")
 
-                    # Get the min value from Min row and convert to g (divide by 9810)
-                    min_value = filtered_min[min_col].min() / 9810
+        # Split into Max and Min step types
+        df_max = df[df["Step Type"] == "Max"].copy()
+        df_min = df[df["Step Type"] == "Min"].copy()
 
-                    # Take the absolute maximum (matching old script logic)
-                    abs_max_accel = max(abs(max_value), abs(min_value))
+        if df_max.empty or df_min.empty:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Acceleration", "MaxAcceleration", "MinAcceleration"])
 
-                    results.append(
-                        {
-                            "Story": story,
-                            "LoadCase": case,
-                            "Direction": direction,
-                            "Acceleration": round(abs_max_accel, 3),
-                            "MaxAcceleration": round(max_value, 3),
-                            "MinAcceleration": round(min_value, 3),
-                        }
-                    )
+        # Aggregate max values per Story, Case
+        max_grouped = df_max.groupby(["Story", "Output Case"], as_index=False).agg({max_col: "max"})
+        max_grouped = max_grouped.rename(columns={max_col: "MaxAcceleration"})
 
-        return pd.DataFrame(results)
+        # Aggregate min values per Story, Case
+        min_grouped = df_min.groupby(["Story", "Output Case"], as_index=False).agg({min_col: "min"})
+        min_grouped = min_grouped.rename(columns={min_col: "MinAcceleration"})
+
+        # Merge max and min
+        merged = max_grouped.merge(min_grouped, on=["Story", "Output Case"], how="inner")
+        if merged.empty:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Acceleration", "MaxAcceleration", "MinAcceleration"])
+
+        # Convert to g (divide by 9810)
+        merged["MaxAcceleration"] = merged["MaxAcceleration"] / 9810
+        merged["MinAcceleration"] = merged["MinAcceleration"] / 9810
+
+        # Calculate absolute maximum
+        merged["Acceleration"] = merged[["MaxAcceleration", "MinAcceleration"]].abs().max(axis=1)
+
+        # Round values
+        merged["Acceleration"] = merged["Acceleration"].round(3)
+        merged["MaxAcceleration"] = merged["MaxAcceleration"].round(3)
+        merged["MinAcceleration"] = merged["MinAcceleration"].round(3)
+        merged["Direction"] = direction
+
+        return merged.rename(columns={"Output Case": "LoadCase"})[["Story", "LoadCase", "Direction", "Acceleration", "MaxAcceleration", "MinAcceleration"]]
 
 
     @staticmethod
@@ -163,7 +164,7 @@ class ResultProcessor:
     def process_story_forces(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process story shear force data for a specific direction.
+        """Process story shear force data for a specific direction - vectorized.
 
         Args:
             df: Raw force data DataFrame
@@ -174,43 +175,42 @@ class ResultProcessor:
         Returns:
             Processed DataFrame with force values
         """
-        results = []
+        if df.empty or direction not in df.columns:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-        for story in stories:
-            for case in load_cases:
-                # Filter data for this story, case, direction, and bottom location
-                filtered = df.loc[
-                    (df["Output Case"] == case)
-                    & (df["Story"] == story)
-                    & (df["Location"] == "Bottom")
-                ]
+        # Filter for Bottom location only
+        df_bottom = df[df["Location"] == "Bottom"].copy()
+        if df_bottom.empty:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-                if not filtered.empty:
-                    # Get force values
-                    force_values = filtered[direction]
-                    abs_max_force = force_values.abs().max()
-                    max_force = force_values.max()
-                    min_force = force_values.min()
+        # Convert direction column to numeric
+        df_bottom[direction] = pd.to_numeric(df_bottom[direction], errors="coerce")
+        df_bottom = df_bottom.dropna(subset=[direction])
+        if df_bottom.empty:
+            return pd.DataFrame(columns=["Story", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-                    results.append(
-                        {
-                            "Story": story,
-                            "LoadCase": case,
-                            "Direction": direction,
-                            "Location": "Bottom",
-                            "Force": round(abs_max_force, 0),
-                            "MaxForce": round(max_force, 0),
-                            "MinForce": round(min_force, 0),
-                        }
-                    )
+        # Group by Story, Output Case and aggregate
+        grouped = df_bottom.groupby(["Story", "Output Case"], as_index=False).agg({
+            direction: ["max", "min", lambda x: x.abs().max()]
+        })
 
-        return pd.DataFrame(results)
+        # Flatten multi-level column names
+        grouped.columns = ["Story", "LoadCase", "MaxForce", "MinForce", "Force"]
+
+        # Round values
+        grouped["Force"] = grouped["Force"].round(0)
+        grouped["MaxForce"] = grouped["MaxForce"].round(0)
+        grouped["MinForce"] = grouped["MinForce"].round(0)
+        grouped["Direction"] = direction
+        grouped["Location"] = "Bottom"
+
+        return grouped[["Story", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"]]
 
     @staticmethod
     def process_pier_forces(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], piers: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process pier force data for a specific direction.
+        """Process pier force data for a specific direction - vectorized.
 
         Args:
             df: Raw pier force data DataFrame (row-based format)
@@ -222,50 +222,44 @@ class ResultProcessor:
         Returns:
             Processed DataFrame with columns: [Story, Pier, LoadCase, Direction, Location, Force, MaxForce, MinForce]
         """
-        results = []
+        if df.empty or direction not in df.columns:
+            return pd.DataFrame(columns=["Story", "Pier", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
         # Filter for Bottom location only (user requirement)
         df_bottom = df[df["Location"] == "Bottom"].copy()
+        if df_bottom.empty:
+            return pd.DataFrame(columns=["Story", "Pier", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-        for story in stories:
-            for pier in piers:
-                for case in load_cases:
-                    # Filter data for this story, pier, and case
-                    filtered = df_bottom.loc[
-                        (df_bottom["Story"] == story)
-                        & (df_bottom["Pier"] == pier)
-                        & (df_bottom["Output Case"] == case)
-                    ]
+        # Convert direction column to numeric once
+        df_bottom[direction] = pd.to_numeric(df_bottom[direction], errors="coerce")
 
-                    if not filtered.empty and direction in filtered.columns:
-                        # Get force values for this direction
-                        force_values = pd.to_numeric(filtered[direction], errors="coerce").dropna()
+        # Filter to valid values
+        df_bottom = df_bottom.dropna(subset=[direction])
+        if df_bottom.empty:
+            return pd.DataFrame(columns=["Story", "Pier", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-                        if not force_values.empty:
-                            abs_max_force = force_values.abs().max()
-                            max_force = force_values.max()
-                            min_force = force_values.min()
+        # Group by Story, Pier, Output Case and aggregate
+        grouped = df_bottom.groupby(["Story", "Pier", "Output Case"], as_index=False).agg({
+            direction: ["max", "min", lambda x: x.abs().max()]
+        })
 
-                            results.append(
-                                {
-                                    "Story": story,
-                                    "Pier": pier,
-                                    "LoadCase": case,
-                                    "Direction": direction,
-                                    "Location": "Bottom",
-                                    "Force": round(abs_max_force, 1),
-                                    "MaxForce": round(max_force, 1),
-                                    "MinForce": round(min_force, 1),
-                                }
-                            )
+        # Flatten multi-level column names
+        grouped.columns = ["Story", "Pier", "LoadCase", "MaxForce", "MinForce", "Force"]
 
-        return pd.DataFrame(results)
+        # Round values
+        grouped["Force"] = grouped["Force"].round(1)
+        grouped["MaxForce"] = grouped["MaxForce"].round(1)
+        grouped["MinForce"] = grouped["MinForce"].round(1)
+        grouped["Direction"] = direction
+        grouped["Location"] = "Bottom"
+
+        return grouped[["Story", "Pier", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"]]
 
     @staticmethod
     def process_column_forces(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process column force data for a specific direction.
+        """Process column force data for a specific direction (vectorized).
 
         Args:
             df: Raw column force data DataFrame (row-based format)
@@ -275,64 +269,50 @@ class ResultProcessor:
             direction: 'V2' or 'V3'
 
         Returns:
-            Processed DataFrame with columns: [Story, Column, UniqueNameList, LoadCase, Direction, Location, Force, MaxForce, MinForce]
-
-        Note:
-            Unlike walls/piers, columns have multiple unique names per column identifier.
-            We process each unique name separately for detailed results.
+            Processed DataFrame with columns: [Story, Column, UniqueName, LoadCase, Direction, Location, Force, MaxForce, MinForce]
         """
-        results = []
+        if df.empty or direction not in df.columns:
+            return pd.DataFrame(columns=["Story", "Column", "UniqueName", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-        for story in stories:
-            for col in columns:
-                for case in load_cases:
-                    # Filter data for this story, column, and case
-                    filtered = df.loc[
-                        (df["Story"] == story)
-                        & (df["Column"] == col)
-                        & (df["Output Case"] == case)
-                    ].copy()
+        # Convert direction column to numeric once
+        df = df.copy()
+        df[direction] = pd.to_numeric(df[direction], errors="coerce")
 
-                    if not filtered.empty and direction in filtered.columns:
-                        # Get unique column instances (Unique Name)
-                        unique_names = filtered["Unique Name"].unique().tolist()
+        # Filter to valid values
+        df = df.dropna(subset=[direction])
+        if df.empty:
+            return pd.DataFrame(columns=["Story", "Column", "UniqueName", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"])
 
-                        # Process each unique column instance
-                        for unique_name in unique_names:
-                            filtered_unique = filtered[filtered["Unique Name"] == unique_name]
+        # Build aggregation dict - only include Location if it exists
+        agg_dict = {direction: ["max", "min", lambda x: x.abs().max()]}
+        has_location = "Location" in df.columns
 
-                            # Get force values for this direction
-                            force_values = pd.to_numeric(filtered_unique[direction], errors="coerce").dropna()
+        if has_location:
+            agg_dict["Location"] = "first"
 
-                            if not force_values.empty:
-                                abs_max_force = force_values.abs().max()
-                                max_force = force_values.max()
-                                min_force = force_values.min()
+        # Group by Story, Column, Unique Name, Output Case and aggregate
+        grouped = df.groupby(["Story", "Column", "Unique Name", "Output Case"], as_index=False).agg(agg_dict)
 
-                                # Determine location (typically 'Top' or 'Bottom')
-                                location = filtered_unique["Location"].iloc[0] if "Location" in filtered_unique.columns else None
+        # Flatten multi-level column names
+        if has_location:
+            grouped.columns = ["Story", "Column", "UniqueName", "LoadCase", "MaxForce", "MinForce", "Force", "Location"]
+        else:
+            grouped.columns = ["Story", "Column", "UniqueName", "LoadCase", "MaxForce", "MinForce", "Force"]
+            grouped["Location"] = None
 
-                                results.append(
-                                    {
-                                        "Story": story,
-                                        "Column": col,
-                                        "UniqueName": unique_name,
-                                        "LoadCase": case,
-                                        "Direction": direction,
-                                        "Location": location,
-                                        "Force": round(abs_max_force, 1),
-                                        "MaxForce": round(max_force, 1),
-                                        "MinForce": round(min_force, 1),
-                                    }
-                                )
+        # Round values
+        grouped["Force"] = grouped["Force"].round(1)
+        grouped["MaxForce"] = grouped["MaxForce"].round(1)
+        grouped["MinForce"] = grouped["MinForce"].round(1)
+        grouped["Direction"] = direction
 
-        return pd.DataFrame(results)
+        return grouped[["Story", "Column", "UniqueName", "LoadCase", "Direction", "Location", "Force", "MaxForce", "MinForce"]]
 
     @staticmethod
     def process_column_axials(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str]
     ) -> pd.DataFrame:
-        """Process column axial force data (min and max P values).
+        """Process column axial force data (min and max P values) - vectorized.
 
         Args:
             df: Raw column force data DataFrame (row-based format)
@@ -347,57 +327,46 @@ class ResultProcessor:
             MinAxial = minimum P (most compression, most negative value)
             MaxAxial = maximum P (most tension, most positive value)
         """
-        results = []
+        if df.empty or "P" not in df.columns:
+            return pd.DataFrame(columns=["Story", "Column", "UniqueName", "LoadCase", "Location", "MinAxial", "MaxAxial"])
 
-        for story in stories:
-            for col in columns:
-                for case in load_cases:
-                    # Filter data for this story, column, and case
-                    filtered = df.loc[
-                        (df["Story"] == story)
-                        & (df["Column"] == col)
-                        & (df["Output Case"] == case)
-                    ].copy()
+        # Convert P column to numeric once
+        df = df.copy()
+        df["P"] = pd.to_numeric(df["P"], errors="coerce")
 
-                    if not filtered.empty and "P" in filtered.columns:
-                        # Get unique column instances (Unique Name)
-                        unique_names = filtered["Unique Name"].unique().tolist()
+        # Filter to valid values
+        df = df.dropna(subset=["P"])
+        if df.empty:
+            return pd.DataFrame(columns=["Story", "Column", "UniqueName", "LoadCase", "Location", "MinAxial", "MaxAxial"])
 
-                        # Process each unique column instance
-                        for unique_name in unique_names:
-                            filtered_unique = filtered[filtered["Unique Name"] == unique_name]
+        # Build aggregation dict - only include Location if it exists
+        agg_dict = {"P": ["min", "max"]}
+        has_location = "Location" in df.columns
 
-                            # Get P values (axial forces - negative = compression, positive = tension)
-                            p_values = pd.to_numeric(filtered_unique["P"], errors="coerce").dropna()
+        if has_location:
+            agg_dict["Location"] = "first"
 
-                            if not p_values.empty:
-                                # Minimum P (most compression - most negative value)
-                                min_axial = p_values.min()
-                                # Maximum P (most tension - most positive value)
-                                max_axial = p_values.max()
+        # Group by Story, Column, Unique Name, Output Case and aggregate
+        grouped = df.groupby(["Story", "Column", "Unique Name", "Output Case"], as_index=False).agg(agg_dict)
 
-                                # Determine location (typically 'Top' or 'Bottom')
-                                location = filtered_unique["Location"].iloc[0] if "Location" in filtered_unique.columns else None
+        # Flatten multi-level column names
+        if has_location:
+            grouped.columns = ["Story", "Column", "UniqueName", "LoadCase", "MinAxial", "MaxAxial", "Location"]
+        else:
+            grouped.columns = ["Story", "Column", "UniqueName", "LoadCase", "MinAxial", "MaxAxial"]
+            grouped["Location"] = None
 
-                                results.append(
-                                    {
-                                        "Story": story,
-                                        "Column": col,
-                                        "UniqueName": unique_name,
-                                        "LoadCase": case,
-                                        "Location": location,
-                                        "MinAxial": round(min_axial, 1),
-                                        "MaxAxial": round(max_axial, 1),
-                                    }
-                                )
+        # Round values
+        grouped["MinAxial"] = grouped["MinAxial"].round(1)
+        grouped["MaxAxial"] = grouped["MaxAxial"].round(1)
 
-        return pd.DataFrame(results)
+        return grouped[["Story", "Column", "UniqueName", "LoadCase", "Location", "MinAxial", "MaxAxial"]]
 
     @staticmethod
     def process_column_rotations(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str], direction: str
     ) -> pd.DataFrame:
-        """Process column rotation data for a specific direction (R2 or R3).
+        """Process column rotation data for a specific direction (R2 or R3) - vectorized.
 
         Args:
             df: Raw fiber hinge state data DataFrame (row-based format)
@@ -412,55 +381,39 @@ class ResultProcessor:
         Note:
             Rotations are stored in radians. They will be converted to percentage (× 100) in the cache.
         """
-        results = []
+        if df.empty or direction not in df.columns:
+            return pd.DataFrame(columns=["Story", "Column", "Element", "LoadCase", "Direction", "Rotation", "MaxRotation", "MinRotation"])
 
-        for story in stories:
-            for col in columns:
-                for case in load_cases:
-                    # Filter data for this story, column, and case
-                    filtered = df.loc[
-                        (df["Story"] == story)
-                        & (df["Frame/Wall"] == col)
-                        & (df["Output Case"] == case)
-                    ].copy()
+        # Convert direction column to numeric once
+        df = df.copy()
+        df[direction] = pd.to_numeric(df[direction], errors="coerce")
 
-                    if not filtered.empty and direction in filtered.columns:
-                        # Get element identifiers (Unique Name column)
-                        elements = filtered["Unique Name"].unique().tolist()
+        # Filter to valid values
+        df = df.dropna(subset=[direction])
+        if df.empty:
+            return pd.DataFrame(columns=["Story", "Column", "Element", "LoadCase", "Direction", "Rotation", "MaxRotation", "MinRotation"])
 
-                        # Process each element
-                        for element in elements:
-                            filtered_element = filtered[filtered["Unique Name"] == element]
+        # Group by Story, Frame/Wall, Unique Name, Output Case and aggregate
+        grouped = df.groupby(["Story", "Frame/Wall", "Unique Name", "Output Case"], as_index=False).agg({
+            direction: ["max", "min", lambda x: x.abs().max()]
+        })
 
-                            # Get rotation values for this direction
-                            rotation_values = pd.to_numeric(filtered_element[direction], errors="coerce").dropna()
+        # Flatten multi-level column names
+        grouped.columns = ["Story", "Column", "Element", "LoadCase", "MaxRotation", "MinRotation", "Rotation"]
 
-                            if not rotation_values.empty:
-                                # Use absolute max rotation (similar to column forces)
-                                abs_max_rotation = rotation_values.abs().max()
-                                max_rotation = rotation_values.max()
-                                min_rotation = rotation_values.min()
+        # Round values (keep precision for radians)
+        grouped["Rotation"] = grouped["Rotation"].round(6)
+        grouped["MaxRotation"] = grouped["MaxRotation"].round(6)
+        grouped["MinRotation"] = grouped["MinRotation"].round(6)
+        grouped["Direction"] = direction
 
-                                results.append(
-                                    {
-                                        "Story": story,
-                                        "Column": col,
-                                        "Element": element,
-                                        "LoadCase": case,
-                                        "Direction": direction,
-                                        "Rotation": round(abs_max_rotation, 6),  # Keep precision for radians
-                                        "MaxRotation": round(max_rotation, 6),
-                                        "MinRotation": round(min_rotation, 6),
-                                    }
-                                )
-
-        return pd.DataFrame(results)
+        return grouped[["Story", "Column", "Element", "LoadCase", "Direction", "Rotation", "MaxRotation", "MinRotation"]]
 
     @staticmethod
     def process_beam_rotations(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], beams: List[str]
     ) -> pd.DataFrame:
-        """Process beam R3 plastic rotation data for database import.
+        """Process beam R3 plastic rotation data for database import - vectorized.
 
         Args:
             df: Raw hinge state data DataFrame (row-based format)
@@ -482,26 +435,28 @@ class ResultProcessor:
 
         df = df.copy()
 
-        # Build long-format output preserving source order
-        results = []
-        for idx, row in df.iterrows():
-            r3_val = pd.to_numeric(row.get("R3 Plastic"), errors="coerce")
-            if pd.isna(r3_val):
-                continue
+        # Convert R3 Plastic to numeric
+        df["R3 Plastic"] = pd.to_numeric(df["R3 Plastic"], errors="coerce")
 
-            results.append({
-                "Story": row["Story"],
-                "Beam": row["Frame/Wall"],
-                "Element": row["Unique Name"],
-                "StepType": row.get("Step Type", ""),
-                "Hinge": row.get("Hinge", ""),
-                "GeneratedHinge": row.get("Generated Hinge", ""),
-                "RelDist": row.get("Rel Dist", 0.0),
-                "LoadCase": row["Output Case"],
-                "R3Plastic": r3_val,
-            })
+        # Filter out invalid values
+        df = df.dropna(subset=["R3 Plastic"])
+        if df.empty:
+            return pd.DataFrame()
 
-        return pd.DataFrame(results)
+        # Vectorized column selection and rename
+        result_df = pd.DataFrame({
+            "Story": df["Story"].values,
+            "Beam": df["Frame/Wall"].values,
+            "Element": df["Unique Name"].values,
+            "StepType": df["Step Type"].values if "Step Type" in df.columns else "",
+            "Hinge": df["Hinge"].values if "Hinge" in df.columns else "",
+            "GeneratedHinge": df["Generated Hinge"].values if "Generated Hinge" in df.columns else "",
+            "RelDist": df["Rel Dist"].values if "Rel Dist" in df.columns else 0.0,
+            "LoadCase": df["Output Case"].values,
+            "R3Plastic": df["R3 Plastic"].values,
+        })
+
+        return result_df
 
     @staticmethod
     def process_beam_rotations_wide(

@@ -2,7 +2,7 @@
 
 **RPS (Results Processing System)** - Structural engineering results processor (ETABS/SAP2000)
 **Stack**: PyQt6 + PyQtGraph + SQLite + SQLAlchemy + Pandas
-**Status**: Production-ready (v2.21 - January 2025 - PDF Report Generation)
+**Status**: Production-ready (v2.22 - January 2025 - Refactoring & Test Suite Expansion)
 
 ---
 
@@ -364,6 +364,7 @@ Follow DESIGN.md:
   - `models.py` - ResultDataset, ComparisonDataset, MaxMinDataset
 
 **Import System:**
+- `gui/components/import_dialog_base.py` - Base class for import dialogs with common patterns (NEW in v2.22)
 - `services/import_preparation.py` - Headless prescan service (file discovery, load case extraction)
   - `ImportPreparationService` - Folder/file scanning with parallel execution
   - `PrescanResult` / `FilePrescanSummary` - Prescan data models
@@ -375,6 +376,7 @@ Follow DESIGN.md:
 - `processing/selective_data_importer.py` - Load case filtering
 - `processing/excel_parser.py` - Excel sheet parsing
 - `processing/result_transformers.py` - Data transformation (Excel → ORM)
+- `processing/pushover_registry.py` - Registry for pushover importers/parsers with lazy loading (NEW in v2.22)
 - `processing/pushover_curve_parser.py` - Pushover curve Excel parser (v2.10)
 - `processing/pushover_curve_importer.py` - Pushover curve importer (v2.10)
 - `processing/pushover_global_parser.py` - Pushover global results parser (v2.11)
@@ -405,10 +407,20 @@ Follow DESIGN.md:
 - `gui/export_dialog.py` - Re-exports from gui.export (backward compat)
 - `gui/styles.py` - Design system constants
 
+**Reporting:**
+- `gui/reporting/constants.py` - Shared constants for report rendering (colors, schemes) (NEW in v2.22)
+- `gui/reporting/renderers/` - Shared rendering components (NEW in v2.22)
+  - `context.py` - RenderContext for PDF vs Preview scaling
+  - `table_renderer.py` - Shared table drawing logic
+  - `plot_renderer.py` - Building profiles, scatter plots, legends
+  - `element_renderer.py` - Beam/column rotations, soil pressure sections
+
 **Utilities:**
 - `utils/color_utils.py` - Gradient colors (includes orange_blue reversed scheme)
 - `utils/plot_builder.py` - Declarative plotting
-- `utils/data_utils.py` - Parsing/formatting
+- `utils/data_utils.py` - Parsing/formatting (100% test coverage)
+- `utils/slug.py` - Filesystem-safe slug generation (100% test coverage)
+- `utils/env.py` - Environment configuration helpers (100% test coverage)
 - `utils/pushover_utils.py` - Pushover utilities (shorthand mapping, direction detection)
 
 ---
@@ -858,7 +870,38 @@ Follow DESIGN.md:
   - Different stories may have different array lengths
   - Padded with last value to ensure homogeneous shape for numpy operations
 
+### v2.22 - Codebase Refactoring & Test Suite Expansion (Jan 2025)
+- **Pushover Registry Pattern**: Centralized registry for pushover importers/parsers
+  - `PushoverRegistry` class with lazy loading and caching
+  - Type categories: GLOBAL_TYPES, ELEMENT_TYPES, JOINT_TYPES, CURVE_TYPES
+  - Convenience functions: `get_pushover_importer()`, `get_pushover_parser()`
+  - Eliminates need for explicit imports in calling code
+  - Location: `processing/pushover_registry.py`
+- **Shared Reporting Components**: Extracted rendering code from PDF generator and preview
+  - `gui/reporting/constants.py` - Centralized PRINT_COLORS, PLOT_COLORS, AVERAGE_COLOR
+  - `gui/reporting/renderers/` package with 4 modules:
+    - `context.py` - RenderContext for PDF vs Preview scaling
+    - `table_renderer.py` - Shared table drawing logic
+    - `plot_renderer.py` - Building profiles, scatter plots, legends
+    - `element_renderer.py` - Beam/column rotations, soil pressure sections
+- **Import Dialog Base Class**: Common patterns for import dialogs
+  - `ImportDialogBase` - Abstract base with folder selection, progress, load case lists
+  - `BaseImportWorker` - Base QThread with standard signals
+  - `create_checkbox_icons()` - Reusable checkbox icon creation
+  - Location: `gui/components/import_dialog_base.py`
+- **Test Suite Expansion**: 96 new tests added (361 → 457 total)
+  - `test_pushover_registry.py` - 42 tests for registry pattern
+  - `test_data_utils.py` - 20 tests for data parsing utilities
+  - `test_slug.py` - 14 tests for slug generation
+  - `test_env.py` - 20 tests for environment configuration
+- **Test Suite Consolidation**: Merged small test files
+  - `test_result_config_axials.py` → merged into `test_result_config.py`
+  - `test_data_importer_sheet_hint.py` → merged into `test_data_importer.py`
+- **Bug Fixes**:
+  - Fixed PyQt6 metaclass conflict in `ImportDialogBase` (removed ABC inheritance)
+  - Fixed test assertion for display name format ("Story Drifts [%] - X Direction")
+
 ---
 
-**Last Updated**: 2025-01-15
-**Version**: 2.21
+**Last Updated**: 2025-01-18
+**Version**: 2.22

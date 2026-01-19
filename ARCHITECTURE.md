@@ -1,6 +1,6 @@
 # RPS Architecture (Condensed)
 
-**Version**: 2.21 | **Date**: 2025-01-15
+**Version**: 2.22 | **Date**: 2025-01-18
 
 > **Full details in code comments and docstrings. This doc covers key patterns only.**
 
@@ -20,6 +20,24 @@
 - Controller dependencies are typed (`gui.controllers.types`) so views inject only the minimal interfaces they need (cache repo, result service) instead of concrete implementations.
 - Repository hygiene check: `python scripts/check_repo_hygiene.py` flags stray top-level folders (e.g., accidental extracted paths).
 - Export pipeline is modular: `export_utils` (parsing/config), `export_writer`, `export_metadata`, `export_excel_sections`, `export_discovery`, `export_import_data`, `export_formatting`, `export_pushover`.
+
+**New in v2.22**:
+- **Pushover Registry Pattern**: Centralized registry for pushover importers/parsers with lazy loading
+  - `PushoverRegistry` class with type categories (GLOBAL, ELEMENT, JOINT, CURVE)
+  - Lazy loading prevents circular imports and improves startup time
+  - `get_pushover_importer(type)` and `get_pushover_parser(type)` convenience functions
+  - Location: `processing/pushover_registry.py`
+- **Shared Reporting Components**: Extracted rendering code to eliminate duplication
+  - `gui/reporting/constants.py` - Centralized PRINT_COLORS, PLOT_COLORS, AVERAGE_COLOR
+  - `gui/reporting/renderers/` package with RenderContext, TableRenderer, PlotRenderer, ElementSectionRenderer
+  - Foundation for gradual migration of PDF generator and preview widget
+- **Import Dialog Base Class**: Common patterns extracted to `gui/components/import_dialog_base.py`
+  - `ImportDialogBase` - Abstract base with folder selection, progress tracking, load case lists
+  - `BaseImportWorker` - Base QThread with standard progress/finished/error signals
+  - Eliminates ~500 lines of duplicated dialog code
+- **Test Suite**: Expanded from 361 to 457 tests (+96 new tests)
+  - Full coverage for `pushover_registry.py`, `data_utils.py`, `slug.py`, `env.py`
+  - Test consolidation: Small test files merged into related modules
 
 **New in v2.21**:
 - **PDF Report Generation**: Complete PDF report system for NLTHA global results
@@ -481,6 +499,46 @@ RESULT_CONFIGS = {
 
 - `tests/test_import_tasks.py` exercises the task dispatcher and stats aggregator logic.
 - `tests/test_project_runtime.py` validates the runtime builder for both success and failure cases, ensuring the GUI wiring can be tested headlessly.
+
+### Registry Pattern (v2.22)
+
+**Pushover Registry** (`processing/pushover_registry.py`):
+```python
+class PushoverRegistry:
+    """Centralized registry for pushover importer/parser classes."""
+    
+    # Type categories
+    GLOBAL_TYPES = frozenset({"global"})
+    ELEMENT_TYPES = frozenset({"wall", "beam", "column", "column_shear"})
+    JOINT_TYPES = frozenset({"soil_pressure", "vert_displacement", "joint"})
+    CURVE_TYPES = frozenset({"curve"})
+    
+    @classmethod
+    def get_importer(cls, result_type: str) -> Optional[Type]:
+        """Lazy-load and cache importer class."""
+        if result_type in cls._importer_cache:
+            return cls._importer_cache[result_type]
+        
+        module_name, class_name = cls._IMPORTER_MAP[result_type]
+        module = __import__(f"processing.{module_name}", fromlist=[class_name])
+        cls._importer_cache[result_type] = getattr(module, class_name)
+        return cls._importer_cache[result_type]
+
+# Usage
+from processing import PushoverRegistry, get_pushover_importer
+
+importer_cls = PushoverRegistry.get_importer("beam")  # or
+importer_cls = get_pushover_importer("beam")
+
+for result_type in PushoverRegistry.ELEMENT_TYPES:
+    importer_cls = PushoverRegistry.get_importer(result_type)
+```
+
+**Benefits**:
+- Eliminates explicit imports of 20+ importer/parser classes
+- Lazy loading improves startup time
+- Type categorization simplifies iteration patterns
+- Centralized lookup makes adding new types trivial
 
 ### Repository Pattern (v2.8 Refactor)
 
@@ -1083,11 +1141,32 @@ All major dialogs now use consistent wide layout (1200+ width):
 - Stub pattern for database access
 - Mock pattern for external dependencies
 - Pytest fixtures for common setups
+- **457 tests** (8 skipped) as of v2.22
 
-**Test Coverage**:
-- Repository layer: CRUD operations
-- Service layer: Dataset building
-- Transformer layer: Excel → Model conversion
+**Test Coverage by Module**:
+| Module | Coverage | Notes |
+|--------|----------|-------|
+| `processing/time_history_*` | 89-100% | Well tested |
+| `processing/pushover_base_*` | 88-95% | Well tested |
+| `processing/pushover_registry` | 100% | NEW in v2.22 |
+| `config/result_config` | 97% | Near complete |
+| `utils/data_utils` | 100% | NEW in v2.22 |
+| `utils/slug` | 100% | NEW in v2.22 |
+| `utils/env` | 100% | NEW in v2.22 |
+| `utils/pushover_utils` | 100% | Complete |
+| `services/export_*` | 90-100% | Good coverage |
+| `gui/reporting/*` | 0% | Needs tests |
+| `gui/main_window` | 0% | Needs tests |
+
+**Test Organization** (`tests/`):
+- `config/` - Result type configuration tests
+- `database/` - Repository and model tests
+- `gui/` - Controller and dialog tests
+- `integration/` - End-to-end export tests
+- `processing/` - Importer, parser, transformer tests
+- `services/` - Export and result service tests
+- `utils/` - Utility function tests
+- `conftest.py` - Shared fixtures (db_session, sample_project, etc.)
 
 ---
 
@@ -1502,7 +1581,51 @@ pipenv run pyinstaller src/main.py --onefile --windowed --name RPS
 - BaseImporter hierarchy
 - Reusable UI components extracted
 
+### v2.22 (January 18, 2025) - Codebase Refactoring & Test Suite Expansion
+
+**Pushover Registry Pattern**:
+- `PushoverRegistry` class in `processing/pushover_registry.py`
+- Type categories: GLOBAL_TYPES, ELEMENT_TYPES, JOINT_TYPES, CURVE_TYPES
+- Lazy loading with caching for importer/parser classes
+- Convenience functions: `get_pushover_importer()`, `get_pushover_parser()`
+- Helper methods: `is_element_type()`, `is_joint_type()`, `get_available_types()`
+
+**Shared Reporting Components**:
+- `gui/reporting/constants.py` - Centralized color constants (PRINT_COLORS, PLOT_COLORS, AVERAGE_COLOR)
+- `gui/reporting/renderers/` package:
+  - `context.py` - RenderContext for PDF vs Preview scaling and dimensions
+  - `table_renderer.py` - TableRenderer for drawing data tables
+  - `plot_renderer.py` - PlotRenderer for building profiles and scatter plots
+  - `element_renderer.py` - ElementSectionRenderer for beam/column/soil sections
+- Foundation for gradual migration from duplicated rendering code
+
+**Import Dialog Base Class**:
+- `gui/components/import_dialog_base.py`
+- `ImportDialogBase` abstract class with common UI patterns:
+  - Folder/file selection sections
+  - Progress bar and log area
+  - Load case checkbox lists with Select All/Clear
+  - Styled buttons and layouts
+- `BaseImportWorker` thread class with standard signals (progress, finished, error)
+- `create_checkbox_icons()` utility for checkbox icon creation
+- Note: ABC removed due to PyQt6 metaclass conflict (uses NotImplementedError instead)
+
+**Test Suite Expansion**:
+- Total tests: 361 → 457 (+96 new tests)
+- New test files:
+  - `tests/processing/test_pushover_registry.py` (42 tests)
+  - `tests/utils/test_data_utils.py` (20 tests)
+  - `tests/utils/test_slug.py` (14 tests)
+  - `tests/utils/test_env.py` (20 tests)
+- Test consolidation:
+  - `test_result_config_axials.py` merged into `test_result_config.py`
+  - `test_data_importer_sheet_hint.py` merged into `test_data_importer.py`
+
+**Bug Fixes**:
+- Fixed PyQt6 metaclass conflict in `ImportDialogBase` (ABC + QDialog incompatible)
+- Fixed test assertion for display name format change ("Story Drifts [%] - X Direction")
+
 ---
 
 **End of Architecture Documentation**
-**Last Updated**: January 15, 2025 | **Version**: 2.21
+**Last Updated**: January 18, 2025 | **Version**: 2.22

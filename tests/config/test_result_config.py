@@ -48,8 +48,19 @@ def test_get_config_returns_default_for_unknown_key() -> None:
         ("ColumnRotations", None, "Column Rotations [%]"),
         ("BeamRotations", None, "Beam Rotations [%]"),
         ("QuadRotations", None, "Quad Rotations [%]"),
+        # Column axials should not append direction suffix
+        ("ColumnAxials", "Min", "Min Axial Force [kN]"),
+        ("ColumnAxials", "Max", "Max Axial Force [kN]"),
     ],
 )
 def test_format_result_type_with_unit(result_type: str, direction: str, expected: str) -> None:
     """format_result_type_with_unit should include units for all result types."""
     assert format_result_type_with_unit(result_type, direction) == expected
+
+
+def test_column_axials_title_omits_direction():
+    """Column axial titles should not include 'Direction' in the label."""
+    label_min = format_result_type_with_unit("ColumnAxials", "Min")
+    label_max = format_result_type_with_unit("ColumnAxials", "Max")
+    assert "Direction" not in label_min
+    assert "Direction" not in label_max

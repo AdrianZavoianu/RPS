@@ -208,202 +208,236 @@ class CacheBuilder:
     # Element caches
     # ------------------------------------------------------------------
     def _cache_pier_forces(self, stories):
-        piers = self._element_repo.get_by_project(self.project_id, element_type="Wall")
+        """Cache wall/pier shear forces - batched query for performance."""
+        # Query all wall shears at once instead of per-element
+        shears = (
+            self.session.query(WallShear, LoadCase.name, Story, Element)
+            .join(LoadCase, WallShear.load_case_id == LoadCase.id)
+            .join(Story, WallShear.story_id == Story.id)
+            .join(Element, WallShear.element_id == Element.id)
+            .filter(Element.project_id == self.project_id)
+            .filter(Element.element_type == "Wall")
+            .filter(WallShear.result_category_id == self.result_category_id)
+            .all()
+        )
 
-        for pier in piers:
-            for direction in ["V2", "V3"]:
-                result_type = f"WallShears_{direction}"
+        # Group by (element_id, direction, story_id)
+        grouped = {}
+        story_sort_orders = {}
 
-                shears = (
-                    self.session.query(WallShear, LoadCase.name, Story)
-                    .join(LoadCase, WallShear.load_case_id == LoadCase.id)
-                    .join(Story, WallShear.story_id == Story.id)
-                    .filter(WallShear.element_id == pier.id)
-                    .filter(WallShear.direction == direction)
-                    .filter(WallShear.result_category_id == self.result_category_id)
-                    .all()
-                )
+        for shear, case_name, story, element in shears:
+            key = (element.id, shear.direction)
+            if key not in grouped:
+                grouped[key] = {}
+            if story.id not in grouped[key]:
+                grouped[key][story.id] = {}
+                story_sort_orders[(key, story.id)] = shear.story_sort_order
+            grouped[key][story.id][case_name] = shear.force
 
-                story_data = {}
-                story_sort_orders = {}
-                for shear, case_name, story in shears:
-                    if story.id not in story_data:
-                        story_data[story.id] = {}
-                        story_sort_orders[story.id] = shear.story_sort_order
-                    story_data[story.id][case_name] = shear.force
-
-                for story_id, results_matrix in story_data.items():
-                    self._element_cache_repo.upsert_cache_entry(
-                        project_id=self.project_id,
-                        element_id=pier.id,
-                        story_id=story_id,
-                        result_type=result_type,
-                        results_matrix=results_matrix,
-                        result_set_id=self.result_set_id,
-                        story_sort_order=story_sort_orders.get(story_id),
-                    )
-
-    def _cache_column_shears(self, stories):
-        columns = self._element_repo.get_by_project(self.project_id, element_type="Column")
-
-        for column in columns:
-            for direction in ["V2", "V3"]:
-                result_type = f"ColumnShears_{direction}"
-
-                shears = (
-                    self.session.query(ColumnShear, LoadCase.name, Story)
-                    .join(LoadCase, ColumnShear.load_case_id == LoadCase.id)
-                    .join(Story, ColumnShear.story_id == Story.id)
-                    .filter(ColumnShear.element_id == column.id)
-                    .filter(ColumnShear.direction == direction)
-                    .filter(ColumnShear.result_category_id == self.result_category_id)
-                    .all()
-                )
-
-                story_data = {}
-                story_sort_orders = {}
-                for shear, case_name, story in shears:
-                    if story.id not in story_data:
-                        story_data[story.id] = {}
-                        story_sort_orders[story.id] = shear.story_sort_order
-                    story_data[story.id][case_name] = shear.force
-
-                for story_id, results_matrix in story_data.items():
-                    self._element_cache_repo.upsert_cache_entry(
-                        project_id=self.project_id,
-                        element_id=column.id,
-                        story_id=story_id,
-                        result_type=result_type,
-                        results_matrix=results_matrix,
-                        result_set_id=self.result_set_id,
-                        story_sort_order=story_sort_orders.get(story_id),
-                    )
-
-    def _cache_column_axials(self, stories):
-        """Cache column axial forces (both min and max)."""
-        columns = self._element_repo.get_by_project(self.project_id, element_type="Column")
-
-        for column in columns:
-            axials = (
-                self.session.query(ColumnAxial, LoadCase.name, Story)
-                .join(LoadCase, ColumnAxial.load_case_id == LoadCase.id)
-                .join(Story, ColumnAxial.story_id == Story.id)
-                .filter(ColumnAxial.element_id == column.id)
-                .filter(ColumnAxial.result_category_id == self.result_category_id)
-                .all()
-            )
-
-            # Cache min axials
-            min_story_data = {}
-            max_story_data = {}
-            story_sort_orders = {}
-            for axial, case_name, story in axials:
-                if story.id not in min_story_data:
-                    min_story_data[story.id] = {}
-                    max_story_data[story.id] = {}
-                    story_sort_orders[story.id] = axial.story_sort_order
-                min_story_data[story.id][case_name] = axial.min_axial
-                if axial.max_axial is not None:
-                    max_story_data[story.id][case_name] = axial.max_axial
-
-            # Store min axials cache
-            for story_id, results_matrix in min_story_data.items():
-                self._element_cache_repo.upsert_cache_entry(
-                    project_id=self.project_id,
-                    element_id=column.id,
-                    story_id=story_id,
-                    result_type="ColumnAxials_Min",
-                    results_matrix=results_matrix,
-                    result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get(story_id),
-                )
-
-            # Store max axials cache
-            for story_id, results_matrix in max_story_data.items():
-                if results_matrix:  # Only store if we have max data
-                    self._element_cache_repo.upsert_cache_entry(
-                        project_id=self.project_id,
-                        element_id=column.id,
-                        story_id=story_id,
-                        result_type="ColumnAxials_Max",
-                        results_matrix=results_matrix,
-                        result_set_id=self.result_set_id,
-                        story_sort_order=story_sort_orders.get(story_id),
-                    )
-
-    def _cache_quad_rotations(self, stories):
-        quads = self._element_repo.get_by_project(self.project_id, element_type="Quad")
-
-        for quad in quads:
-            rotations = (
-                self.session.query(QuadRotation, LoadCase.name, Story)
-                .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
-                .join(Story, QuadRotation.story_id == Story.id)
-                .filter(QuadRotation.element_id == quad.id)
-                .filter(QuadRotation.result_category_id == self.result_category_id)
-                .all()
-            )
-
-            story_data = {}
-            story_sort_orders = {}
-            for rotation, case_name, story in rotations:
-                if story.id not in story_data:
-                    story_data[story.id] = {}
-                    story_sort_orders[story.id] = rotation.story_sort_order
-                # Use max_rotation for NLTHA envelope data (consistent with All Rotations view)
-                # Fall back to rotation for pushover/single-case data
-                value = rotation.max_rotation if rotation.max_rotation is not None else rotation.rotation
-                story_data[story.id][case_name] = value
-
+        # Write cache entries
+        for (element_id, direction), story_data in grouped.items():
+            result_type = f"WallShears_{direction}"
             for story_id, results_matrix in story_data.items():
                 self._element_cache_repo.upsert_cache_entry(
                     project_id=self.project_id,
-                    element_id=quad.id,
+                    element_id=element_id,
+                    story_id=story_id,
+                    result_type=result_type,
+                    results_matrix=results_matrix,
+                    result_set_id=self.result_set_id,
+                    story_sort_order=story_sort_orders.get(((element_id, direction), story_id)),
+                )
+
+    def _cache_column_shears(self, stories):
+        """Cache column shear forces - batched query for performance."""
+        # Query all column shears at once instead of per-element
+        shears = (
+            self.session.query(ColumnShear, LoadCase.name, Story, Element)
+            .join(LoadCase, ColumnShear.load_case_id == LoadCase.id)
+            .join(Story, ColumnShear.story_id == Story.id)
+            .join(Element, ColumnShear.element_id == Element.id)
+            .filter(Element.project_id == self.project_id)
+            .filter(Element.element_type == "Column")
+            .filter(ColumnShear.result_category_id == self.result_category_id)
+            .all()
+        )
+
+        # Group by (element_id, direction, story_id)
+        # Structure: {(element_id, direction): {story_id: {load_case: value}}}
+        grouped = {}
+        story_sort_orders = {}
+
+        for shear, case_name, story, element in shears:
+            key = (element.id, shear.direction)
+            if key not in grouped:
+                grouped[key] = {}
+            if story.id not in grouped[key]:
+                grouped[key][story.id] = {}
+                story_sort_orders[(key, story.id)] = shear.story_sort_order
+            grouped[key][story.id][case_name] = shear.force
+
+        # Write cache entries
+        for (element_id, direction), story_data in grouped.items():
+            result_type = f"ColumnShears_{direction}"
+            for story_id, results_matrix in story_data.items():
+                self._element_cache_repo.upsert_cache_entry(
+                    project_id=self.project_id,
+                    element_id=element_id,
+                    story_id=story_id,
+                    result_type=result_type,
+                    results_matrix=results_matrix,
+                    result_set_id=self.result_set_id,
+                    story_sort_order=story_sort_orders.get(((element_id, direction), story_id)),
+                )
+
+    def _cache_column_axials(self, stories):
+        """Cache column axial forces (both min and max) - batched query for performance."""
+        # Query all column axials at once instead of per-element
+        axials = (
+            self.session.query(ColumnAxial, LoadCase.name, Story, Element)
+            .join(LoadCase, ColumnAxial.load_case_id == LoadCase.id)
+            .join(Story, ColumnAxial.story_id == Story.id)
+            .join(Element, ColumnAxial.element_id == Element.id)
+            .filter(Element.project_id == self.project_id)
+            .filter(Element.element_type == "Column")
+            .filter(ColumnAxial.result_category_id == self.result_category_id)
+            .all()
+        )
+
+        # Group by element_id
+        # Structure: {element_id: {story_id: {'min': {case: val}, 'max': {case: val}}}}
+        grouped = {}
+        story_sort_orders = {}
+
+        for axial, case_name, story, element in axials:
+            elem_id = element.id
+            if elem_id not in grouped:
+                grouped[elem_id] = {}
+            if story.id not in grouped[elem_id]:
+                grouped[elem_id][story.id] = {'min': {}, 'max': {}}
+                story_sort_orders[(elem_id, story.id)] = axial.story_sort_order
+
+            grouped[elem_id][story.id]['min'][case_name] = axial.min_axial
+            if axial.max_axial is not None:
+                grouped[elem_id][story.id]['max'][case_name] = axial.max_axial
+
+        # Write cache entries
+        for elem_id, story_data in grouped.items():
+            for story_id, data in story_data.items():
+                sort_order = story_sort_orders.get((elem_id, story_id))
+
+                # Store min axials cache
+                if data['min']:
+                    self._element_cache_repo.upsert_cache_entry(
+                        project_id=self.project_id,
+                        element_id=elem_id,
+                        story_id=story_id,
+                        result_type="ColumnAxials_Min",
+                        results_matrix=data['min'],
+                        result_set_id=self.result_set_id,
+                        story_sort_order=sort_order,
+                    )
+
+                # Store max axials cache
+                if data['max']:
+                    self._element_cache_repo.upsert_cache_entry(
+                        project_id=self.project_id,
+                        element_id=elem_id,
+                        story_id=story_id,
+                        result_type="ColumnAxials_Max",
+                        results_matrix=data['max'],
+                        result_set_id=self.result_set_id,
+                        story_sort_order=sort_order,
+                    )
+
+    def _cache_quad_rotations(self, stories):
+        """Cache quad rotations - batched query for performance."""
+        # Query all quad rotations at once instead of per-element
+        rotations = (
+            self.session.query(QuadRotation, LoadCase.name, Story, Element)
+            .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
+            .join(Story, QuadRotation.story_id == Story.id)
+            .join(Element, QuadRotation.element_id == Element.id)
+            .filter(Element.project_id == self.project_id)
+            .filter(Element.element_type == "Quad")
+            .filter(QuadRotation.result_category_id == self.result_category_id)
+            .all()
+        )
+
+        # Group by (element_id, story_id)
+        grouped = {}
+        story_sort_orders = {}
+
+        for rotation, case_name, story, element in rotations:
+            elem_id = element.id
+            if elem_id not in grouped:
+                grouped[elem_id] = {}
+            if story.id not in grouped[elem_id]:
+                grouped[elem_id][story.id] = {}
+                story_sort_orders[(elem_id, story.id)] = rotation.story_sort_order
+
+            # Use max_rotation for NLTHA envelope data (consistent with All Rotations view)
+            # Fall back to rotation for pushover/single-case data
+            value = rotation.max_rotation if rotation.max_rotation is not None else rotation.rotation
+            grouped[elem_id][story.id][case_name] = value
+
+        # Write cache entries
+        for elem_id, story_data in grouped.items():
+            for story_id, results_matrix in story_data.items():
+                self._element_cache_repo.upsert_cache_entry(
+                    project_id=self.project_id,
+                    element_id=elem_id,
                     story_id=story_id,
                     result_type="QuadRotations_Pier",
                     results_matrix=results_matrix,
                     result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get(story_id),
+                    story_sort_order=story_sort_orders.get((elem_id, story_id)),
                 )
 
     def _cache_column_rotations(self, stories):
-        columns = self._element_repo.get_by_project(self.project_id, element_type="Column")
+        """Cache column rotations (R2 and R3) - batched query for performance."""
+        # Query all column rotations at once instead of per-element
+        rotations = (
+            self.session.query(ColumnRotation, LoadCase.name, Story, Element)
+            .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
+            .join(Story, ColumnRotation.story_id == Story.id)
+            .join(Element, ColumnRotation.element_id == Element.id)
+            .filter(Element.project_id == self.project_id)
+            .filter(Element.element_type == "Column")
+            .filter(ColumnRotation.result_category_id == self.result_category_id)
+            .all()
+        )
 
-        for column in columns:
-            for direction in ["R2", "R3"]:
-                result_type = f"ColumnRotations_{direction}"
+        # Group by (element_id, direction, story_id)
+        grouped = {}
+        story_sort_orders = {}
 
-                rotations = (
-                    self.session.query(ColumnRotation, LoadCase.name, Story)
-                    .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
-                    .join(Story, ColumnRotation.story_id == Story.id)
-                    .filter(ColumnRotation.element_id == column.id)
-                    .filter(ColumnRotation.direction == direction)
-                    .filter(ColumnRotation.result_category_id == self.result_category_id)
-                    .all()
+        for rotation, case_name, story, element in rotations:
+            key = (element.id, rotation.direction)
+            if key not in grouped:
+                grouped[key] = {}
+            if story.id not in grouped[key]:
+                grouped[key][story.id] = {}
+                story_sort_orders[(key, story.id)] = rotation.story_sort_order
+
+            # Use max_rotation for NLTHA envelope data (consistent with All Rotations view)
+            # Fall back to rotation for pushover/single-case data
+            value = rotation.max_rotation if rotation.max_rotation is not None else rotation.rotation
+            grouped[key][story.id][case_name] = value
+
+        # Write cache entries
+        for (element_id, direction), story_data in grouped.items():
+            result_type = f"ColumnRotations_{direction}"
+            for story_id, results_matrix in story_data.items():
+                self._element_cache_repo.upsert_cache_entry(
+                    project_id=self.project_id,
+                    element_id=element_id,
+                    story_id=story_id,
+                    result_type=result_type,
+                    results_matrix=results_matrix,
+                    result_set_id=self.result_set_id,
+                    story_sort_order=story_sort_orders.get(((element_id, direction), story_id)),
                 )
-
-                story_data = {}
-                story_sort_orders = {}
-                for rotation, case_name, story in rotations:
-                    if story.id not in story_data:
-                        story_data[story.id] = {}
-                        story_sort_orders[story.id] = rotation.story_sort_order
-                    # Use max_rotation for NLTHA envelope data (consistent with All Rotations view)
-                    # Fall back to rotation for pushover/single-case data
-                    value = rotation.max_rotation if rotation.max_rotation is not None else rotation.rotation
-                    story_data[story.id][case_name] = value
-
-                for story_id, results_matrix in story_data.items():
-                    self._element_cache_repo.upsert_cache_entry(
-                        project_id=self.project_id,
-                        element_id=column.id,
-                        story_id=story_id,
-                        result_type=result_type,
-                        results_matrix=results_matrix,
-                        result_set_id=self.result_set_id,
-                        story_sort_order=story_sort_orders.get(story_id),
-                    )
 
     def _cache_beam_rotations(self, stories):
         # Query all beam rotations at once, ordered by source appearance (BeamRotation.id)

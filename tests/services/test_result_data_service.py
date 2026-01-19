@@ -98,7 +98,7 @@ def test_get_standard_dataset_builds_dataframe_and_caches(drifts_cache_entries):
     dataset = service.get_standard_dataset("Drifts", "X", result_set_id=42)
 
     assert dataset is not None
-    assert dataset.meta.display_name == "Story Drifts - X Direction"
+    assert dataset.meta.display_name == "Story Drifts [%] - X Direction"
     assert list(dataset.data["Story"]) == ["GFL", "Roof"]
     assert dataset.load_case_columns == ["TH01", "TH02"]
     assert dataset.summary_columns == ["Avg", "Max", "Min"]

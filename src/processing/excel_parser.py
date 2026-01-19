@@ -251,9 +251,9 @@ class ExcelParser:
             Returns raw row-based data: each row contains Story, Column, Unique Name, Output Case, Location, V2, V3, etc.
         """
         sheet = "Element Forces - Columns"
-        # Columns: Story, Column, Unique Name, Output Case, Step Type, Location, P, V2, V3, T, M2, M3
-        # Indices:   0       1       2           3            5          6        7   8    9   11  12
-        columns = [0, 1, 2, 3, 5, 7, 8, 9]  # Story, Column, Unique Name, Output Case, Location, P, V2, V3
+        # Columns: Story, Column, Unique Name, Output Case, CaseType, Step Type, Location, P, V2, V3, T, M2, M3
+        # Indices:   0       1       2           3            4          5          6      7   8    9  10  11  12
+        columns = [0, 1, 2, 3, 6, 7, 8, 9]  # Story, Column, Unique Name, Output Case, Location, P, V2, V3
 
         df = self.read_sheet(sheet, columns)
 
@@ -460,10 +460,16 @@ class ExcelParser:
         # Filter to only Min step type (get minimum vertical displacement)
         df = df[df['Step Type'] == 'Min'].copy()
 
-        # Min Uz per (Story, Label, Unique Name, Output Case)
-        # Keep Story and Label for reference
-        grp = (df.groupby(['Story', 'Label', 'Unique Name', 'Output Case'], as_index=False)
-                 .agg({'Uz': 'min'}))
+        # Min Uz per (Unique Name, Output Case) ONLY
+        # The database unique constraint is on (project_id, result_set_id, unique_name, load_case_id)
+        # so we must not include Story/Label in groupby to avoid duplicate key errors
+        # Keep first Story and Label for reference (they should be consistent per joint)
+        grp = (df.groupby(['Unique Name', 'Output Case'], as_index=False)
+                 .agg({
+                     'Uz': 'min',
+                     'Story': 'first',  # Keep first Story for reference
+                     'Label': 'first',  # Keep first Label for reference
+                 }))
 
         # Rename Uz column to match expected format
         grp = grp.rename(columns={'Uz': 'Min Uz'})

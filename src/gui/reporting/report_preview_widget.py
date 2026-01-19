@@ -20,6 +20,7 @@ from PyQt6.QtGui import QPainter, QColor, QFont, QPixmap, QPen, QImage
 
 from gui.styles import COLORS
 from gui.icon_utils import ICONS_DIR
+from .constants import PRINT_COLORS, PLOT_COLORS, AVERAGE_COLOR
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +33,6 @@ PAGE_MARGIN = 20
 HEADER_HEIGHT = 34
 FOOTER_HEIGHT = 18
 SECTION_GAP = 8
-
-# Colors for print (light background)
-PRINT_COLORS = {
-    "text": "#1f2937",
-    "text_muted": "#6b7280",
-    "border": "#d1d5db",
-    "grid": "#e5e7eb",
-    "header_bg": "#f3f4f6",
-    "row_alt": "#f9fafb",
-    "plot_bg": "#f8f9fa",
-}
-
-# Plot colors - high contrast for light background
-PLOT_COLORS = (
-    "#dc2626", "#2563eb", "#16a34a", "#ea580c", "#7c3aed",
-    "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669",
-    "#0284c7", "#be185d",
-)
-AVERAGE_COLOR = "#c2410c"  # Strong orange-red for light backgrounds
 
 
 class ReportPageWidget(QWidget):
