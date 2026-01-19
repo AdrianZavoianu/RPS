@@ -35,6 +35,11 @@ class StubParser:
     def get_joint_displacements(self):
         return None, self.sheet_data.get("Joint Displacements", []), None
 
+    def get_load_cases_only(self, sheet_name: str):
+        if sheet_name not in self.sheet_data:
+            return None
+        return self.sheet_data.get(sheet_name, [])
+
 
 class StubParserFactory:
     """Factory that returns StubParser instances based on file name."""

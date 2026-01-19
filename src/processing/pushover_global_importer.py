@@ -83,8 +83,12 @@ class PushoverGlobalImporter:
             # Create or get result set
             self.result_set = self._get_or_create_result_set()
 
+            first_parser = None
+            if self.valid_files:
+                first_parser = PushoverGlobalParser(self.valid_files[0])
+
             # Ensure stories exist
-            self._ensure_stories()
+            self._ensure_stories(first_parser)
 
             # Import data for each direction
             stats = {
@@ -103,7 +107,10 @@ class PushoverGlobalImporter:
 
             for file_path in self.valid_files:
                 try:
-                    parser = PushoverGlobalParser(file_path)
+                    if first_parser and file_path == self.valid_files[0]:
+                        parser = first_parser
+                    else:
+                        parser = PushoverGlobalParser(file_path)
 
                     # Import X direction
                     if self.selected_load_cases_x:
@@ -315,13 +322,14 @@ class PushoverGlobalImporter:
 
         return result_set
 
-    def _ensure_stories(self):
+    def _ensure_stories(self, parser: Optional[PushoverGlobalParser] = None):
         """Ensure all stories from data exist in database."""
         # Get stories from first file
         if not self.valid_files:
             return
 
-        parser = PushoverGlobalParser(self.valid_files[0])
+        if parser is None:
+            parser = PushoverGlobalParser(self.valid_files[0])
 
         # Get stories from drifts (all result types should have same stories)
         if self.selected_load_cases_x:

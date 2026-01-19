@@ -41,6 +41,21 @@ class PushoverGlobalParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverGlobalResults:
         """Parse all global results for specified direction.
@@ -58,6 +73,10 @@ class PushoverGlobalParser:
             raise ValueError(f"Invalid direction '{direction}'. Must be 'X', 'Y', or 'XY'.")
 
         direction = direction.upper()
+
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
 
         results = PushoverGlobalResults(direction=direction)
 
@@ -83,6 +102,7 @@ class PushoverGlobalParser:
             logging.warning(f"Failed to extract forces for {direction}: {e}")
             results.forces = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_drifts(self, direction: str) -> pd.DataFrame:
@@ -97,8 +117,7 @@ class PushoverGlobalParser:
             DataFrame with columns: Story, [Output Cases...]
         """
         # Read Story Drifts sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Story Drifts', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Story Drifts')
 
         # Filter columns
         df = df[['Story', 'Output Case', 'Step Type', 'Direction', 'Drift']]
@@ -169,8 +188,7 @@ class PushoverGlobalParser:
             DataFrame with columns: Story, [Output Cases...]
         """
         # Read Joint Displacements sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Joint Displacements')
 
         # Handle based on direction
         if direction == 'XY':
@@ -223,8 +241,7 @@ class PushoverGlobalParser:
             DataFrame with columns: Story, [Output Cases...]
         """
         # Read Story Forces sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Story Forces', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Story Forces')
 
         # Filter to Bottom location only (exclude Top)
         df = df[~df['Location'].str.contains('Top', na=False)]
@@ -274,8 +291,7 @@ class PushoverGlobalParser:
             List of detected directions (e.g., ['X', 'Y', 'XY'])
         """
         # Read Story Drifts sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Story Drifts', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Story Drifts')
 
         output_cases = df['Output Case'].unique()
 
@@ -302,8 +318,7 @@ class PushoverGlobalParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Story Drifts', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Story Drifts')
 
         direction = direction.upper()
 

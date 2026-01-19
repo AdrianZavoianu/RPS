@@ -20,7 +20,38 @@ class ExcelParser:
         self.file_path = Path(file_path)
         if not self.file_path.exists():
             raise FileNotFoundError(f"Excel file not found: {file_path}")
+        self._excel_file: Optional[pd.ExcelFile] = None
         self._joint_displacements_df: Optional[pd.DataFrame] = None
+        self._available_sheets: Optional[List[str]] = None
+        self._column_forces_df: Optional[pd.DataFrame] = None
+
+    def _get_excel_file(self) -> pd.ExcelFile:
+        if self._excel_file is None:
+            self._excel_file = pd.ExcelFile(self.file_path)
+        return self._excel_file
+
+    def close(self) -> None:
+        excel_file = self._excel_file
+        if excel_file is not None:
+            try:
+                excel_file.close()
+            except Exception:
+                pass
+            self._excel_file = None
+
+    def __del__(self) -> None:
+        self.close()
+
+    @staticmethod
+    def _normalize_header_name(name: object) -> str:
+        return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+    def _find_output_case_column(self, columns: List[object]) -> Optional[object]:
+        target = "outputcase"
+        for col in columns:
+            if self._normalize_header_name(col) == target:
+                return col
+        return None
 
     def read_sheet(
         self,
@@ -42,8 +73,7 @@ class ExcelParser:
             skiprows = [0, 2]  # Standard ETABS format
 
         try:
-            df = pd.read_excel(
-                self.file_path,
+            df = self._get_excel_file().parse(
                 sheet_name=sheet_name,
                 skiprows=skiprows,
                 usecols=columns,
@@ -203,8 +233,9 @@ class ExcelParser:
             List of sheet names
         """
         try:
-            excel_file = pd.ExcelFile(self.file_path)
-            return excel_file.sheet_names
+            if self._available_sheets is None:
+                self._available_sheets = list(self._get_excel_file().sheet_names)
+            return list(self._available_sheets)
         except Exception as e:
             raise ValueError(f"Error reading Excel file: {e}")
 
@@ -240,6 +271,39 @@ class ExcelParser:
             self._joint_displacements_df = df
         return self._joint_displacements_df.copy()
 
+    def get_load_cases_only(self, sheet_name: str) -> Optional[List[str]]:
+        """Return load cases from a sheet using a lightweight single-column read."""
+        if not self.validate_sheet_exists(sheet_name):
+            return []
+
+        try:
+            header_df = self._get_excel_file().parse(
+                sheet_name=sheet_name,
+                skiprows=[0, 2],
+                nrows=0,
+            )
+        except Exception:
+            return None
+
+        output_case_col = self._find_output_case_column(list(header_df.columns))
+        if output_case_col is None:
+            return None
+
+        try:
+            df = self._get_excel_file().parse(
+                sheet_name=sheet_name,
+                skiprows=[0, 2],
+                usecols=[output_case_col],
+            )
+        except Exception:
+            return None
+        if df.empty:
+            return []
+        series = df.iloc[:, 0].dropna()
+        if series.empty:
+            return []
+        return pd.unique(series.astype(str)).tolist()
+
     def get_column_forces(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
         """Parse column force data from Excel file.
 
@@ -255,7 +319,9 @@ class ExcelParser:
         # Indices:   0       1       2           3            4          5          6      7   8    9  10  11  12
         columns = [0, 1, 2, 3, 6, 7, 8, 9]  # Story, Column, Unique Name, Output Case, Location, P, V2, V3
 
-        df = self.read_sheet(sheet, columns)
+        if self._column_forces_df is None:
+            self._column_forces_df = self.read_sheet(sheet, columns)
+        df = self._column_forces_df.copy()
 
         # Get unique values
         unique_vals = self.get_unique_values(df, ["Output Case", "Story", "Column"])

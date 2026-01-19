@@ -46,6 +46,21 @@ class PushoverWallParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverWallResults:
         """Parse all wall results for specified direction.
@@ -63,6 +78,10 @@ class PushoverWallParser:
             raise ValueError(f"Invalid direction '{direction}'. Must be 'X', 'Y', or 'XY'.")
 
         direction = direction.upper()
+
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
 
         results = PushoverWallResults(direction=direction)
 
@@ -86,6 +105,7 @@ class PushoverWallParser:
             logger.warning(f"Failed to extract rotations for {direction}: {e}")
             results.rotations = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_pier_forces(self, direction: str, force_column: str) -> pd.DataFrame:
@@ -101,8 +121,7 @@ class PushoverWallParser:
             DataFrame with columns: Pier, Story, [Output Cases...]
         """
         # Read Pier Forces sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Pier Forces', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Pier Forces')
 
         # Filter columns
         df = df[['Story', 'Pier', 'Output Case', 'Step Type', 'Location', force_column]]
@@ -149,8 +168,7 @@ class PushoverWallParser:
             DataFrame with columns: Name, Story, [Output Cases...]
         """
         # Read Quad Strain Gauge - Rotation sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Quad Strain Gauge - Rotation', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Quad Strain Gauge - Rotation')
 
         # Filter columns
         df = df[['Story', 'Name', 'Output Case', 'StepType', 'Rotation']]
@@ -188,8 +206,7 @@ class PushoverWallParser:
             List of detected directions (e.g., ['X', 'Y', 'XY'])
         """
         # Read Pier Forces sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Pier Forces', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Pier Forces')
 
         output_cases = df['Output Case'].unique()
 
@@ -216,8 +233,7 @@ class PushoverWallParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Pier Forces', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Pier Forces')
 
         direction = direction.upper()
 
@@ -237,8 +253,7 @@ class PushoverWallParser:
         Returns:
             List of pier names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Pier Forces', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Pier Forces')
 
         return sorted(df['Pier'].unique().tolist())
 
@@ -249,8 +264,7 @@ class PushoverWallParser:
             List of quad element names
         """
         try:
-            df = pd.read_excel(self.excel_data, sheet_name='Quad Strain Gauge - Rotation', header=1)
-            df = df.drop(0)
+            df = self._read_sheet('Quad Strain Gauge - Rotation')
 
             # Convert Name column to strings (they're stored as floats)
             return sorted([str(int(name)) for name in df['Name'].unique().tolist()])

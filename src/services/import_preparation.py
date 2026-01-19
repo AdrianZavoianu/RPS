@@ -98,7 +98,10 @@ class ImportPreparationService:
             if "Joint Displacements" in available_sheets:
                 if result_types is None or "vertical displacements" in result_types:
                     try:
-                        _, load_cases, _ = parser.get_joint_displacements()
+                        if hasattr(parser, "get_load_cases_only"):
+                            load_cases = parser.get_load_cases_only("Joint Displacements") or []
+                        else:
+                            _, load_cases, _ = parser.get_joint_displacements()
                         if load_cases:
                             load_cases_by_sheet["Vertical Displacements"] = load_cases
                             sheets_found.append(f"Vertical Displacements({len(load_cases)})")
@@ -172,6 +175,10 @@ class ImportPreparationService:
         return False
 
     def _extract_load_cases_from_sheet(self, parser: ExcelParser, sheet_name: str) -> List[str]:
+        if hasattr(parser, "get_load_cases_only"):
+            quick_cases = parser.get_load_cases_only(sheet_name)
+            if quick_cases is not None:
+                return quick_cases
         if sheet_name == "Story Drifts":
             _, load_cases, _ = parser.get_story_drifts()
             return load_cases

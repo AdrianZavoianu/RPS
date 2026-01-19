@@ -99,7 +99,7 @@ class SelectiveDataImporter(DataImporter):
         # Add vertical displacement import if foundation joints are provided
         # This allows import even when this file doesn't have a Fou sheet
         if self.foundation_joints and self._should_import("Vertical Displacements"):
-            if self._sheet_available("Joint Displacements"):
+            if self._sheet_available("Joint Displacements") and not self._sheet_available("Fou"):
                 try:
                     with self._phase_timer.measure(
                         "vertical_displacements",

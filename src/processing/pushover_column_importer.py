@@ -81,8 +81,10 @@ class PushoverColumnImporter:
             if not self.result_set:
                 raise ValueError(f"Result set ID {self.result_set_id} not found")
 
+            parser = PushoverColumnParser(self.file_path)
+
             # Ensure stories and elements exist
-            self._ensure_stories_and_elements()
+            self._ensure_stories_and_elements(parser)
 
             # Import data for each direction
             stats = {
@@ -92,8 +94,6 @@ class PushoverColumnImporter:
                 'y_r3_rotations': 0,
                 'errors': []
             }
-
-            parser = PushoverColumnParser(self.file_path)
 
             # Import X direction
             if self.selected_load_cases_x:
@@ -214,10 +214,8 @@ class PushoverColumnImporter:
 
         return count
 
-    def _ensure_stories_and_elements(self):
+    def _ensure_stories_and_elements(self, parser: PushoverColumnParser):
         """Ensure all stories and column elements from data exist in database."""
-        parser = PushoverColumnParser(self.file_path)
-
         # Get columns and stories from first parse
         if self.selected_load_cases_x:
             results = parser.parse('X')
@@ -257,8 +255,7 @@ class PushoverColumnImporter:
 
         # Build unique name → story mapping from raw Excel data
         # Read raw data to get Story column
-        raw_df = pd.read_excel(parser.excel_data, sheet_name='Fiber Hinge States', header=1)
-        raw_df = raw_df.drop(0)  # Drop units row
+        raw_df = parser._read_sheet('Fiber Hinge States')
 
         for _, row in raw_df.iterrows():
             unique_name = str(int(float(row['Unique Name'])))

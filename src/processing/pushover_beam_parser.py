@@ -42,6 +42,21 @@ class PushoverBeamParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverBeamResults:
         """Parse all beam hinge results for specified direction.
@@ -60,6 +75,10 @@ class PushoverBeamParser:
 
         direction = direction.upper()
 
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
+
         results = PushoverBeamResults(direction=direction)
 
         # Extract rotations with error handling
@@ -69,6 +88,7 @@ class PushoverBeamParser:
             logger.warning(f"Failed to extract R3 Plastic rotations for {direction}: {e}")
             results.rotations = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_beam_rotations(self, direction: str) -> pd.DataFrame:
@@ -84,8 +104,7 @@ class PushoverBeamParser:
             DataFrame with columns: Frame/Wall, Unique Name, [Output Cases...]
         """
         # Read Hinge States sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Hinge States', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Hinge States')
 
         # Filter columns
         df = df[['Frame/Wall', 'Unique Name', 'Output Case', 'Step Type', 'R3 Plastic']]
@@ -123,8 +142,7 @@ class PushoverBeamParser:
             List of detected directions (e.g., ['X', 'Y', 'XY'])
         """
         # Read Hinge States sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Hinge States', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Hinge States')
 
         output_cases = df['Output Case'].unique()
 
@@ -151,8 +169,7 @@ class PushoverBeamParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Hinge States', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Hinge States')
 
         direction = direction.upper()
 
@@ -172,7 +189,6 @@ class PushoverBeamParser:
         Returns:
             List of beam names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Hinge States', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Hinge States')
 
         return sorted(df['Frame/Wall'].unique().tolist())

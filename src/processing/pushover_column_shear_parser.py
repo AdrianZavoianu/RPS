@@ -37,6 +37,21 @@ class PushoverColumnShearParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverColumnShearResults:
         """Parse all column shear results for specified direction.
@@ -55,6 +70,10 @@ class PushoverColumnShearParser:
 
         direction = direction.upper()
 
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
+
         results = PushoverColumnShearResults(direction=direction)
 
         # Extract shears with error handling
@@ -70,6 +89,7 @@ class PushoverColumnShearParser:
             logger.warning(f"Failed to extract V3 shears for {direction}: {e}")
             results.shears_v3 = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_column_shears(self, direction: str, shear_direction: str) -> pd.DataFrame:
@@ -86,8 +106,7 @@ class PushoverColumnShearParser:
             DataFrame with columns: Column, Story, [Output Cases...]
         """
         # Read Element Forces - Columns sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Element Forces - Columns', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Element Forces - Columns')
 
         # Filter columns
         required_cols = ['Story', 'Column', 'Output Case', 'Step Type', shear_direction]
@@ -126,8 +145,7 @@ class PushoverColumnShearParser:
             List of detected directions (e.g., ['X', 'Y', 'XY'])
         """
         # Read Element Forces - Columns sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Element Forces - Columns', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Element Forces - Columns')
 
         output_cases = df['Output Case'].unique()
 
@@ -154,8 +172,7 @@ class PushoverColumnShearParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Element Forces - Columns', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Element Forces - Columns')
 
         direction = direction.upper()
 
@@ -175,7 +192,6 @@ class PushoverColumnShearParser:
         Returns:
             List of column names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Element Forces - Columns', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Element Forces - Columns')
 
         return sorted(df['Column'].unique().tolist())

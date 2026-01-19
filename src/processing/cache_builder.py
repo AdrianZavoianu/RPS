@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, Tuple
 
 from sqlalchemy.orm import Session
@@ -77,6 +78,56 @@ class CacheBuilder:
         self._cache_vertical_displacements()
         self._calculate_absolute_maxmin(stories)
 
+    def _replace_global_cache_entries(
+        self,
+        result_type: str,
+        story_matrices: Dict[int, Dict[str, Any]],
+        story_sort_orders: Dict[int, int],
+    ) -> None:
+        timestamp = datetime.utcnow()
+        entries = [
+            {
+                "project_id": self.project_id,
+                "result_set_id": self.result_set_id,
+                "result_type": result_type,
+                "story_id": story_id,
+                "results_matrix": results_matrix,
+                "story_sort_order": story_sort_orders.get(story_id),
+                "last_updated": timestamp,
+            }
+            for story_id, results_matrix in story_matrices.items()
+        ]
+        self._cache_repo.replace_cache_entries(
+            project_id=self.project_id,
+            result_set_id=self.result_set_id,
+            result_type=result_type,
+            entries=entries,
+        )
+
+    def _replace_element_cache_entries(
+        self,
+        result_type: str,
+        entries: list[dict],
+    ) -> None:
+        self._element_cache_repo.replace_cache_entries(
+            project_id=self.project_id,
+            result_set_id=self.result_set_id,
+            result_type=result_type,
+            entries=entries,
+        )
+
+    def _replace_joint_cache_entries(
+        self,
+        result_type: str,
+        entries: list[dict],
+    ) -> None:
+        self._joint_cache_repo.replace_cache_entries(
+            project_id=self.project_id,
+            result_set_id=self.result_set_id,
+            result_type=result_type,
+            entries=entries,
+        )
+
     # ------------------------------------------------------------------
     # Global result caches
     # ------------------------------------------------------------------
@@ -101,15 +152,7 @@ class CacheBuilder:
             key = f"{load_case_name}_{drift.direction}"
             story_matrices[story_id][key] = drift.drift
 
-        for story_id, results_matrix in story_matrices.items():
-            self._cache_repo.upsert_cache_entry(
-                project_id=self.project_id,
-                story_id=story_id,
-                result_type="Drifts",
-                results_matrix=results_matrix,
-                result_set_id=self.result_set_id,
-                story_sort_order=story_sort_orders.get(story_id),
-            )
+        self._replace_global_cache_entries("Drifts", story_matrices, story_sort_orders)
 
     def _cache_accelerations(self, stories):
         accels = (
@@ -132,15 +175,7 @@ class CacheBuilder:
             key = f"{load_case_name}_{accel.direction}"
             story_matrices[story_id][key] = accel.acceleration
 
-        for story_id, results_matrix in story_matrices.items():
-            self._cache_repo.upsert_cache_entry(
-                project_id=self.project_id,
-                story_id=story_id,
-                result_type="Accelerations",
-                results_matrix=results_matrix,
-                result_set_id=self.result_set_id,
-                story_sort_order=story_sort_orders.get(story_id),
-            )
+        self._replace_global_cache_entries("Accelerations", story_matrices, story_sort_orders)
 
     def _cache_forces(self, stories):
         forces = (
@@ -163,15 +198,7 @@ class CacheBuilder:
             key = f"{load_case_name}_{force.direction}"
             story_matrices[story_id][key] = force.force
 
-        for story_id, results_matrix in story_matrices.items():
-            self._cache_repo.upsert_cache_entry(
-                project_id=self.project_id,
-                story_id=story_id,
-                result_type="Forces",
-                results_matrix=results_matrix,
-                result_set_id=self.result_set_id,
-                story_sort_order=story_sort_orders.get(story_id),
-            )
+        self._replace_global_cache_entries("Forces", story_matrices, story_sort_orders)
 
     def _cache_displacements(self, stories):
         displacements = (
@@ -194,15 +221,7 @@ class CacheBuilder:
             key = f"{load_case_name}_{displacement.direction}"
             story_matrices[story_id][key] = displacement.displacement
 
-        for story_id, results_matrix in story_matrices.items():
-            self._cache_repo.upsert_cache_entry(
-                project_id=self.project_id,
-                story_id=story_id,
-                result_type="Displacements",
-                results_matrix=results_matrix,
-                result_set_id=self.result_set_id,
-                story_sort_order=story_sort_orders.get(story_id),
-            )
+        self._replace_global_cache_entries("Displacements", story_matrices, story_sort_orders)
 
     # ------------------------------------------------------------------
     # Element caches
@@ -234,19 +253,28 @@ class CacheBuilder:
                 story_sort_orders[(key, story.id)] = shear.story_sort_order
             grouped[key][story.id][case_name] = shear.force
 
-        # Write cache entries
+        timestamp = datetime.utcnow()
+        entries_by_type: Dict[str, list[dict]] = {f"WallShears_{direction}": [] for direction in ["V2", "V3"]}
+
         for (element_id, direction), story_data in grouped.items():
             result_type = f"WallShears_{direction}"
+            entry_list = entries_by_type.setdefault(result_type, [])
             for story_id, results_matrix in story_data.items():
-                self._element_cache_repo.upsert_cache_entry(
-                    project_id=self.project_id,
-                    element_id=element_id,
-                    story_id=story_id,
-                    result_type=result_type,
-                    results_matrix=results_matrix,
-                    result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get(((element_id, direction), story_id)),
+                entry_list.append(
+                    {
+                        "project_id": self.project_id,
+                        "result_set_id": self.result_set_id,
+                        "result_type": result_type,
+                        "element_id": element_id,
+                        "story_id": story_id,
+                        "results_matrix": results_matrix,
+                        "story_sort_order": story_sort_orders.get(((element_id, direction), story_id)),
+                        "last_updated": timestamp,
+                    }
                 )
+
+        for result_type, entries in entries_by_type.items():
+            self._replace_element_cache_entries(result_type, entries)
 
     def _cache_column_shears(self, stories):
         """Cache column shear forces - batched query for performance."""
@@ -276,19 +304,28 @@ class CacheBuilder:
                 story_sort_orders[(key, story.id)] = shear.story_sort_order
             grouped[key][story.id][case_name] = shear.force
 
-        # Write cache entries
+        timestamp = datetime.utcnow()
+        entries_by_type: Dict[str, list[dict]] = {f"ColumnShears_{direction}": [] for direction in ["V2", "V3"]}
+
         for (element_id, direction), story_data in grouped.items():
             result_type = f"ColumnShears_{direction}"
+            entry_list = entries_by_type.setdefault(result_type, [])
             for story_id, results_matrix in story_data.items():
-                self._element_cache_repo.upsert_cache_entry(
-                    project_id=self.project_id,
-                    element_id=element_id,
-                    story_id=story_id,
-                    result_type=result_type,
-                    results_matrix=results_matrix,
-                    result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get(((element_id, direction), story_id)),
+                entry_list.append(
+                    {
+                        "project_id": self.project_id,
+                        "result_set_id": self.result_set_id,
+                        "result_type": result_type,
+                        "element_id": element_id,
+                        "story_id": story_id,
+                        "results_matrix": results_matrix,
+                        "story_sort_order": story_sort_orders.get(((element_id, direction), story_id)),
+                        "last_updated": timestamp,
+                    }
                 )
+
+        for result_type, entries in entries_by_type.items():
+            self._replace_element_cache_entries(result_type, entries)
 
     def _cache_column_axials(self, stories):
         """Cache column axial forces (both min and max) - batched query for performance."""
@@ -321,34 +358,44 @@ class CacheBuilder:
             if axial.max_axial is not None:
                 grouped[elem_id][story.id]['max'][case_name] = axial.max_axial
 
-        # Write cache entries
+        timestamp = datetime.utcnow()
+        entries_min: list[dict] = []
+        entries_max: list[dict] = []
+
         for elem_id, story_data in grouped.items():
             for story_id, data in story_data.items():
                 sort_order = story_sort_orders.get((elem_id, story_id))
 
-                # Store min axials cache
                 if data['min']:
-                    self._element_cache_repo.upsert_cache_entry(
-                        project_id=self.project_id,
-                        element_id=elem_id,
-                        story_id=story_id,
-                        result_type="ColumnAxials_Min",
-                        results_matrix=data['min'],
-                        result_set_id=self.result_set_id,
-                        story_sort_order=sort_order,
+                    entries_min.append(
+                        {
+                            "project_id": self.project_id,
+                            "result_set_id": self.result_set_id,
+                            "result_type": "ColumnAxials_Min",
+                            "element_id": elem_id,
+                            "story_id": story_id,
+                            "results_matrix": data['min'],
+                            "story_sort_order": sort_order,
+                            "last_updated": timestamp,
+                        }
                     )
 
-                # Store max axials cache
                 if data['max']:
-                    self._element_cache_repo.upsert_cache_entry(
-                        project_id=self.project_id,
-                        element_id=elem_id,
-                        story_id=story_id,
-                        result_type="ColumnAxials_Max",
-                        results_matrix=data['max'],
-                        result_set_id=self.result_set_id,
-                        story_sort_order=sort_order,
+                    entries_max.append(
+                        {
+                            "project_id": self.project_id,
+                            "result_set_id": self.result_set_id,
+                            "result_type": "ColumnAxials_Max",
+                            "element_id": elem_id,
+                            "story_id": story_id,
+                            "results_matrix": data['max'],
+                            "story_sort_order": sort_order,
+                            "last_updated": timestamp,
+                        }
                     )
+
+        self._replace_element_cache_entries("ColumnAxials_Min", entries_min)
+        self._replace_element_cache_entries("ColumnAxials_Max", entries_max)
 
     def _cache_quad_rotations(self, stories):
         """Cache quad rotations - batched query for performance."""
@@ -381,18 +428,24 @@ class CacheBuilder:
             value = rotation.max_rotation if rotation.max_rotation is not None else rotation.rotation
             grouped[elem_id][story.id][case_name] = value
 
-        # Write cache entries
+        timestamp = datetime.utcnow()
+        entries: list[dict] = []
         for elem_id, story_data in grouped.items():
             for story_id, results_matrix in story_data.items():
-                self._element_cache_repo.upsert_cache_entry(
-                    project_id=self.project_id,
-                    element_id=elem_id,
-                    story_id=story_id,
-                    result_type="QuadRotations_Pier",
-                    results_matrix=results_matrix,
-                    result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get((elem_id, story_id)),
+                entries.append(
+                    {
+                        "project_id": self.project_id,
+                        "result_set_id": self.result_set_id,
+                        "result_type": "QuadRotations_Pier",
+                        "element_id": elem_id,
+                        "story_id": story_id,
+                        "results_matrix": results_matrix,
+                        "story_sort_order": story_sort_orders.get((elem_id, story_id)),
+                        "last_updated": timestamp,
+                    }
                 )
+
+        self._replace_element_cache_entries("QuadRotations_Pier", entries)
 
     def _cache_column_rotations(self, stories):
         """Cache column rotations (R2 and R3) - batched query for performance."""
@@ -425,19 +478,28 @@ class CacheBuilder:
             value = rotation.max_rotation if rotation.max_rotation is not None else rotation.rotation
             grouped[key][story.id][case_name] = value
 
-        # Write cache entries
+        timestamp = datetime.utcnow()
+        entries_by_type: Dict[str, list[dict]] = {f"ColumnRotations_{direction}": [] for direction in ["R2", "R3"]}
+
         for (element_id, direction), story_data in grouped.items():
             result_type = f"ColumnRotations_{direction}"
+            entry_list = entries_by_type.setdefault(result_type, [])
             for story_id, results_matrix in story_data.items():
-                self._element_cache_repo.upsert_cache_entry(
-                    project_id=self.project_id,
-                    element_id=element_id,
-                    story_id=story_id,
-                    result_type=result_type,
-                    results_matrix=results_matrix,
-                    result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get(((element_id, direction), story_id)),
+                entry_list.append(
+                    {
+                        "project_id": self.project_id,
+                        "result_set_id": self.result_set_id,
+                        "result_type": result_type,
+                        "element_id": element_id,
+                        "story_id": story_id,
+                        "results_matrix": results_matrix,
+                        "story_sort_order": story_sort_orders.get(((element_id, direction), story_id)),
+                        "last_updated": timestamp,
+                    }
                 )
+
+        for result_type, entries in entries_by_type.items():
+            self._replace_element_cache_entries(result_type, entries)
 
     def _cache_beam_rotations(self, stories):
         # Query all beam rotations at once, ordered by source appearance (BeamRotation.id)
@@ -475,18 +537,24 @@ class CacheBuilder:
             value = rotation.max_r3_plastic if rotation.max_r3_plastic is not None else rotation.r3_plastic
             element_story_data[elem_id][story.id][case_name] = value
 
-        # Create cache entries in the order elements/stories first appeared
+        timestamp = datetime.utcnow()
+        entries: list[dict] = []
         for elem_id, story_data in element_story_data.items():
             for story_id, results_matrix in story_data.items():
-                self._element_cache_repo.upsert_cache_entry(
-                    project_id=self.project_id,
-                    element_id=elem_id,
-                    story_id=story_id,
-                    result_type="BeamRotations_R3Plastic",
-                    results_matrix=results_matrix,
-                    result_set_id=self.result_set_id,
-                    story_sort_order=story_sort_orders.get((elem_id, story_id)),
+                entries.append(
+                    {
+                        "project_id": self.project_id,
+                        "result_set_id": self.result_set_id,
+                        "result_type": "BeamRotations_R3Plastic",
+                        "element_id": elem_id,
+                        "story_id": story_id,
+                        "results_matrix": results_matrix,
+                        "story_sort_order": story_sort_orders.get((elem_id, story_id)),
+                        "last_updated": timestamp,
+                    }
                 )
+
+        self._replace_element_cache_entries("BeamRotations_R3Plastic", entries)
 
     # ------------------------------------------------------------------
     # Joint caches
@@ -512,16 +580,23 @@ class CacheBuilder:
 
             element_matrices[unique_name][load_case_name] = pressure.min_pressure
 
+        timestamp = datetime.utcnow()
+        entries: list[dict] = []
         for unique_name, results_matrix in element_matrices.items():
             sorted_results_matrix = dict(sorted(results_matrix.items()))
-            self._joint_cache_repo.upsert_cache_entry(
-                project_id=self.project_id,
-                result_set_id=self.result_set_id,
-                result_type="SoilPressures_Min",
-                shell_object=shell_objects[unique_name],
-                unique_name=unique_name,
-                results_matrix=sorted_results_matrix,
+            entries.append(
+                {
+                    "project_id": self.project_id,
+                    "result_set_id": self.result_set_id,
+                    "result_type": "SoilPressures_Min",
+                    "shell_object": shell_objects[unique_name],
+                    "unique_name": unique_name,
+                    "results_matrix": sorted_results_matrix,
+                    "last_updated": timestamp,
+                }
             )
+
+        self._replace_joint_cache_entries("SoilPressures_Min", entries)
 
     def _cache_vertical_displacements(self):
         displacements = (
@@ -544,16 +619,23 @@ class CacheBuilder:
 
             joint_matrices[unique_name][load_case_name] = disp.min_displacement
 
+        timestamp = datetime.utcnow()
+        entries: list[dict] = []
         for unique_name, results_matrix in joint_matrices.items():
             sorted_results_matrix = dict(sorted(results_matrix.items()))
-            self._joint_cache_repo.upsert_cache_entry(
-                project_id=self.project_id,
-                result_set_id=self.result_set_id,
-                result_type="VerticalDisplacements_Min",
-                shell_object=joint_labels[unique_name],
-                unique_name=unique_name,
-                results_matrix=sorted_results_matrix,
+            entries.append(
+                {
+                    "project_id": self.project_id,
+                    "result_set_id": self.result_set_id,
+                    "result_type": "VerticalDisplacements_Min",
+                    "shell_object": joint_labels[unique_name],
+                    "unique_name": unique_name,
+                    "results_matrix": sorted_results_matrix,
+                    "last_updated": timestamp,
+                }
             )
+
+        self._replace_joint_cache_entries("VerticalDisplacements_Min", entries)
 
     # ------------------------------------------------------------------
     # Envelope helpers

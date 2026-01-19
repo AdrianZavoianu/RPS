@@ -82,8 +82,10 @@ class PushoverWallImporter:
             if not self.result_set:
                 raise ValueError(f"Result set ID {self.result_set_id} not found")
 
+            parser = PushoverWallParser(self.file_path)
+
             # Ensure stories and elements exist
-            self._ensure_stories_and_elements()
+            self._ensure_stories_and_elements(parser)
 
             # Import data for each direction
             stats = {
@@ -95,8 +97,6 @@ class PushoverWallImporter:
                 'y_rotations': 0,
                 'errors': []
             }
-
-            parser = PushoverWallParser(self.file_path)
 
             # Import X direction
             if self.selected_load_cases_x:
@@ -283,9 +283,8 @@ class PushoverWallImporter:
 
         return count
 
-    def _ensure_stories_and_elements(self):
+    def _ensure_stories_and_elements(self, parser: PushoverWallParser):
         """Ensure all stories and pier elements from data exist in database."""
-        parser = PushoverWallParser(self.file_path)
 
         # Get piers and stories from first parse
         if self.selected_load_cases_x:

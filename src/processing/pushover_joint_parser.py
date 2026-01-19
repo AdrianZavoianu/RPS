@@ -42,6 +42,21 @@ class PushoverJointParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverJointResults:
         """Parse all joint displacement results for specified direction.
@@ -59,6 +74,10 @@ class PushoverJointParser:
             raise ValueError(f"Invalid direction '{direction}'. Must be 'X' or 'Y'.")
 
         direction = direction.upper()
+
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
 
         results = PushoverJointResults(direction=direction)
 
@@ -81,6 +100,7 @@ class PushoverJointParser:
             logger.warning(f"Failed to extract Uz displacements for {direction}: {e}")
             results.displacements_uz = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_joint_displacements(self, direction: str, displacement_column: str) -> pd.DataFrame:
@@ -97,8 +117,7 @@ class PushoverJointParser:
             DataFrame with columns: Story, Label, Unique Name, [Output Cases...]
         """
         # Read Joint Displacements sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Joint Displacements')
 
         # Filter columns
         df = df[['Story', 'Label', 'Unique Name', 'Output Case', 'Step Type', displacement_column]]
@@ -140,8 +159,7 @@ class PushoverJointParser:
             List of detected directions (e.g., ['X', 'Y'])
         """
         # Read Joint Displacements sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Joint Displacements')
 
         output_cases = df['Output Case'].dropna().unique()
 
@@ -162,8 +180,7 @@ class PushoverJointParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Joint Displacements')
 
         # Filter by pushover direction in Output Case name
         direction = direction.upper()
@@ -180,8 +197,7 @@ class PushoverJointParser:
         Returns:
             List of unique joint identifiers (Story-Label-UniqueName)
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Joint Displacements')
 
         # Create unique joint identifiers
         joints = df.apply(

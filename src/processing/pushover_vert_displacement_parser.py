@@ -43,7 +43,22 @@ class PushoverVertDisplacementParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
         self._foundation_joints = None
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverVertDisplacementResults:
         """Parse vertical displacement results for specified direction.
@@ -62,6 +77,10 @@ class PushoverVertDisplacementParser:
 
         direction = direction.upper()
 
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
+
         results = PushoverVertDisplacementResults(direction=direction)
 
         # Extract vertical displacements with error handling
@@ -71,6 +90,7 @@ class PushoverVertDisplacementParser:
             logger.warning(f"Failed to extract vertical displacements for {direction}: {e}")
             results.vert_displacements = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_vert_displacements(self, direction: str) -> pd.DataFrame:
@@ -93,8 +113,7 @@ class PushoverVertDisplacementParser:
             return pd.DataFrame()
 
         # Read Joint Displacements sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Joint Displacements')
 
         # Filter to required columns
         required_cols = ['Story', 'Label', 'Unique Name', 'Output Case', 'Step Type', 'Uz']
@@ -170,7 +189,7 @@ class PushoverVertDisplacementParser:
 
         try:
             # Read Fou sheet
-            df = pd.read_excel(self.excel_data, sheet_name='Fou', header=0)
+            df = self._read_sheet('Fou', header=0, drop_units=False)
 
             # Get unique names (first column)
             if 'Unique Name' in df.columns:
@@ -193,8 +212,7 @@ class PushoverVertDisplacementParser:
             List of detected directions (e.g., ['X', 'Y'])
         """
         # Read Joint Displacements sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Joint Displacements')
 
         if 'Output Case' not in df.columns:
             return []
@@ -218,8 +236,7 @@ class PushoverVertDisplacementParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Joint Displacements')
 
         if 'Output Case' not in df.columns:
             return []
@@ -243,8 +260,7 @@ class PushoverVertDisplacementParser:
             return []
 
         # Read Joint Displacements to see which foundation joints have data
-        df = pd.read_excel(self.excel_data, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Joint Displacements')
 
         if 'Unique Name' not in df.columns:
             return []

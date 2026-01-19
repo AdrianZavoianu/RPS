@@ -34,6 +34,20 @@ class PushoverParser:
     def __init__(self, file_path: str | Path):
         self.file_path = Path(file_path)
         self.excel_file = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_file, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse_curves(self, base_story: str) -> Dict[str, PushoverCurveData]:
         """
@@ -63,8 +77,7 @@ class PushoverParser:
         Returns:
             Dict mapping case name to (step_numbers, displacements, direction)
         """
-        df = pd.read_excel(self.excel_file, sheet_name='Joint Displacements', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Joint Displacements')
 
         results = {}
 
@@ -111,8 +124,7 @@ class PushoverParser:
         Returns:
             Dict mapping case name to (step_numbers, base_shears)
         """
-        df = pd.read_excel(self.excel_file, sheet_name='Story Forces', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Story Forces')
 
         # Filter for base story at bottom location
         df = df[(df['Story'] == base_story) & (df['Location'] == 'Bottom')]
@@ -188,8 +200,7 @@ class PushoverParser:
 
     def get_available_stories(self) -> List[str]:
         """Get list of available story names from Story Forces sheet."""
-        df = pd.read_excel(self.excel_file, sheet_name='Story Forces', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Story Forces')
         stories = df['Story'].unique().tolist()
         # Sort stories (reverse order to show from top to bottom)
         return sorted(stories, reverse=True)

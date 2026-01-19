@@ -40,6 +40,21 @@ class PushoverSoilPressureParser:
         """
         self.file_path = file_path
         self.excel_data = pd.ExcelFile(file_path)
+        self._sheet_cache = {}
+        self._results_cache = {}
+
+    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+        """Read and cache a sheet from the Excel file."""
+        cache_key = (sheet_name, header, drop_units)
+        if cache_key in self._sheet_cache:
+            return self._sheet_cache[cache_key].copy()
+
+        df = pd.read_excel(self.excel_data, sheet_name=sheet_name, header=header)
+        if drop_units and len(df) > 0:
+            df = df.drop(0)
+
+        self._sheet_cache[cache_key] = df
+        return df.copy()
 
     def parse(self, direction: str) -> PushoverSoilPressureResults:
         """Parse soil pressure results for specified direction.
@@ -58,6 +73,10 @@ class PushoverSoilPressureParser:
 
         direction = direction.upper()
 
+        cached = self._results_cache.get(direction)
+        if cached is not None:
+            return cached
+
         results = PushoverSoilPressureResults(direction=direction)
 
         # Extract soil pressures with error handling
@@ -67,6 +86,7 @@ class PushoverSoilPressureParser:
             logger.warning(f"Failed to extract soil pressures for {direction}: {e}")
             results.soil_pressures = None
 
+        self._results_cache[direction] = results
         return results
 
     def _extract_soil_pressures(self, direction: str) -> pd.DataFrame:
@@ -81,8 +101,7 @@ class PushoverSoilPressureParser:
             DataFrame with columns: Shell Object, Unique Name, [Output Cases...]
         """
         # Read Soil Pressures sheet
-        df = pd.read_excel(self.excel_data, sheet_name='Soil Pressures', header=1)
-        df = df.drop(0)  # Drop units row
+        df = self._read_sheet('Soil Pressures')
 
         # Ensure expected columns
         expected_cols = ['Story', 'Shell Object', 'Unique Name', 'Shell Element', 'Joint',
@@ -141,8 +160,7 @@ class PushoverSoilPressureParser:
             List of detected directions (e.g., ['X', 'Y'])
         """
         # Read Soil Pressures sheet to detect directions
-        df = pd.read_excel(self.excel_data, sheet_name='Soil Pressures', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Soil Pressures')
 
         if 'Output Case' not in df.columns:
             return []
@@ -166,8 +184,7 @@ class PushoverSoilPressureParser:
         Returns:
             List of output case names
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Soil Pressures', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Soil Pressures')
 
         if 'Output Case' not in df.columns:
             return []
@@ -185,8 +202,7 @@ class PushoverSoilPressureParser:
         Returns:
             List of unique foundation element identifiers (Unique Name)
         """
-        df = pd.read_excel(self.excel_data, sheet_name='Soil Pressures', header=1)
-        df = df.drop(0)
+        df = self._read_sheet('Soil Pressures')
 
         if 'Unique Name' not in df.columns:
             return []

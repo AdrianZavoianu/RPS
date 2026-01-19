@@ -85,6 +85,27 @@ class CacheRepository(BaseRepository[GlobalResultsCache]):
         self.session.refresh(cache_entry)
         return cache_entry
 
+    def replace_cache_entries(
+        self,
+        project_id: int,
+        result_set_id: Optional[int],
+        result_type: str,
+        entries: List[dict],
+    ) -> int:
+        """Replace all cache entries for a result type in a result set."""
+        self.session.query(GlobalResultsCache).filter(
+            and_(
+                GlobalResultsCache.project_id == project_id,
+                GlobalResultsCache.result_set_id == result_set_id,
+                GlobalResultsCache.result_type == result_type,
+            )
+        ).delete(synchronize_session=False)
+
+        if entries:
+            self.session.bulk_insert_mappings(GlobalResultsCache, entries)
+        self.session.commit()
+        return len(entries)
+
     def get_cache_for_display(
         self,
         project_id: int,
@@ -192,6 +213,27 @@ class ElementCacheRepository(BaseRepository[ElementResultsCache]):
         self.session.commit()
         self.session.refresh(cache_entry)
         return cache_entry
+
+    def replace_cache_entries(
+        self,
+        project_id: int,
+        result_set_id: Optional[int],
+        result_type: str,
+        entries: List[dict],
+    ) -> int:
+        """Replace all element cache entries for a result type in a result set."""
+        self.session.query(ElementResultsCache).filter(
+            and_(
+                ElementResultsCache.project_id == project_id,
+                ElementResultsCache.result_set_id == result_set_id,
+                ElementResultsCache.result_type == result_type,
+            )
+        ).delete(synchronize_session=False)
+
+        if entries:
+            self.session.bulk_insert_mappings(ElementResultsCache, entries)
+        self.session.commit()
+        return len(entries)
 
     def get_cache_for_display(
         self,
@@ -316,9 +358,30 @@ class JointCacheRepository(BaseRepository[JointResultsCache]):
                 results_matrix=results_matrix,
             )
             self.session.add(entry)
-            self.session.commit()
+        self.session.commit()
 
         return entry
+
+    def replace_cache_entries(
+        self,
+        project_id: int,
+        result_set_id: int,
+        result_type: str,
+        entries: List[dict],
+    ) -> int:
+        """Replace all joint cache entries for a result type in a result set."""
+        self.session.query(JointResultsCache).filter(
+            and_(
+                JointResultsCache.project_id == project_id,
+                JointResultsCache.result_set_id == result_set_id,
+                JointResultsCache.result_type == result_type,
+            )
+        ).delete(synchronize_session=False)
+
+        if entries:
+            self.session.bulk_insert_mappings(JointResultsCache, entries)
+        self.session.commit()
+        return len(entries)
 
 
 class AbsoluteMaxMinDriftRepository(BaseRepository[AbsoluteMaxMinDrift]):

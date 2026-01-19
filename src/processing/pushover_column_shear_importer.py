@@ -80,8 +80,10 @@ class PushoverColumnShearImporter:
             if not self.result_set:
                 raise ValueError(f"Result set ID {self.result_set_id} not found")
 
+            parser = PushoverColumnShearParser(self.file_path)
+
             # Ensure stories and elements exist
-            self._ensure_stories_and_elements()
+            self._ensure_stories_and_elements(parser)
 
             # Import data for each direction
             stats = {
@@ -91,8 +93,6 @@ class PushoverColumnShearImporter:
                 'y_v3_shears': 0,
                 'errors': []
             }
-
-            parser = PushoverColumnShearParser(self.file_path)
 
             # Import X direction
             if self.selected_load_cases_x:
@@ -212,10 +212,8 @@ class PushoverColumnShearImporter:
 
         return count
 
-    def _ensure_stories_and_elements(self):
+    def _ensure_stories_and_elements(self, parser: PushoverColumnShearParser):
         """Ensure all stories and column elements from data exist in database."""
-        parser = PushoverColumnShearParser(self.file_path)
-
         # Get columns and stories from first parse
         if self.selected_load_cases_x:
             results = parser.parse('X')
