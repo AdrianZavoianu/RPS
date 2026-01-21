@@ -136,34 +136,16 @@ class MaxMinDriftsWidget(QWidget):
 
     def _create_plot_widget(self, direction: str) -> QWidget:
         """Create a plot widget with external legend - matching normal drift page exactly."""
+        from gui.components.plot_factory import create_plot_widget
+
         # Container with horizontal layout (plot + legend)
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Create plot widget
-        plot_widget = pg.PlotWidget()
-        plot_widget.setBackground('#0a0c10')
-
-        # Set plot area background
-        view_box = plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        # Clean, minimal border - subtle color and thin width to avoid visual conflict with gridlines
-        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
-
-        # Configure plot appearance - clean and minimal
-        plot_widget.showGrid(x=True, y=True, alpha=0.5)
-        # Axis lines - subtle and clean, slightly darker than grid to distinguish but not overpowering
-        plot_widget.getAxis('bottom').setPen(pg.mkPen('#1a1f26', width=1))
-        plot_widget.getAxis('left').setPen(pg.mkPen('#1a1f26', width=1))
-        plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        plot_widget.getAxis('left').setTextPen('#d1d5db')
-
-        # Disable interactions
-        plot_widget.setMenuEnabled(False)
-        view_box.setMouseEnabled(x=False, y=False)
-        view_box.setDefaultPadding(0.0)
+        # Create plot widget using factory
+        plot_widget = create_plot_widget()
 
         layout.addWidget(plot_widget, 1)
 
