@@ -21,6 +21,7 @@ from .styles import COLORS
 from database.repository import ResultSetRepository
 from processing.time_history_parser import prescan_time_history_file
 from processing.time_history_importer import TimeHistoryImporter
+from utils.error_handling import handle_worker_error
 
 
 logger = logging.getLogger(__name__)
@@ -67,13 +68,16 @@ class TimeHistoryPrescanWorker(QThread):
             self.finished.emit(result)
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.error.emit(str(e))
+            error_msg = handle_worker_error(e, "Prescan failed", str(self.folder_path))
+            self.error.emit(error_msg)
 
 
 class TimeHistoryImportWorker(QThread):
-    """Worker thread for time history import (non-blocking UI)."""
+    """Worker thread for time history import (non-blocking UI).
+
+    Thread Safety: Creates its own session using thread_scoped_session to ensure
+    thread-safe database access. Never shares a session with the main UI thread.
+    """
 
     progress = pyqtSignal(int, str)  # Progress percent, status message
     finished = pyqtSignal(int, int)  # Number of records imported, result_set_id
@@ -81,7 +85,7 @@ class TimeHistoryImportWorker(QThread):
 
     def __init__(
         self,
-        session,
+        db_path: Path,
         file_paths: List[Path],
         project_id: int,
         result_set_id: int,
@@ -89,7 +93,7 @@ class TimeHistoryImportWorker(QThread):
         conflict_resolution: Optional[Dict[str, str]] = None,
     ):
         super().__init__()
-        self.session = session
+        self.db_path = db_path
         self.file_paths = file_paths
         self.project_id = project_id
         self.result_set_id = result_set_id
@@ -97,59 +101,62 @@ class TimeHistoryImportWorker(QThread):
         self.conflict_resolution = conflict_resolution or {}
 
     def run(self):
-        """Execute import in background thread."""
+        """Execute import in background thread with thread-safe session."""
+        from database.session import thread_scoped_session
+
         try:
             self.progress.emit(5, "Initializing import...")
 
-            importer = TimeHistoryImporter(
-                self.session,
-                self.project_id,
-                self.result_set_id,
-                progress_callback=self._on_progress,
-            )
+            # Create thread-local session for import operations
+            with thread_scoped_session(self.db_path) as session:
+                importer = TimeHistoryImporter(
+                    session,
+                    self.project_id,
+                    self.result_set_id,
+                    progress_callback=self._on_progress,
+                )
 
-            total_count = 0
-            num_files = len(self.file_paths)
+                total_count = 0
+                num_files = len(self.file_paths)
 
-            for idx, file_path in enumerate(self.file_paths):
-                base_progress = int((idx / num_files) * 90) + 5
-                self.progress.emit(base_progress, f"Processing {file_path.name}...")
+                for idx, file_path in enumerate(self.file_paths):
+                    base_progress = int((idx / num_files) * 90) + 5
+                    self.progress.emit(base_progress, f"Processing {file_path.name}...")
 
-                # Check if this file's load case should be imported
-                # based on conflict resolution
-                try:
-                    info = prescan_time_history_file(file_path)
-                    load_case = info.get("load_case_name", "Unknown")
-                except Exception:
-                    continue
-
-                # Skip if load case not selected
-                if load_case not in self.selected_load_cases:
-                    continue
-
-                # Skip if conflict resolution says use different file
-                if load_case in self.conflict_resolution:
-                    preferred_file = self.conflict_resolution[load_case]
-                    if preferred_file and str(file_path) != preferred_file:
-                        self.progress.emit(
-                            base_progress,
-                            f"Skipping {file_path.name} (using {Path(preferred_file).name} for {load_case})"
-                        )
+                    # Check if this file's load case should be imported
+                    # based on conflict resolution
+                    try:
+                        info = prescan_time_history_file(file_path)
+                        load_case = info.get("load_case_name", "Unknown")
+                    except Exception:
                         continue
 
-                # Import this file
-                count = importer.import_file(file_path, self.selected_load_cases)
-                total_count += count
+                    # Skip if load case not selected
+                    if load_case not in self.selected_load_cases:
+                        continue
 
-            self.progress.emit(95, "Committing to database...")
-            self.session.commit()
+                    # Skip if conflict resolution says use different file
+                    if load_case in self.conflict_resolution:
+                        preferred_file = self.conflict_resolution[load_case]
+                        if preferred_file and str(file_path) != preferred_file:
+                            self.progress.emit(
+                                base_progress,
+                                f"Skipping {file_path.name} (using {Path(preferred_file).name} for {load_case})"
+                            )
+                            continue
+
+                    # Import this file
+                    count = importer.import_file(file_path, self.selected_load_cases)
+                    total_count += count
+
+                self.progress.emit(95, "Committing to database...")
+                # Session commits automatically when exiting thread_scoped_session
 
             self.finished.emit(total_count, self.result_set_id)
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.error.emit(str(e))
+            error_msg = handle_worker_error(e, "Import failed")
+            self.error.emit(error_msg)
 
     def _on_progress(self, percent: int, message: str):
         """Forward progress to signal."""
@@ -158,15 +165,18 @@ class TimeHistoryImportWorker(QThread):
 
 
 class TimeHistoryImportDialog(QDialog):
-    """Dialog for importing time history (time series) data from a folder of Excel files."""
+    """Dialog for importing time history (time series) data from a folder of Excel files.
+
+    Thread Safety: Uses db_path to create thread-safe sessions in worker threads.
+    """
 
     import_completed = pyqtSignal(int)  # Emit count when import succeeds
 
-    def __init__(self, project_id: int, project_name: str, session, parent=None):
+    def __init__(self, project_id: int, project_name: str, db_path: Path, parent=None):
         super().__init__(parent)
         self.project_id = project_id
         self.project_name = project_name
-        self.session = session
+        self.db_path = db_path
         self.folder_path: Optional[Path] = None
         self.worker = None
         self.prescan_worker = None
@@ -374,19 +384,29 @@ class TimeHistoryImportDialog(QDialog):
         main_layout.addLayout(button_layout)
 
     def _load_result_sets(self):
-        """Load available NLTHA result sets into combo box."""
-        result_set_repo = ResultSetRepository(self.session)
-        result_sets = result_set_repo.get_by_project(self.project_id)
+        """Load available NLTHA result sets into combo box.
 
-        # Filter to NLTHA result sets only
-        nltha_sets = [rs for rs in result_sets if rs.analysis_type != "Pushover"]
+        Uses a short-lived session for thread safety during dialog initialization.
+        """
+        from database.session import project_session_factory
 
-        self.result_set_combo.clear()
-        for rs in nltha_sets:
-            self.result_set_combo.addItem(rs.name, rs.id)
+        factory = project_session_factory(self.db_path)
+        session = factory()
+        try:
+            result_set_repo = ResultSetRepository(session)
+            result_sets = result_set_repo.get_by_project(self.project_id)
 
-        if not nltha_sets:
-            self.status_text.append("⚠️ No NLTHA result sets found. Import envelope data first using 'Load NLTHA Data'.")
+            # Filter to NLTHA result sets only
+            nltha_sets = [rs for rs in result_sets if rs.analysis_type != "Pushover"]
+
+            self.result_set_combo.clear()
+            for rs in nltha_sets:
+                self.result_set_combo.addItem(rs.name, rs.id)
+
+            if not nltha_sets:
+                self.status_text.append("⚠️ No NLTHA result sets found. Import envelope data first using 'Load NLTHA Data'.")
+        finally:
+            session.close()
 
     def _browse_folder(self):
         """Open folder browser to select folder with Excel files."""
@@ -663,9 +683,9 @@ class TimeHistoryImportDialog(QDialog):
         self.browse_btn.setEnabled(False)
         self.progress_bar.setValue(0)
 
-        # Start import worker
+        # Start import worker with db_path for thread-safe session creation
         self.worker = TimeHistoryImportWorker(
-            self.session,
+            self.db_path,
             file_paths,
             self.project_id,
             result_set_id,

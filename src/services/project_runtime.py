@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from database.repository import (
 )
 from processing.result_service import ResultDataService
 from services.project_service import ProjectContext
+from services.data_access import DataAccessService
 
 
 @dataclass
@@ -41,6 +43,7 @@ class ProjectRuntime:
     project: object
     repos: ProjectRepositories
     result_service: ResultDataService
+    data_service: Optional[DataAccessService] = None
 
     def dispose(self) -> None:
         """Dispose of the underlying SQLAlchemy session."""
@@ -82,10 +85,14 @@ def build_project_runtime(context: ProjectContext) -> ProjectRuntime:
         session=session,
     )
 
+    # DataAccessService for thread-safe operations (worker threads, etc.)
+    data_service = DataAccessService(context.session)
+
     return ProjectRuntime(
         context=context,
         session=session,
         project=project,
         repos=repos,
         result_service=result_service,
+        data_service=data_service,
     )

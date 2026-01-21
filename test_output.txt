@@ -1,0 +1,19 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: C:\SoftDev\RPS
+configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)
+plugins: anyio-4.11.0, cov-7.0.0
+collected 624 items
+
+tests\config\test_result_config.py ..................                    [  2%]
+tests\database\test_analysis_types.py ...                                [  3%]
+tests\database\test_database.py .....                                    [  4%]
+tests\database\test_element_result_repository.py .                       [  4%]
+tests\database\test_repositories.py ..................                   [  7%]
+tests\gui\test_diagnostics_dialog.py ..                                  [  7%]
+tests\gui\test_export_dialog.py .......                                  [  8%]
+tests\gui\test_project_controller.py ..                                  [  8%]
+tests\gui\test_project_detail.py ......                                  [  9%]
+tests\gui\test_project_detail_controllers.py ...............             [ 12%]
+tests\gui\test_project_runtime.py ..                                     [ 12%]
+tests\gui\test_table_utils.py ..........

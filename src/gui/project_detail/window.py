@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from gui.results_tree_browser import ResultsTreeBrowser
+from gui.tree_browser import ResultsTreeBrowser
 from gui.ui_helpers import create_styled_button, create_styled_label
 from gui.window_utils import enable_dark_title_bar
 from gui.styles import COLORS
@@ -28,6 +28,7 @@ from .header import ProjectHeader
 from .content import build_content_area, ContentArea
 
 from . import event_handlers
+from utils.error_handling import log_exception
 from . import view_loaders
 
 logger = logging.getLogger(__name__)
@@ -285,7 +286,8 @@ class ProjectDetailWindow(QMainWindow):
             return
 
         from gui.ui_helpers import show_dialog_with_blur
-        dialog = ComparisonSetDialog(self.project_id, result_sets, self.session, self)
+        # Pass session_factory for DataAccessService usage
+        dialog = ComparisonSetDialog(self.project_id, result_sets, self.context.session, self)
         if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
             data = dialog.get_comparison_data()
 
@@ -483,7 +485,7 @@ class ProjectDetailWindow(QMainWindow):
         dialog = PushoverImportDialog(
             project_id=self.project.id,
             project_name=self.project_name,
-            session=self.session,
+            db_path=self.context.db_path,
             parent=self
         )
 
@@ -523,7 +525,7 @@ class ProjectDetailWindow(QMainWindow):
                 project_id=self.project.id,
                 project_name=self.project_name,
                 folder_path=folder_path,
-                session=self.session,
+                db_path=self.context.db_path,
                 parent=self
             )
 
@@ -537,8 +539,7 @@ class ProjectDetailWindow(QMainWindow):
                 "Import Error",
                 f"Failed to open pushover global import dialog:\n\n{str(e)}"
             )
-            import traceback
-            traceback.print_exc()
+            log_exception(e, "Failed to open pushover global import dialog")
 
     def _on_pushover_global_import_completed(self, stats: dict):
         """Handle pushover global results import completion."""
@@ -560,7 +561,7 @@ class ProjectDetailWindow(QMainWindow):
         dialog = TimeHistoryImportDialog(
             project_id=self.project.id,
             project_name=self.project_name,
-            session=self.session,
+            db_path=self.context.db_path,
             parent=self
         )
 
@@ -588,7 +589,7 @@ class ProjectDetailWindow(QMainWindow):
 
     def export_nltha_results(self):
         """Export NLTHA results."""
-        from gui.export_dialog import ComprehensiveExportDialog
+        from gui.export import ComprehensiveExportDialog
 
         result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
@@ -653,7 +654,7 @@ class ProjectDetailWindow(QMainWindow):
 
     def export_pushover_results(self):
         """Export pushover results."""
-        from gui.export_dialog import ComprehensiveExportDialog
+        from gui.export import ComprehensiveExportDialog
         from PyQt6.QtWidgets import QMessageBox
 
         result_set_id = self.controller.selection.result_set_id
@@ -686,7 +687,7 @@ class ProjectDetailWindow(QMainWindow):
 
     def export_project_excel(self):
         """Export complete project to Excel workbook."""
-        from gui.export_dialog import ExportProjectExcelDialog
+        from gui.export import ExportProjectExcelDialog
 
         dialog = ExportProjectExcelDialog(
             context=self.context,
@@ -825,7 +826,7 @@ class ProjectDetailWindow(QMainWindow):
 
         if db_path:
             logger.debug("Disposing database engine...")
-            from database.base import dispose_project_engine
+            from database.session import dispose_project_engine
             dispose_project_engine(db_path)
 
         logger.debug("Project window closed successfully: %s", project_name)

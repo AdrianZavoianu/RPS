@@ -316,9 +316,10 @@ class ReportView(QWidget):
         """Refresh the checkbox tree for the selected result set."""
         if self._selected_result_set_id is None:
             return
+        # Pass session_factory to allow DataAccessService creation
         self.checkbox_tree.populate_from_result_set(
             self._selected_result_set_id,
-            self.runtime.session
+            self.runtime.context.session  # session_factory, not session instance
         )
         self._update_preview()
 

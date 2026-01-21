@@ -68,7 +68,10 @@
       "Bash(while read f)",
       "Bash(do grep -q \"^def \\|^class \" \"$f\")",
       "Bash(head:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(do [ -d \"$dir\" ])",
+      "Bash(pipenv graph:*)",
+      "Bash(comm -23:*)"
     ],
     "deny": [],
     "ask": []

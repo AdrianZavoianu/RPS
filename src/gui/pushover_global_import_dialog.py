@@ -37,7 +37,11 @@ logger = logging.getLogger(__name__)
 
 
 class PushoverImportWorker(QThread):
-    """Worker thread for importing pushover data (global + elements)."""
+    """Worker thread for importing pushover data (global + elements).
+
+    Thread Safety: Creates its own session using thread_scoped_session to ensure
+    thread-safe database access. Never shares a session with the main UI thread.
+    """
 
     progress = pyqtSignal(str, int, int)  # message, current, total
     finished = pyqtSignal(dict)  # stats
@@ -46,7 +50,7 @@ class PushoverImportWorker(QThread):
     def __init__(
         self,
         project_id: int,
-        session,
+        db_path: Path,
         folder_path: Path,
         result_set_name: str,
         global_files: List[Path],
@@ -58,7 +62,7 @@ class PushoverImportWorker(QThread):
     ):
         super().__init__()
         self.project_id = project_id
-        self.session = session
+        self.db_path = db_path
         self.folder_path = folder_path
         self.result_set_name = result_set_name
         self.global_files = global_files
@@ -69,7 +73,8 @@ class PushoverImportWorker(QThread):
         self.selected_load_cases_y = selected_load_cases_y
 
     def run(self):
-        """Run import in background thread."""
+        """Run import in background thread with thread-safe session."""
+        from database.session import thread_scoped_session
         from processing.pushover_global_importer import PushoverGlobalImporter
         from processing.pushover_wall_importer import PushoverWallImporter
         from processing.pushover_column_importer import PushoverColumnImporter
@@ -78,172 +83,176 @@ class PushoverImportWorker(QThread):
         from database.models import ResultSet
 
         try:
-            combined_stats = {}
+            # Create thread-local session for all import operations
+            with thread_scoped_session(self.db_path) as session:
+                combined_stats = {}
 
-            # Import global results if present
-            if self.global_files:
-                self.progress.emit("Importing global results...", 10, 100)
+                # Import global results if present
+                if self.global_files:
+                    self.progress.emit("Importing global results...", 10, 100)
 
-                global_importer = PushoverGlobalImporter(
-                    project_id=self.project_id,
-                    session=self.session,
-                    folder_path=self.folder_path,
-                    result_set_name=self.result_set_name,
-                    valid_files=self.global_files,
-                    selected_load_cases_x=self.selected_load_cases_x,
-                    selected_load_cases_y=self.selected_load_cases_y,
-                    progress_callback=lambda msg, curr, total: self._on_progress(f"Global: {msg}", curr // 2, 100),
-                )
-
-                global_stats = global_importer.import_all()
-                combined_stats.update(global_stats)
-
-            # Get the result set ID (created by global import or need to create)
-            result_set = self.session.query(ResultSet).filter(
-                ResultSet.project_id == self.project_id,
-                ResultSet.name == self.result_set_name
-            ).first()
-
-            if not result_set:
-                # Create result set if it doesn't exist (no global files)
-                result_set = ResultSet(
-                    project_id=self.project_id,
-                    name=self.result_set_name,
-                    analysis_type='Pushover'
-                )
-                self.session.add(result_set)
-                self.session.flush()
-
-            # Import wall results if present
-            if self.wall_files:
-                self.progress.emit("Importing wall results...", 50, 100)
-
-                for wall_file in self.wall_files:
-                    wall_importer = PushoverWallImporter(
+                    global_importer = PushoverGlobalImporter(
                         project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=wall_file,
+                        session=session,
+                        folder_path=self.folder_path,
+                        result_set_name=self.result_set_name,
+                        valid_files=self.global_files,
                         selected_load_cases_x=self.selected_load_cases_x,
                         selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Walls: {msg}", 50 + curr // 6, 100),
+                        progress_callback=lambda msg, curr, total: self._on_progress(f"Global: {msg}", curr // 2, 100),
                     )
 
-                    wall_stats = wall_importer.import_all()
-                    self._merge_stats(combined_stats, wall_stats)
+                    global_stats = global_importer.import_all()
+                    combined_stats.update(global_stats)
 
-            # Import column results if present
-            if self.column_files:
-                self.progress.emit("Importing column rotations...", 70, 100)
+                # Get the result set ID (created by global import or need to create)
+                result_set = session.query(ResultSet).filter(
+                    ResultSet.project_id == self.project_id,
+                    ResultSet.name == self.result_set_name
+                ).first()
 
-                for column_file in self.column_files:
-                    column_importer = PushoverColumnImporter(
+                if not result_set:
+                    # Create result set if it doesn't exist (no global files)
+                    result_set = ResultSet(
                         project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=column_file,
-                        selected_load_cases_x=self.selected_load_cases_x,
-                        selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Column Rotations: {msg}", 70 + curr // 8, 100),
+                        name=self.result_set_name,
+                        analysis_type='Pushover'
                     )
+                    session.add(result_set)
+                    session.flush()
 
-                    column_stats = column_importer.import_all()
-                    self._merge_stats(combined_stats, column_stats)
+                # Import wall results if present
+                if self.wall_files:
+                    self.progress.emit("Importing wall results...", 50, 100)
 
-                # Also import column shears from the same files
-                self.progress.emit("Importing column shears...", 75, 100)
+                    for wall_file in self.wall_files:
+                        wall_importer = PushoverWallImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=wall_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Walls: {msg}", 50 + curr // 6, 100),
+                        )
 
-                for column_file in self.column_files:
-                    column_shear_importer = PushoverColumnShearImporter(
-                        project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=column_file,
-                        selected_load_cases_x=self.selected_load_cases_x,
-                        selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Column Shears: {msg}", 75 + curr // 8, 100),
-                    )
+                        wall_stats = wall_importer.import_all()
+                        self._merge_stats(combined_stats, wall_stats)
 
-                    shear_stats = column_shear_importer.import_all()
-                    self._merge_stats(combined_stats, shear_stats)
+                # Import column results if present
+                if self.column_files:
+                    self.progress.emit("Importing column rotations...", 70, 100)
 
-            # Import beam results if present
-            if self.beam_files:
-                self.progress.emit("Importing beam results...", 80, 100)
+                    for column_file in self.column_files:
+                        column_importer = PushoverColumnImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=column_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Column Rotations: {msg}", 70 + curr // 8, 100),
+                        )
 
-                for beam_file in self.beam_files:
-                    beam_importer = PushoverBeamImporter(
-                        project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=beam_file,
-                        selected_load_cases_x=self.selected_load_cases_x,
-                        selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Beams: {msg}", 80 + curr // 8, 100),
-                    )
+                        column_stats = column_importer.import_all()
+                        self._merge_stats(combined_stats, column_stats)
 
-                    beam_stats = beam_importer.import_all()
-                    self._merge_stats(combined_stats, beam_stats)
+                    # Also import column shears from the same files
+                    self.progress.emit("Importing column shears...", 75, 100)
 
-            # Import joint displacements if present (from global results files)
-            if self.global_files:
-                from processing.pushover_joint_importer import PushoverJointImporter
+                    for column_file in self.column_files:
+                        column_shear_importer = PushoverColumnShearImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=column_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Column Shears: {msg}", 75 + curr // 8, 100),
+                        )
 
-                self.progress.emit("Importing joint displacements...", 85, 100)
+                        shear_stats = column_shear_importer.import_all()
+                        self._merge_stats(combined_stats, shear_stats)
 
-                for joint_file in self.global_files:
-                    joint_importer = PushoverJointImporter(
-                        project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=joint_file,
-                        selected_load_cases_x=self.selected_load_cases_x,
-                        selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Joints: {msg}", 85 + curr // 20, 100),
-                    )
+                # Import beam results if present
+                if self.beam_files:
+                    self.progress.emit("Importing beam results...", 80, 100)
 
-                    joint_stats = joint_importer.import_all()
-                    self._merge_stats(combined_stats, joint_stats)
+                    for beam_file in self.beam_files:
+                        beam_importer = PushoverBeamImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=beam_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Beams: {msg}", 80 + curr // 8, 100),
+                        )
 
-            # Import soil pressures if present (from global results files)
-            if self.global_files:
-                from processing.pushover_soil_pressure_importer import PushoverSoilPressureImporter
+                        beam_stats = beam_importer.import_all()
+                        self._merge_stats(combined_stats, beam_stats)
 
-                self.progress.emit("Importing soil pressures...", 90, 100)
+                # Import joint displacements if present (from global results files)
+                if self.global_files:
+                    from processing.pushover_joint_importer import PushoverJointImporter
 
-                for soil_file in self.global_files:
-                    soil_importer = PushoverSoilPressureImporter(
-                        project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=soil_file,
-                        selected_load_cases_x=self.selected_load_cases_x,
-                        selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Soil Pressures: {msg}", 90 + curr // 20, 100),
-                    )
+                    self.progress.emit("Importing joint displacements...", 85, 100)
 
-                    soil_stats = soil_importer.import_all()
-                    self._merge_stats(combined_stats, soil_stats)
+                    for joint_file in self.global_files:
+                        joint_importer = PushoverJointImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=joint_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Joints: {msg}", 85 + curr // 20, 100),
+                        )
 
-            # Import vertical displacements if present (from global results files)
-            if self.global_files:
-                from processing.pushover_vert_displacement_importer import PushoverVertDisplacementImporter
+                        joint_stats = joint_importer.import_all()
+                        self._merge_stats(combined_stats, joint_stats)
 
-                self.progress.emit("Importing vertical displacements...", 95, 100)
+                # Import soil pressures if present (from global results files)
+                if self.global_files:
+                    from processing.pushover_soil_pressure_importer import PushoverSoilPressureImporter
 
-                for vert_file in self.global_files:
-                    vert_importer = PushoverVertDisplacementImporter(
-                        project_id=self.project_id,
-                        session=self.session,
-                        result_set_id=result_set.id,
-                        file_path=vert_file,
-                        selected_load_cases_x=self.selected_load_cases_x,
-                        selected_load_cases_y=self.selected_load_cases_y,
-                        progress_callback=lambda msg, curr, total: self._on_progress(f"Vert Displ: {msg}", 95 + curr // 20, 100),
-                    )
+                    self.progress.emit("Importing soil pressures...", 90, 100)
 
-                    vert_stats = vert_importer.import_all()
-                    self._merge_stats(combined_stats, vert_stats)
+                    for soil_file in self.global_files:
+                        soil_importer = PushoverSoilPressureImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=soil_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Soil Pressures: {msg}", 90 + curr // 20, 100),
+                        )
+
+                        soil_stats = soil_importer.import_all()
+                        self._merge_stats(combined_stats, soil_stats)
+
+                # Import vertical displacements if present (from global results files)
+                if self.global_files:
+                    from processing.pushover_vert_displacement_importer import PushoverVertDisplacementImporter
+
+                    self.progress.emit("Importing vertical displacements...", 95, 100)
+
+                    for vert_file in self.global_files:
+                        vert_importer = PushoverVertDisplacementImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=vert_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(f"Vert Displ: {msg}", 95 + curr // 20, 100),
+                        )
+
+                        vert_stats = vert_importer.import_all()
+                        self._merge_stats(combined_stats, vert_stats)
+
+                # Session commits automatically when exiting thread_scoped_session
 
             self.finished.emit(combined_stats)
 
@@ -428,6 +437,8 @@ class PushoverGlobalImportDialog(QDialog):
     """Dialog for importing pushover global results from a folder.
 
     Follows the same design pattern as NLTHA folder import dialog.
+
+    Thread Safety: Uses db_path to create thread-safe sessions in worker threads.
     """
 
     import_completed = pyqtSignal(dict)  # stats dictionary
@@ -437,14 +448,14 @@ class PushoverGlobalImportDialog(QDialog):
         project_id: int,
         project_name: str,
         folder_path: str,
-        session,
+        db_path: Path,
         parent=None
     ):
         super().__init__(parent)
         self.project_id = project_id
         self.project_name = project_name
         self.folder_path = Path(folder_path)
-        self.session = session
+        self.db_path = db_path
 
         self.setWindowTitle(f"Import Pushover Global Results - {project_name}")
         self.setMinimumSize(1200, 700)
@@ -798,17 +809,19 @@ class PushoverGlobalImportDialog(QDialog):
     def _load_existing_result_sets(self) -> bool:
         """Load existing pushover result sets.
 
+        Uses DataAccessService for thread-safe data access during dialog initialization.
+
         Returns:
             True if at least one pushover result set exists, False otherwise
         """
-        from database.models import ResultSet
+        from database.session import project_session_factory
+        from services.data_access import DataAccessService
 
-        result_sets = self.session.query(ResultSet).filter(
-            ResultSet.project_id == self.project_id,
-            ResultSet.analysis_type == "Pushover"
-        ).all()
+        factory = project_session_factory(self.db_path)
+        data_service = DataAccessService(factory)
+        pushover_sets = data_service.get_pushover_result_sets(self.project_id)
 
-        self.existing_result_sets = [rs.name for rs in result_sets]
+        self.existing_result_sets = [rs.name for rs in pushover_sets]
 
         return len(self.existing_result_sets) > 0
 
@@ -1042,10 +1055,10 @@ class PushoverGlobalImportDialog(QDialog):
         self.log(f"  - X direction: {len(selected_x)} load cases")
         self.log(f"  - Y direction: {len(selected_y)} load cases")
 
-        # Start import worker
+        # Start import worker with db_path for thread-safe session creation
         self.import_worker = PushoverImportWorker(
             project_id=self.project_id,
-            session=self.session,
+            db_path=self.db_path,
             folder_path=self.folder_path,
             result_set_name=result_set_name,
             global_files=self.global_files,

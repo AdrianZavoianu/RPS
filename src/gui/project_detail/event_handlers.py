@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from config.result_config import format_result_type_with_unit
+from utils.error_handling import log_exception
 
 if TYPE_CHECKING:
     from .window import ProjectDetailWindow
@@ -225,8 +226,7 @@ def on_comparison_selected(
 
     except Exception as exc:
         window.statusBar().showMessage(f"Error loading comparison: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading comparison")
 
 
 def on_comparison_element_selected(
@@ -302,5 +302,4 @@ def on_comparison_element_selected(
 
     except Exception as exc:
         window.statusBar().showMessage(f"Error loading element comparison: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading comparison")

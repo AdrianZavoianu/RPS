@@ -431,7 +431,7 @@ class ExportService:
 
     def _gather_project_metadata(self) -> dict:
         """Gather all project metadata for export."""
-        from database.catalog_base import get_catalog_session
+        from database.session import get_catalog_session
         from database.catalog_repository import CatalogProjectRepository
         from services.project_service import get_project_summary
         from database.models import ResultSet, ResultCategory, LoadCase, Story, Element

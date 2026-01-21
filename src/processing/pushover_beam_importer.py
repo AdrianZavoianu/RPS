@@ -3,6 +3,9 @@ Pushover Beam Results Importer
 
 Imports pushover beam hinge rotations into the database.
 Similar to NLTHA beam rotations but for pushover analysis data.
+
+Note: A refactored v2 version using the Template Method pattern is available
+in pushover_beam_importer_v2.py for new implementations.
 """
 
 import logging
@@ -30,6 +33,9 @@ class PushoverBeamImporter:
 
     Imports beam plastic rotation values (R3 Plastic) from Excel files
     for both X and Y directions.
+
+    See also: PushoverBeamImporterV2 in pushover_beam_importer_v2.py for
+    the refactored Template Method pattern version.
     """
 
     def __init__(

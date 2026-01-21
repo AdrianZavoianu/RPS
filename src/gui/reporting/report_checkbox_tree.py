@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QApplication
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from sqlalchemy.orm import Session
 
 from gui.styles import COLORS
-from database.models import GlobalResultsCache, ElementResultsCache, JointResultsCache
+from services.data_access import DataAccessService
 
 
 class ReportCheckboxTree(QTreeWidget):
@@ -114,15 +114,23 @@ class ReportCheckboxTree(QTreeWidget):
         self._signal_timer.setInterval(100)  # 100ms debounce
         self._signal_timer.timeout.connect(self.selection_changed.emit)
 
-    def populate_from_result_set(self, result_set_id: int, session: Session) -> None:
-        """Populate tree with available result types for the given result set."""
+    def populate_from_result_set(self, result_set_id: int, session_factory: Callable[[], Session]) -> None:
+        """Populate tree with available result types for the given result set.
+
+        Args:
+            result_set_id: Result set ID to populate from
+            session_factory: Callable that returns a new Session (used by DataAccessService)
+        """
         self._updating = True
         self.clear()
 
+        # Use DataAccessService for all queries
+        data_service = DataAccessService(session_factory)
+
         # Query available result types from cache
-        available_types = self._get_available_types(result_set_id, session)
-        available_element_types = self._get_available_element_types(result_set_id, session)
-        available_joint_types = self._get_available_joint_types(result_set_id, session)
+        available_types = self._get_available_types(result_set_id, data_service)
+        available_element_types = self._get_available_element_types(result_set_id, data_service)
+        available_joint_types = self._get_available_joint_types(result_set_id, data_service)
 
         if not available_types and not available_element_types and not available_joint_types:
             # Show empty state
@@ -234,8 +242,8 @@ class ReportCheckboxTree(QTreeWidget):
 
         self._updating = False
 
-    def _get_available_types(self, result_set_id: int, session: Session) -> dict[str, set[str]]:
-        """Query cache for available result types and directions.
+    def _get_available_types(self, result_set_id: int, data_service: DataAccessService) -> dict[str, set[str]]:
+        """Query cache for available result types and directions via DataAccessService.
 
         The cache stores result_type as base type (e.g., "Drifts") and directions
         are embedded in the load case names within results_matrix JSON:
@@ -245,11 +253,7 @@ class ReportCheckboxTree(QTreeWidget):
         """
         import json
 
-        results = (
-            session.query(GlobalResultsCache.result_type, GlobalResultsCache.results_matrix)
-            .filter(GlobalResultsCache.result_set_id == result_set_id)
-            .all()
-        )
+        results = data_service.get_global_cache_with_matrix(result_set_id)
 
         # Parse result types and extract directions from matrix keys
         available: dict[str, set[str]] = {}
@@ -275,21 +279,15 @@ class ReportCheckboxTree(QTreeWidget):
 
         return available
 
-    def _get_available_element_types(self, result_set_id: int, session: Session) -> list[str]:
-        """Query element cache for available element result types (e.g., BeamRotations, ColumnRotations).
+    def _get_available_element_types(self, result_set_id: int, data_service: DataAccessService) -> list[str]:
+        """Query element cache for available element result types via DataAccessService.
 
-        Returns list of available element result types for the given result set.
+        Returns list of available element result types (e.g., BeamRotations, ColumnRotations).
         """
-        # Check for element result types in the element cache
-        results = (
-            session.query(ElementResultsCache.result_type)
-            .filter(ElementResultsCache.result_set_id == result_set_id)
-            .distinct()
-            .all()
-        )
+        types = data_service.get_available_element_types_for_result_set(result_set_id)
 
         available = []
-        for (result_type,) in results:
+        for result_type in types:
             # Map specific cache types to base types
             if result_type.startswith("BeamRotations"):
                 if "BeamRotations" not in available:
@@ -300,20 +298,15 @@ class ReportCheckboxTree(QTreeWidget):
 
         return available
 
-    def _get_available_joint_types(self, result_set_id: int, session: Session) -> list[str]:
-        """Query joint cache for available joint result types (e.g., SoilPressures_Min).
+    def _get_available_joint_types(self, result_set_id: int, data_service: DataAccessService) -> list[str]:
+        """Query joint cache for available joint result types via DataAccessService.
 
-        Returns list of available joint result types for the given result set.
+        Returns list of available joint result types (e.g., SoilPressures_Min).
         """
-        results = (
-            session.query(JointResultsCache.result_type)
-            .filter(JointResultsCache.result_set_id == result_set_id)
-            .distinct()
-            .all()
-        )
+        types = data_service.get_available_joint_types_for_result_set(result_set_id)
 
         available = []
-        for (result_type,) in results:
+        for result_type in types:
             # Only include soil pressures for now
             if result_type == "SoilPressures_Min":
                 if result_type not in available:

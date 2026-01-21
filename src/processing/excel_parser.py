@@ -31,7 +31,7 @@ class ExcelParser:
         return self._excel_file
 
     def close(self) -> None:
-        excel_file = self._excel_file
+        excel_file = getattr(self, '_excel_file', None)
         if excel_file is not None:
             try:
                 excel_file.close()

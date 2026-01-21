@@ -228,7 +228,7 @@ class ImportProjectDialog(QDialog):
 
         # Check if project already exists
         from database.catalog_repository import CatalogProjectRepository
-        from database.catalog_base import get_catalog_session
+        from database.session import get_catalog_session
 
         catalog_session = get_catalog_session()
         try:

@@ -21,6 +21,19 @@
 - Repository hygiene check: `python scripts/check_repo_hygiene.py` flags stray top-level folders (e.g., accidental extracted paths).
 - Export pipeline is modular: `export_utils` (parsing/config), `export_writer`, `export_metadata`, `export_excel_sections`, `export_discovery`, `export_import_data`, `export_formatting`, `export_pushover`.
 
+**Session Management Rules (v2.23+)**
+- **GUI queries**: Route through `DataAccessService` which uses short-lived sessions via `_session_scope()` context manager. Never pass raw Session objects to GUI code.
+- **Worker threads**: Use `DataAccessService` for thread-safe data access. Create `DataAccessService(session_factory)` in worker, not in main thread.
+- **Import dialogs**: Pass `session_factory` (callable), not `session` instance. This enables worker threads to create their own sessions.
+- **Session lifetime**: Prefer short-lived sessions that are closed after each operation. Use `_session_scope()` pattern:
+  ```python
+  with self._session_scope() as session:
+      result = session.query(Model).filter(...).all()
+      # Session closed automatically after block
+  ```
+- **Long-lived sessions**: `ProjectDetailWindow` uses a long-lived session for UI responsiveness. After imports complete, call `session.expire_all()` + `result_service.invalidate_*()` to refresh cached ORM objects.
+- **Avoid**: Passing Session objects between threads, storing Session objects globally, using `session.execute()` for complex queries (use repository methods instead).
+
 **New in v2.22**:
 - **Pushover Registry Pattern**: Centralized registry for pushover importers/parsers with lazy loading
   - `PushoverRegistry` class with type categories (GLOBAL, ELEMENT, JOINT, CURVE)

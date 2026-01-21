@@ -1,9 +1,23 @@
-"""Cache generation helpers for wide-format result views."""
+"""Cache generation helpers for wide-format result views.
+
+This module generates wide-format cache tables for fast retrieval of result data.
+The caches denormalize data into JSON matrices keyed by load case names.
+
+Configuration-Driven Caching:
+    The module supports config-driven caching via cache_builder_config.py.
+    Use `_cache_global_result_type()` or `_cache_element_result_type()` for
+    new result types instead of creating individual methods.
+
+Performance Note:
+    All cache methods use batched queries to minimize database round trips.
+    Avoid per-record queries in cache building code.
+"""
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple, Type
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -34,6 +48,8 @@ from database.models import (
     Story,
     Element,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CacheBuilder:
@@ -127,6 +143,120 @@ class CacheBuilder:
             result_type=result_type,
             entries=entries,
         )
+
+    # ------------------------------------------------------------------
+    # Generic Config-Driven Caching
+    # ------------------------------------------------------------------
+    
+    def _cache_global_result_type(
+        self,
+        model_class: Type,
+        result_type: str,
+        value_field: str,
+        has_direction: bool = True,
+    ) -> None:
+        """Generic method for caching story-level global results.
+        
+        This method can replace individual _cache_* methods for global results
+        (drifts, accelerations, forces, displacements) by using configuration.
+        
+        Args:
+            model_class: SQLAlchemy model class (e.g., StoryDrift)
+            result_type: Cache result type name (e.g., "Drifts")
+            value_field: Name of the value field on the model (e.g., "drift")
+            has_direction: Whether the model has a direction field
+            
+        Example:
+            # Instead of _cache_drifts():
+            self._cache_global_result_type(
+                model_class=StoryDrift,
+                result_type="Drifts",
+                value_field="drift",
+                has_direction=True,
+            )
+        """
+        # Build query
+        query = (
+            self.session.query(model_class, LoadCase.name)
+            .join(LoadCase, model_class.load_case_id == LoadCase.id)
+            .join(Story, model_class.story_id == Story.id)
+            .filter(Story.project_id == self.project_id)
+        )
+        
+        # Add result_category filter if model has it
+        if hasattr(model_class, 'result_category_id'):
+            query = query.filter(model_class.result_category_id == self.result_category_id)
+        
+        records = query.all()
+        
+        # Group by story
+        story_matrices: Dict[int, Dict[str, Any]] = {}
+        story_sort_orders: Dict[int, int] = {}
+        
+        for record, load_case_name in records:
+            story_id = record.story_id
+            
+            if story_id not in story_matrices:
+                story_matrices[story_id] = {}
+                story_sort_orders[story_id] = getattr(record, 'story_sort_order', 0)
+            
+            # Build key with optional direction
+            if has_direction and hasattr(record, 'direction'):
+                key = f"{load_case_name}_{record.direction}"
+            else:
+                key = load_case_name
+            
+            # Get value from the specified field
+            value = getattr(record, value_field)
+            story_matrices[story_id][key] = value
+        
+        self._replace_global_cache_entries(result_type, story_matrices, story_sort_orders)
+        logger.debug(f"Cached {len(story_matrices)} stories for {result_type}")
+
+    def cache_from_config(self, config_name: str) -> None:
+        """Cache a result type using configuration from cache_builder_config.py.
+        
+        This is the preferred method for adding new cache types. Define the
+        configuration in cache_builder_config.py and call this method.
+        
+        Args:
+            config_name: Name of the cache config (e.g., "drifts", "accelerations")
+            
+        Example:
+            # Cache drifts using config
+            builder.cache_from_config("drifts")
+            
+            # Or cache multiple types
+            for config_name in ["drifts", "accelerations", "forces"]:
+                builder.cache_from_config(config_name)
+        """
+        from processing.cache_builder_config import (
+            get_cache_config,
+            CacheType,
+            GroupingStrategy,
+        )
+        
+        config = get_cache_config(config_name)
+        
+        # Get the model class dynamically
+        import importlib
+        model_module = importlib.import_module(config.model_module)
+        model_class = getattr(model_module, config.model_class)
+        
+        if config.cache_type == CacheType.GLOBAL:
+            self._cache_global_result_type(
+                model_class=model_class,
+                result_type=config.result_type,
+                value_field=config.value_field,
+                has_direction=config.direction_field is not None,
+            )
+        else:
+            # For element and joint caches, use existing methods
+            # (Could be extended to support those via config too)
+            logger.warning(
+                f"Config-driven caching for {config.cache_type} not yet implemented. "
+                f"Use existing methods for {config_name}."
+            )
 
     # ------------------------------------------------------------------
     # Global result caches

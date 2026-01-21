@@ -119,11 +119,6 @@ def get_project_db_path(slug: str) -> Path:
     return PROJECTS_DIR / slug / f"{slug}.db"
 
 
-def _create_engine(db_path: Path):
-    """Legacy: Create engine without pooling (deprecated - use _get_or_create_engine)."""
-    return _get_or_create_engine(db_path)
-
-
 def get_project_session(db_path: Path) -> Session:
     engine = _get_or_create_engine(db_path)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

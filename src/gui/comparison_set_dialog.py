@@ -18,18 +18,20 @@ from PyQt6.QtCore import Qt
 from gui.design_tokens import FormStyles, PALETTE
 from gui.styles import COLORS
 from gui.ui_helpers import create_styled_button, create_styled_label
+from services.data_access import DataAccessService
 
 
 class ComparisonSetDialog(QDialog):
     """Dialog to create a new comparison set by selecting result sets and result types."""
 
-    def __init__(self, project_id: int, result_sets: list, session, parent=None):
+    def __init__(self, project_id: int, result_sets: list, session_factory, parent=None):
         super().__init__(parent)
         self.project_id = project_id
         self.result_sets = result_sets  # List of ResultSet objects
-        self.session = session
+        self.session_factory = session_factory
+        self._data_service = DataAccessService(session_factory)
 
-        # Get available result types from the database
+        # Get available result types from the database via DataAccessService
         result_set_ids = [rs.id for rs in result_sets]
         self.global_result_types = self._get_available_global_types(result_set_ids)
         self.element_result_types = self._get_available_element_types(result_set_ids)
@@ -300,16 +302,8 @@ class ComparisonSetDialog(QDialog):
             checkbox.setChecked(False)
 
     def _get_available_global_types(self, result_set_ids: list) -> list:
-        """Get available global result types from cache."""
-        from database.models import GlobalResultsCache
-
-        # Query distinct result types for these result sets
-        available = self.session.query(GlobalResultsCache.result_type)\
-            .filter(GlobalResultsCache.result_set_id.in_(result_set_ids))\
-            .distinct()\
-            .all()
-
-        types = [row[0] for row in available]
+        """Get available global result types from cache via DataAccessService."""
+        types = self._data_service.get_available_global_types(result_set_ids)
 
         # Map cache names to display names and maintain order
         type_map = {
@@ -322,16 +316,8 @@ class ComparisonSetDialog(QDialog):
         return [display for cache, display in type_map.items() if cache in types]
 
     def _get_available_element_types(self, result_set_ids: list) -> list:
-        """Get available element result types from cache."""
-        from database.models import ElementResultsCache
-
-        # Query distinct result types for these result sets
-        available = self.session.query(ElementResultsCache.result_type)\
-            .filter(ElementResultsCache.result_set_id.in_(result_set_ids))\
-            .distinct()\
-            .all()
-
-        types = [row[0] for row in available]
+        """Get available element result types from cache via DataAccessService."""
+        types = self._data_service.get_available_element_types(result_set_ids)
 
         # Extract base types (remove direction suffixes like _V22, _V33)
         base_types = set()
@@ -353,16 +339,8 @@ class ComparisonSetDialog(QDialog):
         return [display for cache, display in type_map.items() if cache in base_types]
 
     def _get_available_joint_types(self, result_set_ids: list) -> list:
-        """Get available joint result types from cache."""
-        from database.models import JointResultsCache
-
-        # Query distinct result types for these result sets
-        available = self.session.query(JointResultsCache.result_type)\
-            .filter(JointResultsCache.result_set_id.in_(result_set_ids))\
-            .distinct()\
-            .all()
-
-        types = [row[0] for row in available]
+        """Get available joint result types from cache via DataAccessService."""
+        types = self._data_service.get_available_joint_types(result_set_ids)
 
         # Extract base types (remove suffixes like _Min)
         base_types = set()

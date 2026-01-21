@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QTreeWidgetItem
 from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
-    from gui.results_tree_browser import ResultsTreeBrowser
+    from gui.tree_browser import ResultsTreeBrowser
 
 
 def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set, expand_first_path: bool = True) -> None:

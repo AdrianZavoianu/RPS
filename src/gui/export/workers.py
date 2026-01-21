@@ -3,11 +3,16 @@
 These workers run exports in separate threads to prevent UI freezing.
 """
 
+import logging
 from datetime import datetime
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from services.export_service import ExportService, ExportOptions
 from services.export_utils import extract_direction, extract_base_type, get_result_config
+from services.data_access import DataAccessService
+from utils.error_handling import handle_worker_error, log_exception
+
+logger = logging.getLogger(__name__)
 
 
 class ComprehensiveExportWorker(QThread):
@@ -37,14 +42,12 @@ class ComprehensiveExportWorker(QThread):
             else:
                 self._export_per_file()
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.finished.emit(False, f"Export failed: {str(e)}", "")
+            error_msg = handle_worker_error(e, "Export failed")
+            self.finished.emit(False, error_msg, "")
 
     def _export_combined(self):
         """Export all result types from all result sets to single Excel file."""
         import pandas as pd
-        from database.repository import ResultSetRepository
 
         # Calculate total operations
         total_operations = len(self.result_types) * len(self.result_set_ids)
@@ -56,14 +59,9 @@ class ComprehensiveExportWorker(QThread):
         exported_count = 0
         skipped = []
 
-        # Get result set names
-        with self.context.session() as session:
-            result_set_repo = ResultSetRepository(session)
-            result_set_names = {}
-            for rs_id in self.result_set_ids:
-                rs = result_set_repo.get_by_id(rs_id)
-                if rs:
-                    result_set_names[rs_id] = rs.name
+        # Get result set names using DataAccessService
+        data_service = DataAccessService(self.context.session)
+        result_set_names = data_service.get_result_set_names(self.result_set_ids)
 
         # Generate single timestamp for this export
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -84,30 +82,26 @@ class ComprehensiveExportWorker(QThread):
                         # Special handling for pushover curves
                         if result_type == "Curves":
                             # Export pushover curves to separate sheets (one per case)
-                            from database.repository import PushoverCaseRepository
+                            cases = data_service.get_pushover_cases(result_set_id)
 
-                            with self.context.session() as session:
-                                pushover_repo = PushoverCaseRepository(session)
-                                cases = pushover_repo.get_by_result_set(result_set_id)
+                            for case in cases:
+                                curve_points = data_service.get_pushover_curve_data(case.id)
 
-                                for case in cases:
-                                    curve_points = pushover_repo.get_curve_data(case.id)
+                                if not curve_points:
+                                    continue
 
-                                    if not curve_points:
-                                        continue
+                                # Build DataFrame for this curve
+                                data = {
+                                    'Step Number': [pt.step_number for pt in curve_points],
+                                    'Base Shear (kN)': [pt.base_shear for pt in curve_points],
+                                    'Displacement (mm)': [pt.displacement for pt in curve_points]
+                                }
+                                df = pd.DataFrame(data)
 
-                                    # Build DataFrame for this curve
-                                    data = {
-                                        'Step Number': [pt.step_number for pt in curve_points],
-                                        'Base Shear (kN)': [pt.base_shear for pt in curve_points],
-                                        'Displacement (mm)': [pt.displacement for pt in curve_points]
-                                    }
-                                    df = pd.DataFrame(data)
-
-                                    # Sheet name: ResultSetName_CaseName (truncate to 31 chars)
-                                    sheet_name = f"{result_set_name}_{case.name}"[:31]
-                                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                    exported_count += 1
+                                # Sheet name: ResultSetName_CaseName (truncate to 31 chars)
+                                sheet_name = f"{result_set_name}_{case.name}"[:31]
+                                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                exported_count += 1
 
                             continue  # Move to next result type
 
@@ -178,9 +172,7 @@ class ComprehensiveExportWorker(QThread):
                             exported_count += 1
 
                     except Exception as e:
-                        print(f"Error exporting {result_set_name} - {result_type}: {str(e)}")
-                        import traceback
-                        traceback.print_exc()
+                        log_exception(e, f"Error exporting {result_set_name} - {result_type}")
                         skipped.append(f"{result_set_name}_{result_type}")
                         continue
 
@@ -200,21 +192,15 @@ class ComprehensiveExportWorker(QThread):
         For CSV format: Creates one CSV file per result type per result set.
         """
         import pandas as pd
-        from database.repository import ResultSetRepository
 
         self.output_folder.mkdir(parents=True, exist_ok=True)
 
         # Generate single timestamp for this export
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Get result set names
-        with self.context.session() as session:
-            result_set_repo = ResultSetRepository(session)
-            result_set_names = {}
-            for rs_id in self.result_set_ids:
-                rs = result_set_repo.get_by_id(rs_id)
-                if rs:
-                    result_set_names[rs_id] = rs.name
+        # Get result set names using DataAccessService
+        data_service = DataAccessService(self.context.session)
+        result_set_names = data_service.get_result_set_names(self.result_set_ids)
 
         if self.format_type == "excel":
             # Excel: One file per result set with all types as sheets
@@ -226,9 +212,9 @@ class ComprehensiveExportWorker(QThread):
     def _export_excel_per_result_set(self, result_set_names, timestamp):
         """Export one Excel file per result set with all result types as sheets."""
         import pandas as pd
-        from database.repository import PushoverCaseRepository
 
         export_service = ExportService(self.context, self.result_service)
+        data_service = DataAccessService(self.context.session)
 
         # Calculate total operations (one per result set)
         total_operations = len(self.result_set_ids)
@@ -261,28 +247,26 @@ class ComprehensiveExportWorker(QThread):
                         try:
                             # Special handling for pushover curves
                             if result_type == "Curves":
-                                with self.context.session() as session:
-                                    pushover_repo = PushoverCaseRepository(session)
-                                    cases = pushover_repo.get_by_result_set(result_set_id)
+                                cases = data_service.get_pushover_cases(result_set_id)
 
-                                    for case in cases:
-                                        curve_points = pushover_repo.get_curve_data(case.id)
+                                for case in cases:
+                                    curve_points = data_service.get_pushover_curve_data(case.id)
 
-                                        if not curve_points:
-                                            continue
+                                    if not curve_points:
+                                        continue
 
-                                        # Build DataFrame for this curve
-                                        data = {
-                                            'Step Number': [pt.step_number for pt in curve_points],
-                                            'Base Shear (kN)': [pt.base_shear for pt in curve_points],
-                                            'Displacement (mm)': [pt.displacement for pt in curve_points]
-                                        }
-                                        df = pd.DataFrame(data)
+                                    # Build DataFrame for this curve
+                                    data = {
+                                        'Step Number': [pt.step_number for pt in curve_points],
+                                        'Base Shear (kN)': [pt.base_shear for pt in curve_points],
+                                        'Displacement (mm)': [pt.displacement for pt in curve_points]
+                                    }
+                                    df = pd.DataFrame(data)
 
-                                        # Sheet name: "Curve_CaseName" (truncate to 31 chars)
-                                        sheet_name = f"Curve_{case.name}"[:31]
-                                        df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                        sheets_written += 1
+                                    # Sheet name: "Curve_CaseName" (truncate to 31 chars)
+                                    sheet_name = f"Curve_{case.name}"[:31]
+                                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                    sheets_written += 1
 
                                 continue  # Move to next result type
 
@@ -349,9 +333,7 @@ class ComprehensiveExportWorker(QThread):
                                 sheets_written += 1
 
                         except Exception as e:
-                            print(f"Error exporting {result_set_name} - {result_type}: {str(e)}")
-                            import traceback
-                            traceback.print_exc()
+                            log_exception(e, f"Error exporting {result_set_name} - {result_type}")
                             continue
 
                 if sheets_written > 0:
@@ -363,9 +345,7 @@ class ComprehensiveExportWorker(QThread):
                         output_path.unlink()
 
             except Exception as e:
-                print(f"Error creating Excel file for {result_set_name}: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                log_exception(e, f"Error creating Excel file for {result_set_name}")
                 skipped.append(result_set_name)
 
         # Build success message
@@ -457,9 +437,7 @@ class ComprehensiveExportWorker(QThread):
                         exported_count += 1
 
                 except Exception as e:
-                    print(f"Error exporting {result_set_name} - {result_type}: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
+                    log_exception(e, f"Error exporting {result_set_name} - {result_type}")
                     skipped.append(f"{result_set_name}_{result_type}")
                     continue
 
@@ -561,9 +539,8 @@ class ExportProjectExcelWorker(QThread):
                 str(self.options.output_path)
             )
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.finished.emit(False, f"Export failed: {str(e)}", "")
+            error_msg = handle_worker_error(e, "Export failed")
+            self.finished.emit(False, error_msg, "")
 
     def _emit_progress(self, message: str, current: int, total: int):
         self.progress.emit(message, current, total)

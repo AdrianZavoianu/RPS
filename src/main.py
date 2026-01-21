@@ -13,7 +13,7 @@ from gui.main_window import MainWindow
 from gui.styles import get_stylesheet
 from gui.window_utils import set_windows_app_id
 from gui.icon_utils import set_app_icons
-from database.base import init_db
+from database.session import init_catalog_db as init_db
 from utils.env import is_dev_mode
 from utils.logging_utils import setup_logging
 

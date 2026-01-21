@@ -9,11 +9,16 @@ from pathlib import Path
 from typing import Optional, List
 import shutil
 
-from database.base import get_project_db_path, init_project_db, get_project_session
-from database.catalog_base import init_catalog_db, get_catalog_session
+from database.session import (
+    get_project_db_path,
+    init_project_db,
+    get_project_session,
+    init_catalog_db,
+    get_catalog_session,
+    project_session_factory,
+)
 from database.catalog_repository import CatalogProjectRepository
 from database.repository import ProjectRepository, ResultSetRepository
-from database.session import project_session_factory
 from utils.slug import slugify
 
 
@@ -222,7 +227,7 @@ def delete_project_context(name: str) -> bool:
     Returns:
         True if project was deleted, False if project not found
     """
-    from database.base import dispose_project_engine
+    from database.session import dispose_project_engine
     import gc
     import time
 

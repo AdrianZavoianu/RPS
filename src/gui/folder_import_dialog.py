@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -27,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .styles import COLORS
-from .ui_helpers import create_styled_button, create_styled_label
+from .ui_helpers import create_styled_button, create_styled_label, create_checkbox_icons
 from services.import_preparation import ImportPreparationService, PrescanResult
 from services.project_service import (
     ProjectContext,
@@ -42,34 +41,6 @@ EXCEL_PATTERNS: Sequence[str] = ("*.xlsx", "*.xls")
 
 
 logger = logging.getLogger(__name__)
-
-
-def create_checkbox_icons() -> tuple[QIcon, QIcon]:
-    """Create checkbox icons for unchecked and checked states."""
-    size = 20
-
-    # Unchecked icon (empty)
-    unchecked_pixmap = QPixmap(size, size)
-    unchecked_pixmap.fill(Qt.GlobalColor.transparent)
-    unchecked_icon = QIcon(unchecked_pixmap)
-
-    # Checked icon (with checkmark)
-    checked_pixmap = QPixmap(size, size)
-    checked_pixmap.fill(Qt.GlobalColor.transparent)
-
-    painter = QPainter(checked_pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-    # Draw checkmark
-    painter.setPen(QPen(QColor("#ffffff"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    # Checkmark path (optimized for visibility)
-    painter.drawLine(int(size * 0.25), int(size * 0.5), int(size * 0.4), int(size * 0.65))
-    painter.drawLine(int(size * 0.4), int(size * 0.65), int(size * 0.75), int(size * 0.3))
-
-    painter.end()
-    checked_icon = QIcon(checked_pixmap)
-
-    return unchecked_icon, checked_icon
 
 
 class LoadCaseScanWorker(QThread):

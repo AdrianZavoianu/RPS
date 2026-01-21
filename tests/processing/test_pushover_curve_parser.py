@@ -77,6 +77,7 @@ class TestPushoverParserMocked:
             parser = PushoverParser.__new__(PushoverParser)
             parser.file_path = "test.xlsx"
             parser.excel_file = MagicMock()  # Mock the ExcelFile object
+            parser._sheet_cache = {}  # Initialize sheet cache
 
             with patch.object(pd, 'read_excel', return_value=mock_displacement_df):
                 # Mock the drop method to return same df (skip units row logic)
@@ -101,6 +102,7 @@ class TestPushoverParserMocked:
             parser = PushoverParser.__new__(PushoverParser)
             parser.file_path = "test.xlsx"
             parser.excel_file = MagicMock()
+            parser._sheet_cache = {}  # Initialize sheet cache
 
             with patch.object(pd, 'read_excel', return_value=mock_displacement_df):
                 mock_displacement_df.drop = MagicMock(return_value=mock_displacement_df)
@@ -122,6 +124,7 @@ class TestPushoverParserMocked:
             parser = PushoverParser.__new__(PushoverParser)
             parser.file_path = "test.xlsx"
             parser.excel_file = MagicMock()
+            parser._sheet_cache = {}  # Initialize sheet cache
 
             with patch.object(pd, 'read_excel', return_value=mock_forces_df):
                 mock_forces_df.drop = MagicMock(return_value=mock_forces_df)
@@ -141,6 +144,7 @@ class TestPushoverParserMocked:
             parser = PushoverParser.__new__(PushoverParser)
             parser.file_path = "test.xlsx"
             parser.excel_file = MagicMock()
+            parser._sheet_cache = {}  # Initialize sheet cache
 
             with patch.object(pd, 'read_excel', return_value=mock_forces_df):
                 mock_forces_df.drop = MagicMock(return_value=mock_forces_df)
@@ -253,6 +257,7 @@ class TestPushoverParserEdgeCases:
             parser = PushoverParser.__new__(PushoverParser)
             parser.file_path = "test.xlsx"
             parser.excel_file = MagicMock()
+            parser._sheet_cache = {}  # Initialize sheet cache
 
             # Create DataFrame with non-zero initial displacement
             df = pd.DataFrame({

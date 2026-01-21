@@ -258,15 +258,11 @@ class TestBrowserIntegration:
     """Integration tests for the full ResultsTreeBrowser."""
 
     def test_browser_imports_correctly(self):
-        """Test that browser can be imported from both locations."""
+        """Test that browser can be imported from new package."""
         # Import from new package
-        from gui.tree_browser import ResultsTreeBrowser as NewBrowser
-
-        # Import from backward-compat location
-        from gui.results_tree_browser import ResultsTreeBrowser as OldBrowser
-
-        # Should be the same class
-        assert NewBrowser is OldBrowser
+        from gui.tree_browser import ResultsTreeBrowser
+        assert ResultsTreeBrowser is not None
+        # Backward-compat wrapper tests removed - wrapper files deleted in v2.23
 
     def test_browser_creates_without_error(self):
         """Test that browser widget can be instantiated."""

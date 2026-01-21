@@ -621,8 +621,7 @@ class MainWindow(QMainWindow):
 
     def _on_database_info(self):
         """Show database information."""
-        from database.catalog_base import CATALOG_DB_PATH
-        from database.base import PROJECTS_DIR
+        from database.session import CATALOG_DB_PATH, PROJECTS_DIR
 
         message = (
             f"Catalog: {CATALOG_DB_PATH} | "

@@ -18,16 +18,20 @@ from processing.pushover_curve_parser import PushoverParser
 
 
 class PushoverCurveImportWorker(QThread):
-    """Worker thread for pushover curve import (non-blocking UI)."""
+    """Worker thread for pushover curve import (non-blocking UI).
+
+    Thread Safety: Creates its own session using thread_scoped_session to ensure
+    thread-safe database access. Never shares a session with the main UI thread.
+    """
 
     progress = pyqtSignal(str)  # Status message
     finished = pyqtSignal(dict)  # Import statistics
     error = pyqtSignal(str)  # Error message
 
-    def __init__(self, session, file_path: Path, project_id: int,
+    def __init__(self, db_path: Path, file_path: Path, project_id: int,
                  result_set_name: str, base_story: str, direction: str, overwrite: bool):
         super().__init__()
-        self.session = session
+        self.db_path = db_path
         self.file_path = file_path
         self.project_id = project_id
         self.result_set_name = result_set_name
@@ -36,24 +40,31 @@ class PushoverCurveImportWorker(QThread):
         self.overwrite = overwrite
 
     def run(self):
-        """Execute import in background thread."""
+        """Execute import in background thread with thread-safe session."""
+        from database.session import thread_scoped_session
+
         try:
             self.progress.emit("Initializing importer...")
-            importer = PushoverImporter(self.session)
 
-            if self.direction:
-                self.progress.emit(f"Parsing Excel file (direction: {self.direction})...")
-            else:
-                self.progress.emit("Parsing Excel file (both X and Y directions)...")
+            # Create thread-local session for import operations
+            with thread_scoped_session(self.db_path) as session:
+                importer = PushoverImporter(session)
 
-            stats = importer.import_pushover_file(
-                file_path=self.file_path,
-                project_id=self.project_id,
-                result_set_name=self.result_set_name,
-                base_story=self.base_story,
-                direction=self.direction,
-                overwrite=self.overwrite
-            )
+                if self.direction:
+                    self.progress.emit(f"Parsing Excel file (direction: {self.direction})...")
+                else:
+                    self.progress.emit("Parsing Excel file (both X and Y directions)...")
+
+                stats = importer.import_pushover_file(
+                    file_path=self.file_path,
+                    project_id=self.project_id,
+                    result_set_name=self.result_set_name,
+                    base_story=self.base_story,
+                    direction=self.direction,
+                    overwrite=self.overwrite
+                )
+
+                # Session commits automatically when exiting thread_scoped_session
 
             self.finished.emit(stats)
 
@@ -62,15 +73,18 @@ class PushoverCurveImportWorker(QThread):
 
 
 class PushoverImportDialog(QDialog):
-    """Dialog for importing pushover curve data from Excel files."""
+    """Dialog for importing pushover curve data from Excel files.
+
+    Thread Safety: Uses db_path to create thread-safe sessions in worker threads.
+    """
 
     import_completed = pyqtSignal(dict)  # Emit stats when import succeeds
 
-    def __init__(self, project_id: int, project_name: str, session, parent=None):
+    def __init__(self, project_id: int, project_name: str, db_path: Path, parent=None):
         super().__init__(parent)
         self.project_id = project_id
         self.project_name = project_name
-        self.session = session
+        self.db_path = db_path
         self.file_path = None
         self.worker = None
 
@@ -271,9 +285,9 @@ class PushoverImportDialog(QDialog):
         self._log(f"  Result Set: {result_set_name}")
         self._log(f"  Base Story: {base_story}")
 
-        # Start worker thread
+        # Start worker thread with db_path for thread-safe session creation
         self.worker = PushoverCurveImportWorker(
-            session=self.session,
+            db_path=self.db_path,
             file_path=self.file_path,
             project_id=self.project_id,
             result_set_name=result_set_name,

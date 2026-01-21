@@ -16,16 +16,7 @@ class TestProjectDetailImports:
         from gui.project_detail import ProjectDetailWindow
         assert ProjectDetailWindow is not None
 
-    def test_imports_from_backward_compat_location(self):
-        """Test that ProjectDetailWindow can be imported from old location."""
-        from gui.project_detail_window import ProjectDetailWindow
-        assert ProjectDetailWindow is not None
-
-    def test_both_imports_are_same_class(self):
-        """Test that both import locations return the same class."""
-        from gui.project_detail import ProjectDetailWindow as NewClass
-        from gui.project_detail_window import ProjectDetailWindow as OldClass
-        assert NewClass is OldClass
+    # Backward-compat wrapper tests removed - wrapper files deleted in v2.23
 
 
 class TestViewLoaders:

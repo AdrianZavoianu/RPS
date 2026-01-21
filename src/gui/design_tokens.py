@@ -191,3 +191,172 @@ class FormStyles:
             background-color: transparent;
         }}
         """
+
+    @staticmethod
+    def progress_bar() -> str:
+        """Style for QProgressBar widgets."""
+        c = PALETTE
+        return f"""
+        QProgressBar {{
+            border: none;
+            border-radius: 4px;
+            background-color: {c['bg_secondary']};
+            height: 8px;
+            text-align: center;
+        }}
+        QProgressBar::chunk {{
+            background-color: {c['accent_primary']};
+            border-radius: 4px;
+        }}
+        """
+
+    @staticmethod
+    def list_widget() -> str:
+        """Style for QListWidget widgets."""
+        c = PALETTE
+        return f"""
+        QListWidget {{
+            background-color: {c['bg_tertiary']};
+            border: 1px solid {c['border_default']};
+            border-radius: 6px;
+            padding: 4px;
+            color: {c['text_primary']};
+        }}
+        QListWidget::item {{
+            padding: 6px 8px;
+            border-radius: 4px;
+        }}
+        QListWidget::item:selected {{
+            background-color: {c['accent_selected']};
+            color: {c['text_primary']};
+        }}
+        QListWidget::item:hover {{
+            background-color: {c['bg_hover']};
+        }}
+        """
+
+    @staticmethod
+    def text_log() -> str:
+        """Style for read-only text areas (logs, status displays)."""
+        c = PALETTE
+        t = TYPOGRAPHY
+        return f"""
+        QTextEdit, QPlainTextEdit {{
+            background-color: {c['bg_primary']};
+            border: 1px solid {c['border_default']};
+            border-radius: 6px;
+            padding: 8px;
+            color: {c['text_secondary']};
+            font-family: monospace;
+            font-size: {t['small']}px;
+        }}
+        """
+
+    @staticmethod
+    def tab_widget() -> str:
+        """Style for QTabWidget."""
+        c = PALETTE
+        t = TYPOGRAPHY
+        return f"""
+        QTabWidget::pane {{
+            border: 1px solid {c['border_default']};
+            border-radius: 6px;
+            background-color: {c['bg_secondary']};
+            margin-top: -1px;
+        }}
+        QTabBar::tab {{
+            background-color: {c['bg_tertiary']};
+            color: {c['text_secondary']};
+            padding: 8px 16px;
+            border: 1px solid {c['border_default']};
+            border-bottom: none;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+            margin-right: 2px;
+            font-size: {t['body']}px;
+        }}
+        QTabBar::tab:selected {{
+            background-color: {c['bg_secondary']};
+            color: {c['text_primary']};
+            border-color: {c['border_default']};
+        }}
+        QTabBar::tab:hover:!selected {{
+            background-color: {c['bg_hover']};
+        }}
+        """
+
+    @staticmethod
+    def splitter() -> str:
+        """Style for QSplitter handles."""
+        c = PALETTE
+        return f"""
+        QSplitter::handle {{
+            background-color: {c['border_default']};
+        }}
+        QSplitter::handle:horizontal {{
+            width: 2px;
+        }}
+        QSplitter::handle:vertical {{
+            height: 2px;
+        }}
+        QSplitter::handle:hover {{
+            background-color: {c['accent_primary']};
+        }}
+        """
+
+    @staticmethod
+    def table_widget() -> str:
+        """Style for QTableWidget."""
+        c = PALETTE
+        t = TYPOGRAPHY
+        return f"""
+        QTableWidget {{
+            background-color: {c['bg_secondary']};
+            border: 1px solid {c['border_default']};
+            border-radius: 6px;
+            gridline-color: {c['border_subtle']};
+            color: {c['text_primary']};
+            font-size: {t['body']}px;
+        }}
+        QTableWidget::item {{
+            padding: 4px 8px;
+        }}
+        QTableWidget::item:selected {{
+            background-color: {c['accent_selected']};
+            color: {c['text_primary']};
+        }}
+        QHeaderView::section {{
+            background-color: {c['bg_tertiary']};
+            color: {c['text_secondary']};
+            padding: 6px 8px;
+            border: none;
+            border-bottom: 1px solid {c['border_default']};
+            font-weight: 500;
+        }}
+        """
+
+    @staticmethod
+    def header_label(size: str = "header") -> str:
+        """Style for header labels.
+        
+        Args:
+            size: Typography size key ("header", "subheader", etc.)
+        """
+        c = PALETTE
+        t = TYPOGRAPHY
+        font_size = t.get(size, t["header"])
+        return f"color: {c['text_primary']}; font-size: {font_size}px; font-weight: 600;"
+
+    @staticmethod
+    def secondary_label() -> str:
+        """Style for secondary/description labels."""
+        c = PALETTE
+        t = TYPOGRAPHY
+        return f"color: {c['text_secondary']}; font-size: {t['small']}px;"
+
+    @staticmethod
+    def muted_label() -> str:
+        """Style for muted/help text labels."""
+        c = PALETTE
+        t = TYPOGRAPHY
+        return f"color: {c['text_muted']}; font-size: {t['tiny']}px; font-style: italic;"

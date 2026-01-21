@@ -17,10 +17,10 @@ from typing import Dict, List
 from gui.components.export_selectors import ResultSetSelector, ResultTypeSelector
 from services.export_discovery import ExportDiscoveryService
 from services.export_service import ExportService, ExportOptions
+from services.data_access import DataAccessService
 from gui.design_tokens import FormStyles, PALETTE
 from gui.ui_helpers import create_styled_button
 from gui.styles import COLORS
-from database.models import ElementResultsCache, JointResultsCache
 
 from .workers import ComprehensiveExportWorker, ExportWorker, ExportProjectExcelWorker
 
@@ -365,34 +365,26 @@ class ComprehensiveExportDialog(QDialog):
                     expanded_types.append(base_type)
             elif base_type in self.available_types['element']:
                 # Element type - need to expand with directions if applicable
-                # Check cache for actual full type names across all result sets of this context
-                with self.context.session() as session:
-                    result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
-                    element_full_types = session.query(
-                        ElementResultsCache.result_type
-                    ).filter(
-                        ElementResultsCache.result_set_id.in_(result_set_ids)
-                    ).distinct().all()
+                # Use DataAccessService to get full type names
+                result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
+                data_service = DataAccessService(self.context.session)
+                element_full_types = data_service.get_available_element_types(result_set_ids)
 
-                    # Find all variants of this base type
-                    for full_type, in element_full_types:
-                        if full_type.startswith(base_type):
-                            expanded_types.append(full_type)
+                # Find all variants of this base type
+                for full_type in element_full_types:
+                    if full_type.startswith(base_type):
+                        expanded_types.append(full_type)
             elif base_type in self.available_types['joint']:
                 # Joint type - need to expand with suffix (_Min, _Ux, _Uy, _Uz)
-                # Check cache for actual full type names across all result sets of this context
-                with self.context.session() as session:
-                    result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
-                    joint_full_types = session.query(
-                        JointResultsCache.result_type
-                    ).filter(
-                        JointResultsCache.result_set_id.in_(result_set_ids)
-                    ).distinct().all()
+                # Use DataAccessService to get full type names
+                result_set_ids = [rs_id for rs_id, _ in self.available_result_sets]
+                data_service = DataAccessService(self.context.session)
+                joint_full_types = data_service.get_available_joint_types(result_set_ids)
 
-                    # Find all variants of this base type
-                    for full_type, in joint_full_types:
-                        if full_type.startswith(base_type):
-                            expanded_types.append(full_type)
+                # Find all variants of this base type
+                for full_type in joint_full_types:
+                    if full_type.startswith(base_type):
+                        expanded_types.append(full_type)
 
         return expanded_types
 

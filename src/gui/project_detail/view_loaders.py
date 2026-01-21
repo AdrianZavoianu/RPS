@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QTableWidgetItem
 
 from config.result_config import RESULT_CONFIGS, format_result_type_with_unit
 from config.analysis_types import AnalysisType
+from utils.error_handling import log_exception
 from gui.controllers.table_builder import (
     apply_headers,
     populate_beam_rotations_table,
@@ -61,8 +62,7 @@ def load_standard_dataset(
     except Exception as exc:
         area.standard_view.clear()
         window.statusBar().showMessage(f"Error loading results: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading results")
 
 
 def load_element_dataset(
@@ -105,8 +105,7 @@ def load_element_dataset(
     except Exception as exc:
         area.standard_view.clear()
         window.statusBar().showMessage(f"Error loading element results: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading element results")
 
 
 def load_joint_dataset(
@@ -145,8 +144,7 @@ def load_joint_dataset(
     except Exception as exc:
         area.standard_view.clear()
         window.statusBar().showMessage(f"Error loading joint results: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_maxmin_dataset(
@@ -176,8 +174,7 @@ def load_maxmin_dataset(
     except Exception as exc:
         area.maxmin_widget.clear_data()
         window.statusBar().showMessage(f"Error loading Max/Min results: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_element_maxmin_dataset(
@@ -210,8 +207,7 @@ def load_element_maxmin_dataset(
     except Exception as exc:
         area.maxmin_widget.clear_data()
         window.statusBar().showMessage(f"Error loading element Max/Min results: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_all_rotations(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -246,8 +242,7 @@ def load_all_rotations(window: "ProjectDetailWindow", result_set_id: int, area: 
     except Exception as exc:
         area.all_rotations_widget.clear_data()
         window.statusBar().showMessage(f"Error loading all rotations: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_all_column_rotations(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -282,8 +277,7 @@ def load_all_column_rotations(window: "ProjectDetailWindow", result_set_id: int,
     except Exception as exc:
         area.all_rotations_widget.clear_data()
         window.statusBar().showMessage(f"Error loading all column rotations: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_all_beam_rotations(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -318,8 +312,7 @@ def load_all_beam_rotations(window: "ProjectDetailWindow", result_set_id: int, a
     except Exception as exc:
         area.all_rotations_widget.clear_data()
         window.statusBar().showMessage(f"Error loading all beam rotations: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_comparison_all_rotations(window: "ProjectDetailWindow", comparison_set, area: ContentArea) -> None:
@@ -371,8 +364,7 @@ def load_comparison_all_rotations(window: "ProjectDetailWindow", comparison_set,
     except Exception as exc:
         area.comparison_all_rotations_widget.clear_data()
         window.statusBar().showMessage(f"Error loading comparison all rotations: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_comparison_all_column_rotations(window: "ProjectDetailWindow", comparison_set, area: ContentArea) -> None:
@@ -424,8 +416,7 @@ def load_comparison_all_column_rotations(window: "ProjectDetailWindow", comparis
     except Exception as exc:
         area.comparison_all_rotations_widget.clear_data()
         window.statusBar().showMessage(f"Error loading comparison column rotations: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_comparison_all_beam_rotations(window: "ProjectDetailWindow", comparison_set, area: ContentArea) -> None:
@@ -478,8 +469,7 @@ def load_comparison_all_beam_rotations(window: "ProjectDetailWindow", comparison
     except Exception as exc:
         area.comparison_all_rotations_widget.clear_data()
         window.statusBar().showMessage(f"Error loading comparison beam rotations: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_comparison_joint_scatter(
@@ -535,8 +525,7 @@ def load_comparison_joint_scatter(
     except Exception as exc:
         area.comparison_joint_scatter_widget.clear_data()
         window.statusBar().showMessage(f"Error loading comparison joint scatter: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_beam_rotations_table(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -588,8 +577,7 @@ def load_beam_rotations_table(window: "ProjectDetailWindow", result_set_id: int,
     except Exception as exc:
         area.beam_rotations_table.clear()
         window.statusBar().showMessage(f"Error loading beam rotations table: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_all_soil_pressures(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -619,8 +607,7 @@ def load_all_soil_pressures(window: "ProjectDetailWindow", result_set_id: int, a
     except Exception as exc:
         area.soil_pressure_plot_widget.clear_data()
         window.statusBar().showMessage(f"Error loading soil pressures: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_soil_pressures_table(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -678,8 +665,7 @@ def load_soil_pressures_table(window: "ProjectDetailWindow", result_set_id: int,
     except Exception as exc:
         area.beam_rotations_table.clear()
         window.statusBar().showMessage(f"Error loading soil pressures table: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_all_vertical_displacements(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -709,8 +695,7 @@ def load_all_vertical_displacements(window: "ProjectDetailWindow", result_set_id
     except Exception as exc:
         area.soil_pressure_plot_widget.clear_data()
         window.statusBar().showMessage(f"Error loading vertical displacements: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_vertical_displacements_table(window: "ProjectDetailWindow", result_set_id: int, area: ContentArea) -> None:
@@ -768,8 +753,7 @@ def load_vertical_displacements_table(window: "ProjectDetailWindow", result_set_
     except Exception as exc:
         area.beam_rotations_table.clear()
         window.statusBar().showMessage(f"Error loading vertical displacements table: {str(exc)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_pushover_curve(window: "ProjectDetailWindow", case_name: str, area: ContentArea) -> None:
@@ -816,8 +800,7 @@ def load_pushover_curve(window: "ProjectDetailWindow", case_name: str, area: Con
 
     except Exception as e:
         window.statusBar().showMessage(f"Error loading pushover curve: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_all_pushover_curves(window: "ProjectDetailWindow", direction: str, area: ContentArea) -> None:
@@ -862,8 +845,7 @@ def load_all_pushover_curves(window: "ProjectDetailWindow", direction: str, area
 
     except Exception as e:
         window.statusBar().showMessage(f"Error loading all pushover curves: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")
 
 
 def load_time_series_global(window: "ProjectDetailWindow", direction: str, load_case_name: str, area: ContentArea) -> None:
@@ -989,5 +971,4 @@ def load_time_series_global(window: "ProjectDetailWindow", direction: str, load_
 
     except Exception as e:
         window.statusBar().showMessage(f"Error loading time series data: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        log_exception(exc, "Error loading data")

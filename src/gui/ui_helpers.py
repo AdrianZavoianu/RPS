@@ -3,8 +3,9 @@ UI Helper functions for applying GMP-style component styling to PyQt6 widgets.
 """
 
 from PyQt6.QtWidgets import QPushButton, QLabel, QDialog, QWidget
-from PyQt6.QtCore import QTimer
-from typing import Literal, Optional
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from typing import Literal, Optional, Tuple
 
 ButtonVariant = Literal["primary", "secondary", "danger", "ghost"]
 ButtonSize = Literal["sm", "md", "lg"]
@@ -131,3 +132,36 @@ def show_dialog_with_blur(dialog: QDialog, parent: Optional[QWidget] = None) -> 
         QTimer.singleShot(250, overlay.deleteLater)
 
     return result
+
+
+def create_checkbox_icons(size: int = 20) -> Tuple[QIcon, QIcon]:
+    """Create checkbox icons for unchecked and checked states.
+
+    Args:
+        size: Size of the icon in pixels (default: 20)
+
+    Returns:
+        Tuple of (unchecked_icon, checked_icon)
+    """
+    # Unchecked icon (empty)
+    unchecked_pixmap = QPixmap(size, size)
+    unchecked_pixmap.fill(Qt.GlobalColor.transparent)
+    unchecked_icon = QIcon(unchecked_pixmap)
+
+    # Checked icon (with checkmark)
+    checked_pixmap = QPixmap(size, size)
+    checked_pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(checked_pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Draw checkmark
+    painter.setPen(QPen(QColor("#ffffff"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    # Checkmark path (optimized for visibility)
+    painter.drawLine(int(size * 0.25), int(size * 0.5), int(size * 0.4), int(size * 0.65))
+    painter.drawLine(int(size * 0.4), int(size * 0.65), int(size * 0.75), int(size * 0.3))
+
+    painter.end()
+    checked_icon = QIcon(checked_pixmap)
+
+    return unchecked_icon, checked_icon

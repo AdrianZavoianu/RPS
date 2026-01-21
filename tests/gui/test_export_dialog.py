@@ -27,25 +27,7 @@ class TestExportDialogImports:
         assert ExportWorker is not None
         assert ExportProjectExcelWorker is not None
 
-    def test_imports_from_backward_compat_location(self):
-        """Test that export classes can be imported from old location."""
-        from gui.export_dialog import ComprehensiveExportDialog
-        from gui.export_dialog import SimpleExportDialog
-        from gui.export_dialog import ExportProjectExcelDialog
-
-        assert ComprehensiveExportDialog is not None
-        assert SimpleExportDialog is not None
-        assert ExportProjectExcelDialog is not None
-
-    def test_both_imports_are_same_classes(self):
-        """Test that both import locations return the same classes."""
-        from gui.export import ComprehensiveExportDialog as NewClass
-        from gui.export_dialog import ComprehensiveExportDialog as OldClass
-        assert NewClass is OldClass
-
-        from gui.export import ComprehensiveExportWorker as NewWorker
-        from gui.export_dialog import ComprehensiveExportWorker as OldWorker
-        assert NewWorker is OldWorker
+    # Backward-compat wrapper tests removed - wrapper files deleted in v2.23
 
 
 class TestExportWorkers:
