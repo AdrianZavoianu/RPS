@@ -50,12 +50,13 @@ class PushoverRegistry:
     ALL_TYPES = GLOBAL_TYPES | ELEMENT_TYPES | JOINT_TYPES | CURVE_TYPES
     
     # Maps result type to (module_name, class_name) for lazy loading
+    # Note: Element importers use v2 versions with Template Method pattern
     _IMPORTER_MAP: Dict[str, tuple[str, str]] = {
         "global": ("pushover_global_importer", "PushoverGlobalImporter"),
-        "wall": ("pushover_wall_importer", "PushoverWallImporter"),
-        "beam": ("pushover_beam_importer", "PushoverBeamImporter"),
-        "column": ("pushover_column_importer", "PushoverColumnImporter"),
-        "column_shear": ("pushover_column_shear_importer", "PushoverColumnShearImporter"),
+        "wall": ("pushover_wall_importer_v2", "PushoverWallImporter"),
+        "beam": ("pushover_beam_importer_v2", "PushoverBeamImporter"),
+        "column": ("pushover_column_importer_v2", "PushoverColumnImporter"),
+        "column_shear": ("pushover_column_shear_importer_v2", "PushoverColumnShearImporter"),
         "soil_pressure": ("pushover_soil_pressure_importer", "PushoverSoilPressureImporter"),
         "vert_displacement": ("pushover_vert_displacement_importer", "PushoverVertDisplacementImporter"),
         "joint": ("pushover_joint_importer", "PushoverJointImporter"),

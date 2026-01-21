@@ -76,10 +76,10 @@ class PushoverImportWorker(QThread):
         """Run import in background thread with thread-safe session."""
         from database.session import thread_scoped_session
         from processing.pushover_global_importer import PushoverGlobalImporter
-        from processing.pushover_wall_importer import PushoverWallImporter
-        from processing.pushover_column_importer import PushoverColumnImporter
-        from processing.pushover_column_shear_importer import PushoverColumnShearImporter
-        from processing.pushover_beam_importer import PushoverBeamImporter
+        from processing.pushover_wall_importer_v2 import PushoverWallImporter
+        from processing.pushover_column_importer_v2 import PushoverColumnImporter
+        from processing.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
+        from processing.pushover_beam_importer_v2 import PushoverBeamImporter
         from database.models import ResultSet
 
         try:

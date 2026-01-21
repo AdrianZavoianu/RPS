@@ -79,7 +79,7 @@ class TimeHistoryImportWorker(QThread):
     thread-safe database access. Never shares a session with the main UI thread.
     """
 
-    progress = pyqtSignal(int, str)  # Progress percent, status message
+    progress = pyqtSignal(str, int, int)  # message, current, total
     finished = pyqtSignal(int, int)  # Number of records imported, result_set_id
     error = pyqtSignal(str)  # Error message
 
@@ -105,7 +105,7 @@ class TimeHistoryImportWorker(QThread):
         from database.session import thread_scoped_session
 
         try:
-            self.progress.emit(5, "Initializing import...")
+            self.progress.emit("Initializing import...", 5, 100)
 
             # Create thread-local session for import operations
             with thread_scoped_session(self.db_path) as session:
@@ -121,7 +121,7 @@ class TimeHistoryImportWorker(QThread):
 
                 for idx, file_path in enumerate(self.file_paths):
                     base_progress = int((idx / num_files) * 90) + 5
-                    self.progress.emit(base_progress, f"Processing {file_path.name}...")
+                    self.progress.emit(f"Processing {file_path.name}...", base_progress, 100)
 
                     # Check if this file's load case should be imported
                     # based on conflict resolution
@@ -140,8 +140,9 @@ class TimeHistoryImportWorker(QThread):
                         preferred_file = self.conflict_resolution[load_case]
                         if preferred_file and str(file_path) != preferred_file:
                             self.progress.emit(
+                                f"Skipping {file_path.name} (using {Path(preferred_file).name} for {load_case})",
                                 base_progress,
-                                f"Skipping {file_path.name} (using {Path(preferred_file).name} for {load_case})"
+                                100
                             )
                             continue
 
@@ -149,7 +150,7 @@ class TimeHistoryImportWorker(QThread):
                     count = importer.import_file(file_path, self.selected_load_cases)
                     total_count += count
 
-                self.progress.emit(95, "Committing to database...")
+                self.progress.emit("Committing to database...", 95, 100)
                 # Session commits automatically when exiting thread_scoped_session
 
             self.finished.emit(total_count, self.result_set_id)
@@ -158,10 +159,10 @@ class TimeHistoryImportWorker(QThread):
             error_msg = handle_worker_error(e, "Import failed")
             self.error.emit(error_msg)
 
-    def _on_progress(self, percent: int, message: str):
+    def _on_progress(self, message: str, current: int, total: int):
         """Forward progress to signal."""
         # Scale progress within current file range
-        self.progress.emit(percent, message)
+        self.progress.emit(message, current, total)
 
 
 class TimeHistoryImportDialog(QDialog):
@@ -755,9 +756,11 @@ class TimeHistoryImportDialog(QDialog):
         self.progress_label.setText("Starting import...")
         return resolution
 
-    def _on_progress(self, percent: int, message: str):
+    def _on_progress(self, message: str, current: int, total: int):
         """Handle progress updates from worker."""
-        self.progress_bar.setValue(percent)
+        if total > 0:
+            percent = int((current / total) * 100)
+            self.progress_bar.setValue(percent)
         self.status_text.append(message)
 
     def _on_finished(self, count: int, result_set_id: int):

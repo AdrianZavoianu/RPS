@@ -266,10 +266,16 @@ class TestBackwardCompatibility:
         from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
         assert PushoverColumnImporter is PushoverColumnImporterV2
 
-    def test_original_importers_still_work(self):
-        """Test that original importers still exist and can be imported."""
-        from processing.pushover_beam_importer import PushoverBeamImporter
-        from processing.pushover_column_importer import PushoverColumnImporter
+    def test_v2_importers_have_backward_compat_aliases(self):
+        """Test that v2 importers export backward-compatible class names."""
+        # V2 modules export non-V2 names for backward compatibility
+        from processing.pushover_beam_importer_v2 import PushoverBeamImporter
+        from processing.pushover_column_importer_v2 import PushoverColumnImporter
+        from processing.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
+        from processing.pushover_wall_importer_v2 import PushoverWallImporter
 
+        # All should be importable (aliased to V2 classes)
         assert PushoverBeamImporter is not None
         assert PushoverColumnImporter is not None
+        assert PushoverColumnShearImporter is not None
+        assert PushoverWallImporter is not None

@@ -71,7 +71,8 @@
       "Bash(git mv:*)",
       "Bash(do [ -d \"$dir\" ])",
       "Bash(pipenv graph:*)",
-      "Bash(comm -23:*)"
+      "Bash(comm -23:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nPhase 1: Delete V1 importers, fix signal signature bug\n\n- Delete 4 V1 importer files (~1,729 lines removed):\n  - pushover_beam_importer.py\n  - pushover_column_importer.py  \n  - pushover_column_shear_importer.py\n  - pushover_wall_importer.py\n\n- Update imports to use V2 modules:\n  - pushover_global_import_dialog.py now imports from _v2 modules\n  - pushover_registry.py IMPORTER_MAP points to V2 modules\n\n- Fix TimeHistoryImportDialog signal signature:\n  - Changed progress signal from (int, str) to (str, int, int)\n  - Matches standard pattern used by all other workers\n  - Updated all emit() calls and handlers\n\n- Update backward compatibility test to verify V2 aliases\n\nAll 616 tests passing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
