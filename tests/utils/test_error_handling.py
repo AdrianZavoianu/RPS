@@ -10,6 +10,8 @@ from utils.error_handling import (
     handle_worker_error,
     safe_operation,
     ErrorCollector,
+    timed,
+    TimingContext,
 )
 
 
@@ -318,3 +320,129 @@ class TestErrorCollector:
 
         collector.add_error("Error")
         assert collector.has_errors
+
+
+class TestTimedDecorator:
+    """Tests for timed decorator."""
+
+    def test_timed_returns_function_result(self):
+        """Test that timed decorator returns function result."""
+        @timed
+        def add(a, b):
+            return a + b
+
+        result = add(2, 3)
+        assert result == 5
+
+    def test_timed_preserves_function_name(self):
+        """Test that timed preserves function metadata."""
+        @timed
+        def my_function():
+            pass
+
+        assert my_function.__name__ == "my_function"
+
+    def test_timed_handles_exceptions(self):
+        """Test that timed re-raises exceptions."""
+        @timed
+        def failing_function():
+            raise ValueError("Test error")
+
+        with pytest.raises(ValueError, match="Test error"):
+            failing_function()
+
+    def test_timed_logs_when_enabled(self, monkeypatch):
+        """Test that timed logs execution time when PERF_DEBUG is enabled."""
+        monkeypatch.setattr("utils.error_handling.PERF_DEBUG", True)
+
+        @timed
+        def slow_function():
+            return 42
+
+        with patch("utils.error_handling.logger") as mock_logger:
+            result = slow_function()
+
+            assert result == 42
+            mock_logger.debug.assert_called_once()
+            call_args = mock_logger.debug.call_args[0][0]
+            assert "PERF:" in call_args
+            assert "slow_function" in call_args
+
+    def test_timed_does_not_log_when_disabled(self, monkeypatch):
+        """Test that timed does not log when PERF_DEBUG is disabled."""
+        monkeypatch.setattr("utils.error_handling.PERF_DEBUG", False)
+
+        @timed
+        def fast_function():
+            return 42
+
+        with patch("utils.error_handling.logger") as mock_logger:
+            result = fast_function()
+
+            assert result == 42
+            mock_logger.debug.assert_not_called()
+
+    def test_timed_logs_failure_when_enabled(self, monkeypatch):
+        """Test that timed logs failure timing when enabled."""
+        monkeypatch.setattr("utils.error_handling.PERF_DEBUG", True)
+
+        @timed
+        def failing_function():
+            raise RuntimeError("Intentional failure")
+
+        with patch("utils.error_handling.logger") as mock_logger:
+            with pytest.raises(RuntimeError):
+                failing_function()
+
+            mock_logger.debug.assert_called_once()
+            call_args = mock_logger.debug.call_args[0][0]
+            assert "failed after" in call_args
+
+
+class TestTimingContext:
+    """Tests for TimingContext class."""
+
+    def test_timing_context_basic_usage(self):
+        """Test basic usage of TimingContext."""
+        with TimingContext("test_operation"):
+            x = 1 + 1
+        # Should not raise
+
+    def test_timing_context_logs_when_enabled(self, monkeypatch):
+        """Test that TimingContext logs when PERF_DEBUG is enabled."""
+        monkeypatch.setattr("utils.error_handling.PERF_DEBUG", True)
+
+        with patch("utils.error_handling.logger") as mock_logger:
+            with TimingContext("cache_build"):
+                pass
+
+            mock_logger.debug.assert_called_once()
+            call_args = mock_logger.debug.call_args[0][0]
+            assert "PERF:" in call_args
+            assert "cache_build" in call_args
+            assert "completed" in call_args
+
+    def test_timing_context_does_not_log_when_disabled(self, monkeypatch):
+        """Test that TimingContext does not log when PERF_DEBUG is disabled."""
+        monkeypatch.setattr("utils.error_handling.PERF_DEBUG", False)
+
+        with patch("utils.error_handling.logger") as mock_logger:
+            with TimingContext("test_operation"):
+                pass
+
+            mock_logger.debug.assert_not_called()
+
+    def test_timing_context_logs_failure(self, monkeypatch):
+        """Test that TimingContext logs failure status."""
+        monkeypatch.setattr("utils.error_handling.PERF_DEBUG", True)
+
+        with patch("utils.error_handling.logger") as mock_logger:
+            try:
+                with TimingContext("failing_operation"):
+                    raise ValueError("Test error")
+            except ValueError:
+                pass
+
+            mock_logger.debug.assert_called_once()
+            call_args = mock_logger.debug.call_args[0][0]
+            assert "failed" in call_args

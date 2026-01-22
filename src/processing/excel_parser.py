@@ -7,6 +7,8 @@ import pandas as pd
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 
+from utils.error_handling import timed
+
 
 class ExcelParser:
     """Parser for ETABS/SAP2000 Excel result files."""
@@ -53,6 +55,7 @@ class ExcelParser:
                 return col
         return None
 
+    @timed
     def read_sheet(
         self,
         sheet_name: str,

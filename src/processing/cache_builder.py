@@ -22,6 +22,8 @@ from typing import Any, Dict, List, Tuple, Type
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
+from utils.error_handling import timed
+
 from database.repository import (
     StoryRepository,
     CacheRepository,
@@ -76,6 +78,7 @@ class CacheBuilder:
         self._element_cache_repo = ElementCacheRepository(session)
         self._joint_cache_repo = JointCacheRepository(session)
 
+    @timed
     def generate_all(self) -> None:
         """Generate cache rows for all supported result types."""
         stories = self._story_repo.get_by_project(self.project_id)

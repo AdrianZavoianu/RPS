@@ -7,6 +7,7 @@ from sqlalchemy import or_
 
 from config.result_config import get_config
 from database.element_result_repository import ElementResultQueryRepository
+from utils.error_handling import timed
 
 from .comparison_builder import build_element_comparison, build_global_comparison, build_joint_comparison
 from .maxmin_builder import build_drift_maxmin_dataset, build_generic_maxmin_dataset
@@ -75,6 +76,7 @@ class ResultDataService:
     # Standard datasets
     # ------------------------------------------------------------------
 
+    @timed
     def get_standard_dataset(
         self, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False
     ) -> Optional[ResultDataset]:
@@ -91,6 +93,7 @@ class ResultDataService:
     # Element datasets
     # ------------------------------------------------------------------
 
+    @timed
     def get_element_dataset(
         self, element_id: int, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False
     ) -> Optional[ResultDataset]:
@@ -107,6 +110,7 @@ class ResultDataService:
     # Joint datasets (for soil pressures and other joint-based results)
     # ------------------------------------------------------------------
 
+    @timed
     def get_joint_dataset(
         self, result_type: str, result_set_id: int, is_pushover: bool = False
     ) -> Optional[ResultDataset]:
