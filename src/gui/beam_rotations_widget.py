@@ -92,25 +92,9 @@ class BeamRotationsWidget(QWidget):
         plot_layout = QVBoxLayout(self.plot_container)
         plot_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#0a0c10')
-
-        # Set plot area background
-        view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
-
-        # Configure plot appearance
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.5)
-        self.plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
-        self.plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        self.plot_widget.getAxis('left').setTextPen('#d1d5db')
-
-        # Disable interactions
-        self.plot_widget.setMenuEnabled(False)
-        view_box.setMouseEnabled(x=False, y=False)
-        view_box.setDefaultPadding(0.0)
+        # Create plot widget using factory
+        from gui.components.plot_factory import create_plot_widget
+        self.plot_widget = create_plot_widget()
 
         # Set title
         self.plot_widget.setTitle("Beam R3 Plastic Rotations", color='#4a7d89', size='12pt')

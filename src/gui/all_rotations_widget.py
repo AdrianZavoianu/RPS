@@ -52,54 +52,14 @@ class AllRotationsWidget(QWidget):
             }
         """)
 
-        # Create scatter plot widget
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#0a0c10')
+        # Create scatter plot widget using factory
+        from gui.components.plot_factory import create_plot_widget
+        self.plot_widget = create_plot_widget(show_border=False, grid_alpha=0.35)
 
-        # Set plot area background
-        view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0c1016')
-        view_box.setBorder(None)
-
-        # Configure plot appearance
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.35)
-        subtle_axis = pg.mkPen('#151b22', width=1)
-        self.plot_widget.getAxis('bottom').setPen(subtle_axis)
-        self.plot_widget.getAxis('left').setPen(subtle_axis)
-        self.plot_widget.getAxis('bottom').setTextPen('#cdd3dd')
-        self.plot_widget.getAxis('left').setTextPen('#cdd3dd')
-
-        # Disable interactions
-        self.plot_widget.setMenuEnabled(False)
-        view_box.setMouseEnabled(x=False, y=False)
-        view_box.setDefaultPadding(0.0)
-
-        # No title - maximizes plot area
-        self.plot_widget.setTitle(None)
-
-        # Create histogram widget
-        self.histogram_widget = pg.PlotWidget()
-        self.histogram_widget.setBackground('#0a0c10')
-
-        # Set histogram area background
-        hist_view_box = self.histogram_widget.getPlotItem().getViewBox()
-        hist_view_box.setBackgroundColor('#0c1016')
-        hist_view_box.setBorder(None)
-
-        # Configure histogram appearance
-        self.histogram_widget.showGrid(x=True, y=True, alpha=0.35)
-        self.histogram_widget.getAxis('bottom').setPen(subtle_axis)
-        self.histogram_widget.getAxis('left').setPen(subtle_axis)
-        self.histogram_widget.getAxis('bottom').setTextPen('#cdd3dd')
-        self.histogram_widget.getAxis('left').setTextPen('#cdd3dd')
-
-        # Disable interactions
-        self.histogram_widget.setMenuEnabled(False)
-        hist_view_box.setMouseEnabled(x=False, y=False)
-        hist_view_box.setDefaultPadding(0.05)
-
-        # No title - maximizes plot area
-        self.histogram_widget.setTitle(None)
+        # Create histogram widget using factory
+        self.histogram_widget = create_plot_widget(
+            plot_type='histogram', show_border=False, grid_alpha=0.35
+        )
 
         # Add tabs
         self.tabs.addTab(self.plot_widget, "Scatter")

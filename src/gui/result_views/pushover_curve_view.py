@@ -129,16 +129,10 @@ class PushoverCurveView(QWidget):
         # ============ PLOT WIDGET ============
         # Configure PyQtGraph globally
         pg.setConfigOptions(antialias=True)
-        pg.setConfigOption('background', '#0a0c10')
-        pg.setConfigOption('foreground', '#d1d5db')
 
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#0a0c10')
-
-        # Set plot area background to slightly lighter shade (match NLTHA styling)
-        view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0c1016')
-        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
+        # Create plot using factory
+        from gui.components.plot_factory import create_plot_widget
+        self.plot_widget = create_plot_widget(grid_alpha=0.35)
 
         # Set axis labels
         self.plot_widget.setLabel('left', 'Base Shear', units='kN',
@@ -146,29 +140,9 @@ class PushoverCurveView(QWidget):
         self.plot_widget.setLabel('bottom', 'Displacement', units='mm',
                                   color='#d1d5db', **{'font-size': '12pt'})
 
-        # Grid with subtle visibility
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.35)
-
-        # Style the axes to match other result plots
-        subtle_axis = pg.mkPen('#1a1f26', width=1)
-        self.plot_widget.getAxis('left').setPen(subtle_axis)
-        self.plot_widget.getAxis('bottom').setPen(subtle_axis)
-        self.plot_widget.getAxis('left').setTextPen('#cdd3dd')
-        self.plot_widget.getAxis('bottom').setTextPen('#cdd3dd')
-
         # Disable auto-SI prefix scaling
         self.plot_widget.getAxis('left').enableAutoSIPrefix(False)
         self.plot_widget.getAxis('bottom').enableAutoSIPrefix(False)
-
-        # Disable menu and mouse interactions
-        self.plot_widget.setMenuEnabled(False)
-        view_box.setMouseEnabled(x=False, y=False)
-
-        # Set padding for plot - minimal like NLTHA
-        view_box.setDefaultPadding(0.0)
-
-        # No title
-        self.plot_widget.setTitle(None)
 
         # Add widgets to splitter
         splitter.addWidget(self.table_container)

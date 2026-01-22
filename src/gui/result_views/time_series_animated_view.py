@@ -66,22 +66,10 @@ class AnimatedBuildingProfilePlot(QWidget):
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.title_label)
 
-        # Plot widget
+        # Plot widget using factory
         pg.setConfigOptions(antialias=True)
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#0a0c10')
-
-        view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
-        view_box.setMouseEnabled(x=False, y=False)
-
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.plot_widget.getAxis('bottom').setPen(pg.mkPen('#1a1f26', width=1))
-        self.plot_widget.getAxis('left').setPen(pg.mkPen('#1a1f26', width=1))
-        self.plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        self.plot_widget.getAxis('left').setTextPen('#d1d5db')
-        self.plot_widget.setMenuEnabled(False)
+        from gui.components.plot_factory import create_plot_widget
+        self.plot_widget = create_plot_widget(grid_alpha=0.3)
 
         layout.addWidget(self.plot_widget)
 
@@ -409,24 +397,11 @@ class TimeSeriesAnimatedView(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        # Plot widget
-        plot_widget = pg.PlotWidget()
-        plot_widget.setBackground('#0a0c10')
+        # Plot widget using factory
+        from gui.components.plot_factory import create_plot_widget, configure_time_series
+        plot_widget = create_plot_widget(grid_alpha=0.3)
         plot_widget.setFixedHeight(112)  # Reduced height (75% of 150px)
-
-        view_box = plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#1a1f26', width=1))
-        view_box.setMouseEnabled(x=False, y=False)
-
-        plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        plot_widget.getAxis('bottom').setPen(pg.mkPen('#1a1f26', width=1))
-        plot_widget.getAxis('left').setPen(pg.mkPen('#1a1f26', width=1))
-        plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        plot_widget.getAxis('left').setTextPen('#d1d5db')
-        plot_widget.setMenuEnabled(False)
-        plot_widget.setLabel('bottom', 'Time [s]')
-        plot_widget.setLabel('left', 'Accel [g]')
+        configure_time_series(plot_widget, x_label='Time [s]', y_label='Accel [g]')
 
         # Elapsed time shading region (from start to current time)
         self._elapsed_region = pg.LinearRegionItem(

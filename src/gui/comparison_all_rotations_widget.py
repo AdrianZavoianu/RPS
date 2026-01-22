@@ -32,30 +32,9 @@ class ComparisonAllRotationsWidget(QWidget):
         h_layout.setContentsMargins(0, 0, 0, 0)
         h_layout.setSpacing(8)
 
-        # Create plot widget
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#0a0c10')
-
-        # Set plot area background
-        view_box = self.plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0c1016')
-        view_box.setBorder(None)
-
-        # Configure plot appearance
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.35)
-        subtle_axis = pg.mkPen('#151b22', width=1)
-        self.plot_widget.getAxis('bottom').setPen(subtle_axis)
-        self.plot_widget.getAxis('left').setPen(subtle_axis)
-        self.plot_widget.getAxis('bottom').setTextPen('#cdd3dd')
-        self.plot_widget.getAxis('left').setTextPen('#cdd3dd')
-
-        # Disable interactions
-        self.plot_widget.setMenuEnabled(False)
-        view_box.setMouseEnabled(x=False, y=False)
-        view_box.setDefaultPadding(0.0)
-
-        # No title - maximizes plot area
-        self.plot_widget.setTitle(None)
+        # Create plot widget using factory
+        from gui.components.plot_factory import create_plot_widget
+        self.plot_widget = create_plot_widget(show_border=False, grid_alpha=0.35)
 
         h_layout.addWidget(self.plot_widget, 1)  # Plot takes available space
 

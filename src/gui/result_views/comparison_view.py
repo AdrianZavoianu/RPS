@@ -54,26 +54,9 @@ class ComparisonPlotWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(8)
 
-        # Create the plot
-        plot_widget = pg.PlotWidget()
-        plot_widget.setBackground('#0a0c10')
-
-        # Set plot area background
-        view_box = plot_widget.getPlotItem().getViewBox()
-        view_box.setBackgroundColor('#0f1419')
-        view_box.setBorder(pg.mkPen('#2c313a', width=1))
-
-        # Configure plot appearance
-        plot_widget.showGrid(x=True, y=True, alpha=0.5)
-        plot_widget.getAxis('bottom').setPen(pg.mkPen('#2c313a', width=1))
-        plot_widget.getAxis('left').setPen(pg.mkPen('#2c313a', width=1))
-        plot_widget.getAxis('bottom').setTextPen('#d1d5db')
-        plot_widget.getAxis('left').setTextPen('#d1d5db')
-
-        plot_widget.setMenuEnabled(False)
-        view_box.setMouseEnabled(x=False, y=False)
-        view_box.setDefaultPadding(0.0)
-        plot_widget.setTitle(None)
+        # Create the plot using factory
+        from gui.components.plot_factory import create_plot_widget
+        plot_widget = create_plot_widget()
 
         main_layout.addWidget(plot_widget, 1)  # Plot takes available space
 
