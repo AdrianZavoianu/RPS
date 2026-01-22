@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 import pytest
 
-from processing.result_service import providers
+from services.result_service import providers
 
 
 @dataclass

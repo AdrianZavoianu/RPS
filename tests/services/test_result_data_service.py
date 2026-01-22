@@ -1,12 +1,12 @@
 import pytest
 
-from processing.result_service import ResultDataService
-from processing.result_service.providers import ElementDatasetProvider
-from processing.result_service.maxmin_builder import (
+from services.result_service import ResultDataService
+from services.result_service.providers import ElementDatasetProvider
+from services.result_service.maxmin_builder import (
     build_drift_maxmin_dataset,
     build_generic_maxmin_dataset,
 )
-from processing.result_service.story_loader import StoryProvider
+from services.result_service.story_loader import StoryProvider
 
 
 class CacheEntryStub:

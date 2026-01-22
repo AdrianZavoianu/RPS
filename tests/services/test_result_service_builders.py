@@ -4,7 +4,7 @@ import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
 
-from processing.result_service.models import (
+from services.result_service.models import (
     ResultDataset,
     ResultDatasetMeta,
     ComparisonDataset,
@@ -277,12 +277,12 @@ class TestComparisonBuilder:
 
     def test_build_global_comparison_imports(self):
         """Test that comparison builder can be imported."""
-        from processing.result_service.comparison_builder import build_global_comparison
+        from services.result_service.comparison_builder import build_global_comparison
         assert build_global_comparison is not None
 
     def test_build_global_comparison_with_mocks(self):
         """Test build_global_comparison with mock data."""
-        from processing.result_service.comparison_builder import build_global_comparison
+        from services.result_service.comparison_builder import build_global_comparison
 
         # Create mock config
         mock_config = MagicMock(spec=ResultTypeConfig)
@@ -336,7 +336,7 @@ class TestComparisonBuilder:
 
     def test_build_global_comparison_missing_result_set(self):
         """Test build_global_comparison when result set is missing."""
-        from processing.result_service.comparison_builder import build_global_comparison
+        from services.result_service.comparison_builder import build_global_comparison
 
         mock_config = MagicMock(spec=ResultTypeConfig)
         mock_config.unit = "%"
@@ -367,12 +367,12 @@ class TestMetadataBuilder:
 
     def test_metadata_module_imports(self):
         """Test that metadata module can be imported."""
-        from processing.result_service.metadata import build_display_label
+        from services.result_service.metadata import build_display_label
         assert build_display_label is not None
 
     def test_build_display_label_with_direction(self):
         """Test display label generation with direction."""
-        from processing.result_service.metadata import build_display_label
+        from services.result_service.metadata import build_display_label
 
         # Test with direction
         label = build_display_label("Drifts", "X")
@@ -380,14 +380,14 @@ class TestMetadataBuilder:
 
     def test_build_display_label_no_direction(self):
         """Test display label generation without direction."""
-        from processing.result_service.metadata import build_display_label
+        from services.result_service.metadata import build_display_label
 
         label = build_display_label("MaxMinDrifts", None)
         assert "Max" in label or "Drift" in label
 
     def test_display_name_overrides(self):
         """Test that display name overrides work."""
-        from processing.result_service.metadata import DISPLAY_NAME_OVERRIDES
+        from services.result_service.metadata import DISPLAY_NAME_OVERRIDES
 
         assert "Drifts" in DISPLAY_NAME_OVERRIDES
         assert DISPLAY_NAME_OVERRIDES["Drifts"] == "Story Drifts"
@@ -400,12 +400,12 @@ class TestStoryProvider:
 
     def test_story_provider_imports(self):
         """Test that StoryProvider can be imported."""
-        from processing.result_service.story_loader import StoryProvider
+        from services.result_service.story_loader import StoryProvider
         assert StoryProvider is not None
 
     def test_story_provider_initialization(self):
         """Test StoryProvider initialization."""
-        from processing.result_service.story_loader import StoryProvider
+        from services.result_service.story_loader import StoryProvider
 
         mock_story_repo = MagicMock()
         provider = StoryProvider(mock_story_repo, project_id=1)
@@ -416,7 +416,7 @@ class TestStoryProvider:
 
     def test_story_provider_lazy_loading(self):
         """Test StoryProvider lazy loads stories."""
-        from processing.result_service.story_loader import StoryProvider
+        from services.result_service.story_loader import StoryProvider
 
         # Create mock stories
         mock_story_1 = MagicMock()
@@ -446,7 +446,7 @@ class TestStoryProvider:
 
     def test_story_provider_index(self):
         """Test StoryProvider story index building."""
-        from processing.result_service.story_loader import StoryProvider
+        from services.result_service.story_loader import StoryProvider
 
         mock_story_1 = MagicMock()
         mock_story_1.id = 10

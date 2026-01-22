@@ -85,7 +85,7 @@ def test_load_comparison_joint_scatter_shows_view(monkeypatch):
     datasets = [("DES", df, ["TH01"]), ("MCE", df, ["TH01"])]
 
     import database.repository as repo_module
-    import processing.result_service.comparison_builder as comparison_builder
+    import services.result_service.comparison_builder as comparison_builder
 
     monkeypatch.setattr(repo_module, "ResultSetRepository", RepoStub)
     monkeypatch.setattr(comparison_builder, "build_all_joints_comparison", lambda **_: datasets)

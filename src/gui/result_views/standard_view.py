@@ -5,7 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-from processing.result_service import ResultDataset
+from services.result_service import ResultDataset
 from ..results_plot_widget import ResultsPlotWidget
 from ..results_table_widget import ResultsTableWidget
 

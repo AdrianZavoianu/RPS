@@ -1,6 +1,6 @@
 """Tests for LRU cache implementation in providers."""
 
-from processing.result_service.providers import LRUCache
+from services.result_service.providers import LRUCache
 
 
 def test_lru_cache_basic_operations():

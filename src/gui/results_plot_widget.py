@@ -21,7 +21,7 @@ import pandas as pd
 import pyqtgraph as pg
 
 from utils.plot_builder import PlotBuilder
-from processing.result_service import ResultDataset
+from services.result_service import ResultDataset
 from config.visual_config import (
     AVERAGE_SERIES_COLOR,
     STORY_PADDING_STANDARD,

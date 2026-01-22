@@ -18,7 +18,7 @@ from database.repository import (
     ResultSetRepository,
     StoryRepository,
 )
-from processing.result_service import ResultDataService
+from services.result_service import ResultDataService
 from services.project_service import ProjectContext
 from services.data_access import DataAccessService
 

@@ -34,7 +34,7 @@ from gui.components.results_table_header import ClickableTableWidget
 from .styles import COLORS
 
 if TYPE_CHECKING:
-    from processing.result_service import MaxMinDataset
+    from services.result_service import MaxMinDataset
 
 
 class MaxMinDriftsWidget(QWidget):

@@ -480,7 +480,7 @@ def load_comparison_joint_scatter(
 ) -> None:
     """Load and display joint results comparison scatter plot across multiple result sets."""
     from database.repository import ResultSetRepository
-    from processing.result_service.comparison_builder import build_all_joints_comparison
+    from services.result_service.comparison_builder import build_all_joints_comparison
     from config.result_config import RESULT_CONFIGS
 
     try:

@@ -1,7 +1,7 @@
 """Tests for result cache invalidation helpers."""
 
-from processing.result_service.providers import ResultCategory
-from processing.result_service.service import ResultDataService
+from services.result_service.providers import ResultCategory
+from services.result_service.service import ResultDataService
 
 
 class _FakeProvider:

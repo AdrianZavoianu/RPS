@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.styles import COLORS
-from processing.result_service import ComparisonDataset
+from services.result_service import ComparisonDataset
 from utils.color_utils import get_gradient_color
 
 from ..results_table_widget import ResultsTableWidget

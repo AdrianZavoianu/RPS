@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from database.base import Base
 import database.models as models
 from database.repository import CacheRepository, StoryRepository, LoadCaseRepository, ElementRepository, ResultSetRepository
-from processing.result_service import ResultDataService
+from services.result_service import ResultDataService
 
 
 def _setup_session():

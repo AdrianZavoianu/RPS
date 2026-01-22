@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 if TYPE_CHECKING:
-    from processing.result_service import ResultDataset
+    from services.result_service import ResultDataset
 
 logger = logging.getLogger(__name__)
 
