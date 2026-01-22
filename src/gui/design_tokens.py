@@ -286,6 +286,33 @@ class FormStyles:
         """
 
     @staticmethod
+    def tab_widget_minimal() -> str:
+        """Style for minimal/underline QTabWidget (used in plot widgets)."""
+        c = PALETTE
+        return f"""
+        QTabWidget::pane {{
+            border: none;
+            background-color: transparent;
+        }}
+        QTabBar::tab {{
+            background-color: transparent;
+            color: {c['text_secondary']};
+            padding: 8px 14px;
+            border: none;
+            margin-right: 6px;
+        }}
+        QTabBar::tab:selected {{
+            background-color: transparent;
+            color: {c['accent_secondary']};
+            border-bottom: 2px solid {c['accent_secondary']};
+        }}
+        QTabBar::tab:hover {{
+            background-color: transparent;
+            color: {c['text_primary']};
+        }}
+        """
+
+    @staticmethod
     def splitter() -> str:
         """Style for QSplitter handles."""
         c = PALETTE

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .styles import COLORS
+from .design_tokens import PALETTE
 
 
 class BeamRotationsWidget(QWidget):
@@ -97,7 +98,7 @@ class BeamRotationsWidget(QWidget):
         self.plot_widget = create_plot_widget()
 
         # Set title
-        self.plot_widget.setTitle("Beam R3 Plastic Rotations", color='#4a7d89', size='12pt')
+        self.plot_widget.setTitle("Beam R3 Plastic Rotations", color=PALETTE['accent_primary'], size='12pt')
 
         # Add spacing between title and plot
         plot_item = self.plot_widget.getPlotItem()
@@ -134,7 +135,7 @@ class BeamRotationsWidget(QWidget):
         self.current_data_min = df_min
 
         # Update plot title with element name
-        self.plot_widget.setTitle(f"{element_name} - R3 Plastic Rotations", color='#4a7d89', size='12pt')
+        self.plot_widget.setTitle(f"{element_name} - R3 Plastic Rotations", color=PALETTE['accent_primary'], size='12pt')
 
         # Update table (show Max data by default, or Min if Max not available)
         df_display = df_max if df_max is not None and not df_max.empty else df_min
@@ -229,7 +230,7 @@ class BeamRotationsWidget(QWidget):
                 all_x_values.extend(x_min)
 
         # Add vertical line at x=0 to show center
-        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DashLine))
+        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
         self.plot_widget.addItem(zero_line)
 
         # Configure Y-axis with story labels

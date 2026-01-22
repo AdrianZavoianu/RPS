@@ -22,29 +22,9 @@ class SoilPressurePlotWidget(QWidget):
         layout.setSpacing(8)
 
         # Create tab widget
+        from gui.design_tokens import FormStyles
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: transparent;
-            }
-            QTabBar::tab {
-                background-color: transparent;
-                color: #9ca3af;
-                padding: 8px 14px;
-                border: none;
-                margin-right: 6px;
-            }
-            QTabBar::tab:selected {
-                background-color: transparent;
-                color: #67e8f9;
-                border-bottom: 2px solid #67e8f9;
-            }
-            QTabBar::tab:hover {
-                background-color: transparent;
-                color: #cbd5e1;
-            }
-        """)
+        self.tabs.setStyleSheet(FormStyles.tab_widget_minimal())
 
         # Create scatter plot widget using factory
         from gui.components.plot_factory import create_plot_widget, configure_scatter_plot

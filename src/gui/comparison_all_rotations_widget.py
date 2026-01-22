@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from gui.design_tokens import PALETTE
+
 
 class ComparisonAllRotationsWidget(QWidget):
     """Widget for displaying all rotations comparison as scatter plot across multiple result sets."""
@@ -145,7 +147,7 @@ class ComparisonAllRotationsWidget(QWidget):
                 self._add_legend_item(color, result_set_name)
 
         # Add vertical line at x=0 to show center
-        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DashLine))
+        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
         self.plot_widget.addItem(zero_line)
 
         # Configure Y-axis with story labels

@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
     QTabWidget,
 )
 
+from gui.design_tokens import PALETTE
+
 
 class AllRotationsWidget(QWidget):
     """Widget for displaying all quad rotations as scatter plot and histogram (Max and Min combined)."""
@@ -28,29 +30,9 @@ class AllRotationsWidget(QWidget):
         layout.setSpacing(8)
 
         # Create tab widget
+        from gui.design_tokens import FormStyles
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: transparent;
-            }
-            QTabBar::tab {
-                background-color: transparent;
-                color: #9ca3af;
-                padding: 8px 14px;
-                border: none;
-                margin-right: 6px;
-            }
-            QTabBar::tab:selected {
-                background-color: transparent;
-                color: #67e8f9;
-                border-bottom: 2px solid #67e8f9;
-            }
-            QTabBar::tab:hover {
-                background-color: transparent;
-                color: #cbd5e1;
-            }
-        """)
+        self.tabs.setStyleSheet(FormStyles.tab_widget_minimal())
 
         # Create scatter plot widget using factory
         from gui.components.plot_factory import create_plot_widget
@@ -158,7 +140,7 @@ class AllRotationsWidget(QWidget):
                 all_x_values.extend(x_min)
 
         # Add vertical line at x=0 to show center
-        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DashLine))
+        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
         self.plot_widget.addItem(zero_line)
 
         # Configure Y-axis with story labels
@@ -297,7 +279,7 @@ class AllRotationsWidget(QWidget):
         self.histogram_widget.addItem(bar_item)
 
         # Add vertical line at x=0 to show center
-        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('#4a7d89', width=1, style=Qt.PenStyle.DashLine))
+        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
         self.histogram_widget.addItem(zero_line)
 
         # Set axis labels
