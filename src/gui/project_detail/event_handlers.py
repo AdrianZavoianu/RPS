@@ -44,7 +44,13 @@ def on_browser_selection_changed(
     )
 
     # Automatically switch context based on result set's analysis type
-    result_set = window.result_set_repo.get_by_id(result_set_id) if result_set_id else None
+    from services.data_access import DataAccessService
+
+    data_service = getattr(window, "data_service", None)
+    if data_service is None:
+        data_service = DataAccessService(window.context.session)
+
+    result_set = data_service.get_result_set_by_id(result_set_id) if result_set_id else None
     if result_set:
         analysis_type = getattr(result_set, "analysis_type", None)
         logger.debug("Result set %s analysis_type: %s", result_set_id, analysis_type)
@@ -156,12 +162,16 @@ def on_comparison_selected(
         result_type: Result type (e.g., "Drifts", "Forces", "QuadRotations")
         direction: Direction ("X", "Y", or "All" for all rotations view)
     """
-    from database.repository import ComparisonSetRepository
     from . import view_loaders
 
     try:
-        comparison_set_repo = ComparisonSetRepository(window.session)
-        comparison_set = comparison_set_repo.get_by_id(comparison_set_id)
+        data_service = getattr(window, "data_service", None)
+        if data_service is None:
+            from services.data_access import DataAccessService
+
+            data_service = DataAccessService(window.context.session)
+
+        comparison_set = data_service.get_comparison_set_by_id(comparison_set_id)
 
         if not comparison_set:
             window.statusBar().showMessage("Error: Comparison set not found")
@@ -245,18 +255,20 @@ def on_comparison_element_selected(
         element_id: ID of the element to compare
         direction: Direction (e.g., "V2", "V3") or None
     """
-    from database.repository import ComparisonSetRepository, ElementRepository
-
     try:
-        comparison_set_repo = ComparisonSetRepository(window.session)
-        comparison_set = comparison_set_repo.get_by_id(comparison_set_id)
+        data_service = getattr(window, "data_service", None)
+        if data_service is None:
+            from services.data_access import DataAccessService
+
+            data_service = DataAccessService(window.context.session)
+
+        comparison_set = data_service.get_comparison_set_by_id(comparison_set_id)
 
         if not comparison_set:
             window.statusBar().showMessage("Error: Comparison set not found")
             return
 
-        element_repo = ElementRepository(window.session)
-        element = element_repo.get_by_id(element_id)
+        element = data_service.get_element_by_id(element_id)
 
         if not element:
             window.statusBar().showMessage("Error: Element not found")

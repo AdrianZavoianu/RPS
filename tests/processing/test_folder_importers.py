@@ -6,7 +6,7 @@ import types
 from pathlib import Path
 
 from processing.folder_importer import FolderImporter
-from processing.enhanced_folder_importer import EnhancedFolderImporter
+from processing.folder_importer import EnhancedFolderImporter
 
 
 class DummySession:
@@ -121,10 +121,10 @@ def test_enhanced_folder_importer_shares_aggregator(tmp_path, monkeypatch):
             pass
 
     monkeypatch.setattr(
-        "processing.enhanced_folder_importer.SelectiveDataImporter",
+        "processing.folder_importer.SelectiveDataImporter",
         StubSelectiveImporter,
     )
-    _patch_repositories(monkeypatch, "processing.enhanced_folder_importer")
+    _patch_repositories(monkeypatch, "processing.folder_importer")
 
     def fake_prescan(self):
         return ({file1.name: {"Story Drifts": ["LC1"]}}, [])

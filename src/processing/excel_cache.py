@@ -30,6 +30,8 @@ from typing import Dict, Iterator, Optional, Union
 
 import pandas as pd
 
+from utils.error_handling import timed
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,8 @@ class ExcelFileCache:
 
     This cache uses reference counting to track usage and automatically
     closes files when they're no longer needed. Files are identified by
-    their absolute path.
+    their absolute path. Use set_max_files() to limit concurrent open
+    files if needed.
 
     Thread Safety:
         All operations are protected by a lock, making this safe for use
@@ -48,6 +51,7 @@ class ExcelFileCache:
     _cache: Dict[str, pd.ExcelFile] = {}
     _ref_counts: Dict[str, int] = {}
     _lock = threading.Lock()
+    _max_files: Optional[int] = None
 
     @classmethod
     def _normalize_path(cls, path: Union[Path, str]) -> str:
@@ -77,6 +81,11 @@ class ExcelFileCache:
 
         with cls._lock:
             if key not in cls._cache:
+                if cls._max_files is not None and len(cls._cache) >= cls._max_files:
+                    raise RuntimeError(
+                        f"ExcelFileCache max_files={cls._max_files} reached; "
+                        "release files or increase the limit."
+                    )
                 logger.debug(f"Opening Excel file: {key}")
                 cls._cache[key] = pd.ExcelFile(path)
                 cls._ref_counts[key] = 0
@@ -203,7 +212,23 @@ class ExcelFileCache:
                 "total_refs": sum(cls._ref_counts.values()),
             }
 
+    @classmethod
+    def set_max_files(cls, max_files: Optional[int]) -> None:
+        """Set the maximum number of open files allowed in the cache.
 
+        When set, acquiring a new file beyond this limit raises RuntimeError.
+        """
+        if max_files is not None and max_files < 1:
+            raise ValueError("max_files must be None or >= 1")
+        cls._max_files = max_files
+
+    @classmethod
+    def get_max_files(cls) -> Optional[int]:
+        """Return the configured max file limit, if any."""
+        return cls._max_files
+
+
+@timed
 def read_excel_cached(
     path: Union[Path, str],
     sheet_name: str,
@@ -225,6 +250,7 @@ def read_excel_cached(
         return pd.read_excel(xl, sheet_name=sheet_name, **kwargs)
 
 
+@timed
 def get_sheet_names_cached(path: Union[Path, str]) -> list:
     """Get sheet names from an Excel file using the cache.
 

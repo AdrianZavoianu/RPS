@@ -57,12 +57,14 @@ class TestDTOs:
         mock_model.id = 10
         mock_model.name = "COM1"
         mock_model.result_sets = [mock_rs1, mock_rs2]
+        mock_model.result_types = ["Drifts", "Forces"]
 
         info = ComparisonSetInfo.from_model(mock_model)
 
         assert info.id == 10
         assert info.name == "COM1"
         assert info.result_set_ids == [1, 2]
+        assert info.result_types == ["Drifts", "Forces"]
 
     def test_pushover_case_info_from_model(self):
         """Test PushoverCaseInfo.from_model conversion."""

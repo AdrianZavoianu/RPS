@@ -72,13 +72,18 @@ class ComparisonSetInfo:
     id: int
     name: str
     result_set_ids: List[int]
+    result_types: List[str]
     
     @classmethod
     def from_model(cls, model: "ComparisonSet") -> "ComparisonSetInfo":
+        result_set_ids = list(getattr(model, "result_set_ids", []) or [])
+        if not result_set_ids and getattr(model, "result_sets", None):
+            result_set_ids = [rs.id for rs in model.result_sets]
         return cls(
             id=model.id,
             name=model.name,
-            result_set_ids=[rs.id for rs in model.result_sets] if model.result_sets else [],
+            result_set_ids=result_set_ids,
+            result_types=list(getattr(model, "result_types", []) or []),
         )
 
 
@@ -161,6 +166,22 @@ class LoadCaseInfo:
             id=model.id,
             name=model.name,
             case_type=getattr(model, 'case_type', None),
+        )
+
+
+@dataclass
+class ProjectInfo:
+    """Lightweight project information for UI."""
+    id: int
+    name: str
+    description: Optional[str] = None
+
+    @classmethod
+    def from_model(cls, model: "Project") -> "ProjectInfo":
+        return cls(
+            id=model.id,
+            name=model.name,
+            description=getattr(model, "description", None),
         )
 
 
@@ -249,6 +270,26 @@ class DataAccessService:
                 if rs:
                     names[rs_id] = rs.name
             return names
+
+    # =========================================================================
+    # Projects
+    # =========================================================================
+
+    def get_project_by_name(self, name: str) -> Optional[ProjectInfo]:
+        """Get a project by name within the project database.
+
+        Args:
+            name: Project name
+
+        Returns:
+            ProjectInfo or None if not found
+        """
+        from database.repository import ProjectRepository
+
+        with self._session_scope() as session:
+            repo = ProjectRepository(session)
+            project = repo.get_by_name(name)
+            return ProjectInfo.from_model(project) if project else None
     
     # =========================================================================
     # Comparison Sets
@@ -301,6 +342,29 @@ class DataAccessService:
         with self._session_scope() as session:
             repo = ComparisonSetRepository(session)
             return repo.check_duplicate(project_id, name)
+
+    def create_comparison_set(
+        self,
+        project_id: int,
+        name: str,
+        result_set_ids: List[int],
+        result_types: List[str],
+        description: Optional[str] = None,
+    ) -> ComparisonSetInfo:
+        """Create a comparison set and return DTO."""
+        from database.repository import ComparisonSetRepository
+
+        with self._session_scope() as session:
+            repo = ComparisonSetRepository(session)
+            comparison_set = repo.create(
+                project_id=project_id,
+                name=name,
+                result_set_ids=result_set_ids,
+                result_types=result_types,
+                description=description,
+            )
+            session.commit()
+            return ComparisonSetInfo.from_model(comparison_set)
     
     # =========================================================================
     # Pushover Cases
@@ -324,23 +388,25 @@ class DataAccessService:
     
     def get_pushover_case_by_name(
         self,
+        project_id: int,
         result_set_id: int,
-        name: str
+        name: str,
     ) -> Optional[PushoverCaseInfo]:
         """Get a pushover case by name within a result set.
-        
+
         Args:
+            project_id: Project ID
             result_set_id: Result set ID
             name: Case name
-            
+
         Returns:
             PushoverCaseInfo or None if not found
         """
         from database.repository import PushoverCaseRepository
-        
+
         with self._session_scope() as session:
             repo = PushoverCaseRepository(session)
-            case = repo.get_by_name(result_set_id, name)
+            case = repo.get_by_name(project_id, result_set_id, name)
             return PushoverCaseInfo.from_model(case) if case else None
     
     def get_pushover_cases_by_result_sets(
@@ -424,6 +490,15 @@ class DataAccessService:
             repo = ElementRepository(session)
             elements = repo.get_by_project_and_type(project_id, element_type)
             return [ElementInfo.from_model(e) for e in elements]
+
+    def get_elements(self, project_id: int) -> List[ElementInfo]:
+        """Get all elements for a project."""
+        from database.repository import ElementRepository
+
+        with self._session_scope() as session:
+            repo = ElementRepository(session)
+            elements = repo.get_by_project(project_id)
+            return [ElementInfo.from_model(e) for e in elements]
     
     # =========================================================================
     # Stories
@@ -471,26 +546,49 @@ class DataAccessService:
     
     def get_time_series_load_cases(
         self,
+        project_id: int,
         result_set_ids: List[int]
     ) -> Dict[int, List[str]]:
         """Get time series load case names for multiple result sets.
         
         Args:
+            project_id: Project ID
             result_set_ids: List of result set IDs
             
         Returns:
             Dict mapping result_set_id to list of load case names
         """
-        from database.repository import TimeSeriesRepository
+        from processing.time_history_importer import TimeSeriesRepository
         
         with self._session_scope() as session:
             repo = TimeSeriesRepository(session)
             result = {}
             for rs_id in result_set_ids:
                 # Get unique load case names for this result set
-                load_cases = repo.get_load_cases_for_result_set(rs_id)
+                load_cases = repo.get_available_load_cases(project_id, rs_id)
                 result[rs_id] = load_cases
             return result
+
+    def get_time_series_entries(
+        self,
+        project_id: int,
+        result_set_id: int,
+        load_case_name: str,
+        result_type: str,
+        direction: str,
+    ) -> List[object]:
+        """Get raw time series entries for plotting (short-lived session)."""
+        from processing.time_history_importer import TimeSeriesRepository
+
+        with self._session_scope() as session:
+            repo = TimeSeriesRepository(session)
+            return repo.get_time_series(
+                project_id=project_id,
+                result_set_id=result_set_id,
+                load_case_name=load_case_name,
+                result_type=result_type,
+                direction=direction,
+            )
     
     # =========================================================================
     # Projects (Catalog)

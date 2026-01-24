@@ -227,23 +227,16 @@ class ImportProjectDialog(QDialog):
             return
 
         # Check if project already exists
-        from database.catalog_repository import CatalogProjectRepository
-        from database.session import get_catalog_session
+        from services.project_service import get_project_context
 
-        catalog_session = get_catalog_session()
-        try:
-            catalog_repo = CatalogProjectRepository(catalog_session)
-            existing_project = catalog_repo.get_by_name(name)
-
-            if existing_project:
-                self.validation_label.setText(f"Project '{name}' already exists. Please choose a different name.")
-                self.validation_label.setVisible(True)
-                self.import_btn.setEnabled(False)
-            else:
-                self.validation_label.setVisible(False)
-                self.import_btn.setEnabled(True)
-        finally:
-            catalog_session.close()
+        existing_project = get_project_context(name)
+        if existing_project:
+            self.validation_label.setText(f"Project '{name}' already exists. Please choose a different name.")
+            self.validation_label.setVisible(True)
+            self.import_btn.setEnabled(False)
+        else:
+            self.validation_label.setVisible(False)
+            self.import_btn.setEnabled(True)
 
     def _start_import(self):
         """Start import process after user confirmation."""

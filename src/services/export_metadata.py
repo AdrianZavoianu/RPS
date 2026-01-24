@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Dict, List
 
 from database.session import get_catalog_session
@@ -18,35 +19,75 @@ class ExportMetadataBuilder:
         self.result_service = result_service
 
     def build_metadata(self) -> dict:
-        """Gather project metadata for export."""
+        """Gather project metadata for export.
+
+        Returns plain objects (SimpleNamespace) instead of ORM objects to avoid
+        detached instance errors when the session closes.
+        """
         catalog_project = self._get_catalog_project()
         summary = get_project_summary(self.context)
 
-        with self.context.session() as session:
-            result_sets = session.query(ResultSet).filter(
+        session = self.context.session()
+        try:
+            result_sets_orm = session.query(ResultSet).filter(
                 ResultSet.project_id == self.result_service.project_id
             ).all()
-            result_set_ids = [rs.id for rs in result_sets]
-            result_categories = session.query(ResultCategory).filter(
+            result_set_ids = [rs.id for rs in result_sets_orm]
+            result_categories_orm = session.query(ResultCategory).filter(
                 ResultCategory.result_set_id.in_(result_set_ids)
             ).all() if result_set_ids else []
-            load_cases = session.query(LoadCase).filter(
+            load_cases_orm = session.query(LoadCase).filter(
                 LoadCase.project_id == self.result_service.project_id
             ).all()
-            stories = session.query(Story).filter(
+            stories_orm = session.query(Story).filter(
                 Story.project_id == self.result_service.project_id
             ).order_by(Story.sort_order).all()
-            elements = session.query(Element).filter(
+            elements_orm = session.query(Element).filter(
                 Element.project_id == self.result_service.project_id
             ).all()
 
+            # Convert ORM objects to plain objects to avoid detached instance errors
+            result_sets = [
+                SimpleNamespace(
+                    id=rs.id, name=rs.name, description=rs.description,
+                    created_at=rs.created_at, analysis_type=rs.analysis_type
+                )
+                for rs in result_sets_orm
+            ]
+            result_categories = [
+                SimpleNamespace(
+                    id=rc.id, category_name=rc.category_name,
+                    result_set_id=rc.result_set_id, category_type=rc.category_type
+                )
+                for rc in result_categories_orm
+            ]
+            load_cases = [
+                SimpleNamespace(id=lc.id, name=lc.name, description=lc.description)
+                for lc in load_cases_orm
+            ]
+            stories = [
+                SimpleNamespace(
+                    id=s.id, name=s.name, sort_order=s.sort_order, elevation=s.elevation
+                )
+                for s in stories_orm
+            ]
+            elements = [
+                SimpleNamespace(
+                    id=e.id, name=e.name, unique_name=e.unique_name, element_type=e.element_type
+                )
+                for e in elements_orm
+            ]
+        finally:
+            session.close()
+
         return {
+            "catalog_project": catalog_project,
+            "summary": summary,
             "project": {
                 "name": catalog_project.name,
                 "slug": catalog_project.slug,
                 "description": catalog_project.description,
                 "db_path": str(self.context.db_path),
-                "summary": summary,
             },
             "result_sets": result_sets,
             "result_categories": result_categories,
@@ -62,6 +103,12 @@ class ExportMetadataBuilder:
             catalog_project = catalog_repo.get_by_slug(self.context.slug)
             if not catalog_project:
                 raise ValueError(f"Project '{self.context.slug}' not found in catalog")
-            return catalog_project
+            # Convert to SimpleNamespace to avoid detached instance errors
+            return SimpleNamespace(
+                name=catalog_project.name,
+                slug=catalog_project.slug,
+                description=catalog_project.description,
+                created_at=catalog_project.created_at,
+            )
         finally:
             catalog_session.close()

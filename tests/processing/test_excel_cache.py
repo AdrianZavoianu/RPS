@@ -36,8 +36,10 @@ def temp_excel_file():
 def clear_cache():
     """Clear cache before each test."""
     ExcelFileCache.clear_all()
+    ExcelFileCache.set_max_files(None)
     yield
     ExcelFileCache.clear_all()
+    ExcelFileCache.set_max_files(None)
 
 
 class TestExcelFileCache:
@@ -160,6 +162,78 @@ class TestExcelFileCache:
         assert ExcelFileCache.get_ref_count(temp_excel_file) == 2
 
         ExcelFileCache.clear_all()
+
+    def test_cache_hit_returns_cached_value(self, temp_excel_file):
+        """Cache hit should return the same ExcelFile handle without reopening."""
+        with patch("processing.excel_cache.pd.ExcelFile") as loader:
+            mock_excel = MagicMock()
+            loader.return_value = mock_excel
+
+            xl1 = ExcelFileCache.acquire(temp_excel_file)
+            xl2 = ExcelFileCache.acquire(temp_excel_file)
+
+            assert xl1 is xl2
+            assert loader.call_count == 1
+
+            ExcelFileCache.release(temp_excel_file)
+            ExcelFileCache.release(temp_excel_file)
+
+    def test_cache_miss_calls_loader(self, temp_excel_file):
+        """Cache miss should call the loader for new paths."""
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            path2 = Path(f.name)
+
+        try:
+            with patch("processing.excel_cache.pd.ExcelFile") as loader:
+                loader.side_effect = [MagicMock(), MagicMock()]
+
+                ExcelFileCache.acquire(temp_excel_file)
+                ExcelFileCache.acquire(path2)
+
+                assert loader.call_count == 2
+        finally:
+            ExcelFileCache.clear_all()
+            try:
+                path2.unlink()
+            except Exception:
+                pass
+
+    def test_cache_invalidation_clears_entry(self, temp_excel_file):
+        """Clearing a cache entry should force a reload on next acquire."""
+        with patch("processing.excel_cache.pd.ExcelFile") as loader:
+            loader.side_effect = [MagicMock(), MagicMock()]
+
+            ExcelFileCache.acquire(temp_excel_file)
+            ExcelFileCache.clear(temp_excel_file)
+            ExcelFileCache.acquire(temp_excel_file)
+
+            assert loader.call_count == 2
+
+    def test_cache_respects_max_size(self, temp_excel_file):
+        """Cache should enforce max_files when configured."""
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            path2 = Path(f.name)
+
+        try:
+            ExcelFileCache.set_max_files(1)
+            with patch("processing.excel_cache.pd.ExcelFile") as loader:
+                loader.side_effect = [MagicMock(), MagicMock()]
+
+                ExcelFileCache.acquire(temp_excel_file)
+
+                with pytest.raises(RuntimeError):
+                    ExcelFileCache.acquire(path2)
+
+                ExcelFileCache.release(temp_excel_file)
+                ExcelFileCache.acquire(path2)
+                ExcelFileCache.release(path2)
+        finally:
+            ExcelFileCache.set_max_files(None)
+            ExcelFileCache.clear_all()
+            try:
+                path2.unlink()
+            except Exception:
+                pass
 
 
 class TestCacheConvenienceFunctions:

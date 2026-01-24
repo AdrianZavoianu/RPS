@@ -342,34 +342,53 @@ class ImportDataBuilder:
         ]
 
     def _serialize_global_cache(self, session) -> list:
-        from database.models import GlobalResultsCache
+        from database.models import GlobalResultsCache, ResultSet, Story
 
-        entries = session.query(GlobalResultsCache).all()
+        entries = session.query(
+            GlobalResultsCache,
+            ResultSet.name.label('result_set_name'),
+            Story.name.label('story_name')
+        ).join(
+            ResultSet, GlobalResultsCache.result_set_id == ResultSet.id
+        ).join(
+            Story, GlobalResultsCache.story_id == Story.id
+        ).all()
+
         return [
             {
-                "project_id": entry.project_id,
-                "result_set_id": entry.result_set_id,
-                "result_type": entry.result_type,
-                "story_id": entry.story_id,
-                "story_sort_order": entry.story_sort_order,
-                "results_matrix": entry.results_matrix,
+                "result_set_name": result_set_name,
+                "story_name": story_name,
+                "result_type": cache_entry.result_type,
+                "story_sort_order": cache_entry.story_sort_order,
+                "results_matrix": cache_entry.results_matrix,
             }
-            for entry in entries
+            for cache_entry, result_set_name, story_name in entries
         ]
 
     def _serialize_element_cache(self, session) -> list:
-        from database.models import ElementResultsCache
+        from database.models import ElementResultsCache, ResultSet, Story, Element
 
-        entries = session.query(ElementResultsCache).all()
+        entries = session.query(
+            ElementResultsCache,
+            ResultSet.name.label('result_set_name'),
+            Story.name.label('story_name'),
+            Element.name.label('element_name')
+        ).join(
+            ResultSet, ElementResultsCache.result_set_id == ResultSet.id
+        ).join(
+            Story, ElementResultsCache.story_id == Story.id
+        ).join(
+            Element, ElementResultsCache.element_id == Element.id
+        ).all()
+
         return [
             {
-                "project_id": entry.project_id,
-                "result_set_id": entry.result_set_id,
-                "result_type": entry.result_type,
-                "element_id": entry.element_id,
-                "story_id": entry.story_id,
-                "story_sort_order": entry.story_sort_order,
-                "results_matrix": entry.results_matrix,
+                "result_set_name": result_set_name,
+                "story_name": story_name,
+                "element_name": element_name,
+                "result_type": cache_entry.result_type,
+                "story_sort_order": cache_entry.story_sort_order,
+                "results_matrix": cache_entry.results_matrix,
             }
-            for entry in entries
+            for cache_entry, result_set_name, story_name, element_name in entries
         ]

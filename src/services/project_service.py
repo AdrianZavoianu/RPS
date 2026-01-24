@@ -16,6 +16,9 @@ from database.session import (
     init_catalog_db,
     get_catalog_session,
     project_session_factory,
+    CATALOG_DB_PATH,
+    PROJECTS_DIR,
+    dispose_project_engine,
 )
 from database.catalog_repository import CatalogProjectRepository
 from database.repository import ProjectRepository, ResultSetRepository
@@ -197,6 +200,16 @@ def list_project_summaries() -> List[ProjectSummary]:
     for context in list_project_contexts():
         summaries.append(get_project_summary(context))
     return summaries
+
+
+def get_database_paths() -> tuple[Path, Path]:
+    """Return catalog and projects root paths for display."""
+    return CATALOG_DB_PATH, PROJECTS_DIR
+
+
+def dispose_project_engine_for_path(db_path: Path) -> None:
+    """Dispose the SQLAlchemy engine for a specific project database."""
+    dispose_project_engine(db_path)
 
 
 def result_set_exists(context: ProjectContext, result_set_name: str) -> bool:

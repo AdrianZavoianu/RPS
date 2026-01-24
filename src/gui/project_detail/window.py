@@ -42,6 +42,7 @@ class ProjectDetailWindow(QMainWindow):
         self.runtime = runtime
         self.context = runtime.context
         self.session = runtime.session
+        self.data_service = runtime.data_service
 
         # Repositories (shared via runtime helper)
         self.project_repo = runtime.repos.project
@@ -271,10 +272,11 @@ class ProjectDetailWindow(QMainWindow):
     def create_comparison_set(self):
         """Open dialog to create a new comparison set."""
         from gui.comparison_set_dialog import ComparisonSetDialog
-        from database.repository import ComparisonSetRepository
         from PyQt6.QtWidgets import QMessageBox
+        from services.data_access import DataAccessService
 
-        result_sets = self.result_set_repo.get_by_project(self.project_id)
+        data_service = self.data_service or DataAccessService(self.context.session)
+        result_sets = data_service.get_result_sets(self.project_id)
 
         if len(result_sets) < 2:
             QMessageBox.warning(
@@ -291,8 +293,7 @@ class ProjectDetailWindow(QMainWindow):
         if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
             data = dialog.get_comparison_data()
 
-            comparison_repo = ComparisonSetRepository(self.session)
-            if comparison_repo.check_duplicate(self.project_id, data['name']):
+            if data_service.check_comparison_set_duplicate(self.project_id, data['name']):
                 QMessageBox.warning(
                     self,
                     "Duplicate Name",
@@ -302,7 +303,7 @@ class ProjectDetailWindow(QMainWindow):
                 return
 
             try:
-                comparison_set = comparison_repo.create(
+                data_service.create_comparison_set(
                     project_id=self.project_id,
                     name=data['name'],
                     result_set_ids=data['result_set_ids'],
@@ -328,50 +329,30 @@ class ProjectDetailWindow(QMainWindow):
 
     def _get_available_result_types(self, result_sets):
         """Check which result types have data for each result set."""
-        from database.models import GlobalResultsCache, ElementResultsCache, JointResultsCache, TimeSeriesGlobalCache
+        from services.data_access import DataAccessService
 
         available_types = {}
+        data_service = self.data_service or DataAccessService(self.context.session)
 
         for result_set in result_sets:
             types_for_set = set()
 
-            global_types = (
-                self.session.query(GlobalResultsCache.result_type)
-                .filter(GlobalResultsCache.result_set_id == result_set.id)
-                .distinct()
-                .all()
-            )
-            for (result_type,) in global_types:
-                types_for_set.add(result_type)
+            global_types = data_service.get_available_global_types([result_set.id])
+            types_for_set.update(global_types)
 
-            element_types = (
-                self.session.query(ElementResultsCache.result_type)
-                .filter(ElementResultsCache.result_set_id == result_set.id)
-                .distinct()
-                .all()
-            )
-            for (result_type,) in element_types:
+            element_types = data_service.get_available_element_types([result_set.id])
+            for result_type in element_types:
                 base_type = result_type.split('_')[0]
                 types_for_set.add(base_type)
 
-            joint_types = (
-                self.session.query(JointResultsCache.result_type)
-                .filter(JointResultsCache.result_set_id == result_set.id)
-                .distinct()
-                .all()
-            )
-            for (result_type,) in joint_types:
+            joint_types = data_service.get_available_joint_types([result_set.id])
+            for result_type in joint_types:
                 types_for_set.add(result_type)
                 base_type = result_type.split('_')[0]
                 types_for_set.add(base_type)
 
             # Check for time series data
-            has_time_series = (
-                self.session.query(TimeSeriesGlobalCache.id)
-                .filter(TimeSeriesGlobalCache.result_set_id == result_set.id)
-                .first()
-            )
-            if has_time_series:
+            if data_service.has_time_series(result_set.id):
                 types_for_set.add("TimeSeriesGlobal")
 
             available_types[result_set.id] = types_for_set
@@ -380,46 +361,46 @@ class ProjectDetailWindow(QMainWindow):
 
     def load_project_data(self):
         """Load project data and populate browser."""
-        from database.repository import ComparisonSetRepository, PushoverCaseRepository
-        from processing.time_history_importer import TimeSeriesRepository
+        from services.data_access import DataAccessService
 
         self.session.expire_all()
         self.result_service.invalidate_all()
         self.controller.reset_pushover_mapping()
         try:
-            result_sets = self.result_set_repo.get_by_project(self.project_id)
+            data_service = self.data_service or DataAccessService(self.context.session)
+            result_sets = data_service.get_result_sets(self.project_id)
 
             if result_sets and not self.controller.selection.result_set_id:
                 self.controller.update_selection(result_set_id=result_sets[0].id)
 
-            stories = self.story_repo.get_by_project(self.project_id)
-            elements = self.element_repo.get_by_project(self.project_id)
+            stories = data_service.get_stories(self.project_id)
+            elements = data_service.get_elements(self.project_id)
 
-            comparison_set_repo = ComparisonSetRepository(self.session)
-            comparison_sets = comparison_set_repo.get_by_project(self.project_id)
+            comparison_sets = data_service.get_comparison_sets(self.project_id)
 
-            pushover_repo = PushoverCaseRepository(self.session)
             pushover_cases = {}
             logger.debug("Checking %s result sets for pushover analysis type", len(result_sets))
-            for rs in result_sets:
-                analysis_type = getattr(rs, 'analysis_type', None)
-                logger.debug("Result set %s (%s): analysis_type=%s", rs.id, rs.name, analysis_type)
-                if analysis_type == 'Pushover':
-                    cases = pushover_repo.get_by_result_set(rs.id)
-                    logger.debug("Found %s pushover cases for result set %s", len(cases) if cases else 0, rs.id)
+            pushover_result_set_ids = [
+                rs.id for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover'
+            ]
+            if pushover_result_set_ids:
+                pushover_cases = data_service.get_pushover_cases_by_result_sets(pushover_result_set_ids)
+                for rs_id, cases in pushover_cases.items():
+                    logger.debug(
+                        "Found %s pushover cases for result set %s",
+                        len(cases) if cases else 0,
+                        rs_id,
+                    )
                     if cases:
-                        pushover_cases[rs.id] = cases
-                        self.controller.get_pushover_mapping(rs.id)
+                        self.controller.get_pushover_mapping(rs_id)
 
             available_result_types = self._get_available_result_types(result_sets)
 
             # Query time series load cases for each result set
-            ts_repo = TimeSeriesRepository(self.session)
-            time_series_load_cases = {}
-            for rs in result_sets:
-                load_cases = ts_repo.get_available_load_cases(self.project_id, rs.id)
-                if load_cases:
-                    time_series_load_cases[rs.id] = load_cases
+            time_series_load_cases = data_service.get_time_series_load_cases(
+                self.project_id,
+                [rs.id for rs in result_sets],
+            )
 
             self.browser.populate_tree(
                 result_sets, stories, elements, available_result_types,
@@ -485,7 +466,7 @@ class ProjectDetailWindow(QMainWindow):
         dialog = PushoverImportDialog(
             project_id=self.project.id,
             project_name=self.project_name,
-            db_path=self.context.db_path,
+            session_factory=self.context.session_factory(),
             parent=self
         )
 
@@ -525,7 +506,7 @@ class ProjectDetailWindow(QMainWindow):
                 project_id=self.project.id,
                 project_name=self.project_name,
                 folder_path=folder_path,
-                db_path=self.context.db_path,
+                session_factory=self.context.session_factory(),
                 parent=self
             )
 
@@ -561,7 +542,7 @@ class ProjectDetailWindow(QMainWindow):
         dialog = TimeHistoryImportDialog(
             project_id=self.project.id,
             project_name=self.project_name,
-            db_path=self.context.db_path,
+            session_factory=self.context.session_factory(),
             parent=self
         )
 
@@ -593,7 +574,10 @@ class ProjectDetailWindow(QMainWindow):
 
         result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
-            result_sets = self.result_set_repo.get_by_project(self.project_id)
+            from services.data_access import DataAccessService
+
+            data_service = self.data_service or DataAccessService(self.context.session)
+            result_sets = data_service.get_result_sets(self.project_id)
             if result_sets:
                 result_set_id = result_sets[0].id
                 self.controller.update_selection(result_set_id=result_set_id)
@@ -621,7 +605,10 @@ class ProjectDetailWindow(QMainWindow):
 
         result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
-            result_sets = self.result_set_repo.get_by_project(self.project_id)
+            from services.data_access import DataAccessService
+
+            data_service = self.data_service or DataAccessService(self.context.session)
+            result_sets = data_service.get_result_sets(self.project_id)
             nltha_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) != 'Pushover']
             if nltha_sets:
                 result_set_id = nltha_sets[0].id
@@ -640,7 +627,10 @@ class ProjectDetailWindow(QMainWindow):
 
         result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
-            result_sets = self.result_set_repo.get_by_project(self.project_id)
+            from services.data_access import DataAccessService
+
+            data_service = self.data_service or DataAccessService(self.context.session)
+            result_sets = data_service.get_result_sets(self.project_id)
             pushover_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
             if pushover_sets:
                 result_set_id = pushover_sets[0].id
@@ -659,7 +649,10 @@ class ProjectDetailWindow(QMainWindow):
 
         result_set_id = self.controller.selection.result_set_id
         if not result_set_id:
-            result_sets = self.result_set_repo.get_by_project(self.project_id)
+            from services.data_access import DataAccessService
+
+            data_service = self.data_service or DataAccessService(self.context.session)
+            result_sets = data_service.get_result_sets(self.project_id)
             pushover_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
             if pushover_sets:
                 result_set_id = pushover_sets[0].id
@@ -826,8 +819,9 @@ class ProjectDetailWindow(QMainWindow):
 
         if db_path:
             logger.debug("Disposing database engine...")
-            from database.session import dispose_project_engine
-            dispose_project_engine(db_path)
+            from services.project_service import dispose_project_engine_for_path
+
+            dispose_project_engine_for_path(db_path)
 
         logger.debug("Project window closed successfully: %s", project_name)
 

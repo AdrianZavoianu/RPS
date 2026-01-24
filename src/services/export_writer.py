@@ -7,6 +7,9 @@ from typing import Callable, Optional
 
 import pandas as pd
 
+from services.export.excel_writer import ExcelDatasetWriter
+from services.export.csv_writer import CsvDatasetWriter
+
 
 class ExportWriter:
     """Handles writing datasets to Excel/CSV with simple progress callbacks."""
@@ -15,12 +18,7 @@ class ExportWriter:
         self.progress_callback = progress_callback or (lambda msg, curr, total: None)
 
     def write_dataset(self, df: pd.DataFrame, output_path: Path, format: str) -> None:
-        total_steps = 1
-        self.progress_callback("Writing file...", 1, total_steps)
-
         if format == "excel":
-            df.to_excel(output_path, index=False, engine="openpyxl")
+            ExcelDatasetWriter(self.progress_callback).write(df, output_path)
         else:
-            df.to_csv(output_path, index=False)
-
-        self.progress_callback("Export complete!", total_steps, total_steps)
+            CsvDatasetWriter(self.progress_callback).write(df, output_path)

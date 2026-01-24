@@ -6,15 +6,22 @@ This document tracks the remaining items from the comprehensive refactoring plan
 - ✅ Phase 2.1: PyQtGraph Plot Factory
 - ✅ Phase 2.2: Design Token Standardization
 - ✅ Phase 3.1: BasePushoverJointImporter base class
+- ✅ Phase 3.2: Decompose Large GUI Files
 - ✅ Phase 3.3: Dialog Reorganization (gui/dialogs/ package)
+- ✅ Phase 4: Comprehensive Test Coverage
 - ✅ Phase 5.1: Relocate result_service to services/
+- ✅ Phase 5.2: Standardize data_access.py Usage
+- ✅ Phase 5.3: Consolidate Folder Importers
+- ✅ Phase 5.4: Decompose export_service.py
 - ✅ Phase 6.1: Delete Old_scripts directory
 - ✅ Phase 6.2: Clean up empty root gui/ folder
+- ✅ Phase 6.3: Manage Large Sample Data (Git LFS)
 - ✅ Phase 6.4: Performance instrumentation (@timed decorator)
+- ✅ Phase 6.5: Review excel_cache.py
 
 ---
 
-## Phase 3.2: Decompose Large GUI Files
+## ✅ Phase 3.2: Decompose Large GUI Files (Completed)
 
 **Priority:** Medium
 **Estimated Effort:** 8 hours
@@ -42,7 +49,7 @@ Extract into builders:
 
 ---
 
-## Phase 4: Comprehensive Test Coverage
+## ✅ Phase 4: Comprehensive Test Coverage (Completed)
 
 **Priority:** Medium
 **Estimated Effort:** 16 hours
@@ -94,7 +101,7 @@ Shared test fixtures:
 
 ---
 
-## Phase 5.2: Standardize data_access.py Usage
+## ✅ Phase 5.2: Standardize data_access.py Usage (Completed)
 
 **Priority:** Low
 **Estimated Effort:** 4 hours
@@ -116,7 +123,7 @@ Shared test fixtures:
 
 ---
 
-## Phase 5.3: Consolidate Folder Importers
+## ✅ Phase 5.3: Consolidate Folder Importers (Completed)
 
 **Priority:** Low
 **Estimated Effort:** 4 hours
@@ -140,7 +147,7 @@ Two folder importer implementations exist:
 
 ---
 
-## Phase 5.4: Decompose export_service.py
+## ✅ Phase 5.4: Decompose export_service.py (Completed)
 
 **Priority:** Low
 **Estimated Effort:** 4 hours
@@ -169,7 +176,7 @@ src/services/export/
 
 ---
 
-## Phase 6.3: Manage Large Sample Data
+## ✅ Phase 6.3: Manage Large Sample Data (Completed)
 
 **Priority:** Low
 **Estimated Effort:** 2 hours
@@ -205,7 +212,7 @@ git commit -m "Configure Git LFS for sample data"
 
 ---
 
-## Phase 6.5: Review excel_cache.py
+## ✅ Phase 6.5: Review excel_cache.py (Completed)
 
 **Priority:** Low
 **Estimated Effort:** 2 hours
@@ -234,17 +241,17 @@ git commit -m "Configure Git LFS for sample data"
 
 ## Summary
 
-| Phase | Description | Priority | Effort |
-|-------|-------------|----------|--------|
-| 3.2 | Decompose large GUI files | Medium | 8h |
-| 4 | Test coverage expansion | Medium | 16h |
-| 5.2 | Standardize data_access.py | Low | 4h |
-| 5.3 | Consolidate folder importers | Low | 4h |
-| 5.4 | Decompose export_service.py | Low | 4h |
-| 6.3 | Git LFS for sample data | Low | 2h |
-| 6.5 | Review excel_cache.py | Low | 2h |
-| **Total** | | | **40h** |
+| Phase | Description | Priority | Effort | Status |
+|-------|-------------|----------|--------|--------|
+| 3.2 | Decompose large GUI files | Medium | 8h | ✅ Done |
+| 4 | Test coverage expansion | Medium | 16h | ✅ Done |
+| 5.2 | Standardize data_access.py | Low | 4h | ✅ Done |
+| 5.3 | Consolidate folder importers | Low | 4h | ✅ Done |
+| 5.4 | Decompose export_service.py | Low | 4h | ✅ Done |
+| 6.3 | Git LFS for sample data | Low | 2h | ✅ Done |
+| 6.5 | Review excel_cache.py | Low | 2h | ✅ Done |
+| **Total** | | | **40h** | ✅ Complete |
 
 ---
 
-*Last Updated: 2025-01-22*
+*Last Updated: 2026-01-22*

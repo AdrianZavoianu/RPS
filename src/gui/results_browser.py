@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 from services.project_service import list_project_contexts
+from services.data_access import DataAccessService
 
 
 class ResultsBrowser(QWidget):
@@ -64,8 +65,6 @@ class ResultsBrowser(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
-        from database.repository import LoadCaseRepository, ProjectRepository
-
         self.tree.clear()
 
         contexts = list_project_contexts()
@@ -74,41 +73,38 @@ class ResultsBrowser(QWidget):
             return
 
         for context in contexts:
-            session = context.session()
-            try:
-                project = ProjectRepository(session).get_by_name(context.name)
-                if not project:
-                    continue
+            data_service = DataAccessService(context.session)
+            project = data_service.get_project_by_name(context.name)
+            if not project:
+                continue
 
-                project_item = QTreeWidgetItem(self.tree, [f"> {project.name}"])
-                project_item.setExpanded(True)
+            project_item = QTreeWidgetItem(self.tree, [f"> {project.name}"])
+            project_item.setExpanded(True)
 
-                font = project_item.font(0)
-                font.setBold(True)
-                project_item.setFont(0, font)
+            font = project_item.font(0)
+            font.setBold(True)
+            project_item.setFont(0, font)
 
-                load_cases = LoadCaseRepository(session).get_by_project(project.id)
-                if load_cases:
-                    cases_node = QTreeWidgetItem(
-                        project_item,
-                        [f"> Load Cases ({len(load_cases)})"],
-                    )
-                    cases_node.setExpanded(False)
+            load_cases = data_service.get_load_cases(project.id)
+            if load_cases:
+                cases_node = QTreeWidgetItem(
+                    project_item,
+                    [f"> Load Cases ({len(load_cases)})"],
+                )
+                cases_node.setExpanded(False)
 
-                    for case in load_cases:
-                        case_display = f"  {case.name}"
-                        if case.case_type:
-                            case_display += f" - {case.case_type}"
-                        QTreeWidgetItem(cases_node, [case_display])
+                for case in load_cases:
+                    case_display = f"  {case.name}"
+                    if case.case_type:
+                        case_display += f" - {case.case_type}"
+                    QTreeWidgetItem(cases_node, [case_display])
 
-                results_node = QTreeWidgetItem(project_item, ["> Results"])
-                results_node.setExpanded(True)
-                QTreeWidgetItem(results_node, ["  > Story Drifts"])
-                QTreeWidgetItem(results_node, ["  > Story Accelerations"])
-                QTreeWidgetItem(results_node, ["  > Story Forces"])
-                QTreeWidgetItem(results_node, ["  > Floors Displacements"])
-            finally:
-                session.close()
+            results_node = QTreeWidgetItem(project_item, ["> Results"])
+            results_node.setExpanded(True)
+            QTreeWidgetItem(results_node, ["  > Story Drifts"])
+            QTreeWidgetItem(results_node, ["  > Story Accelerations"])
+            QTreeWidgetItem(results_node, ["  > Story Forces"])
+            QTreeWidgetItem(results_node, ["  > Floors Displacements"])
 
     def _create_placeholder_structure(self) -> None:
         info_item = QTreeWidgetItem(

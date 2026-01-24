@@ -1,37 +1,26 @@
 """Max/Min Results widget - displays positive and negative envelopes."""
 
-import math
 from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
-import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QSplitter,
     QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from config.result_config import get_config, RESULT_CONFIGS
-from config.visual_config import (
-    AVERAGE_SERIES_COLOR,
-    ZERO_LINE_COLOR,
-    TABLE_CELL_PADDING,
-    TABLE_HEADER_PADDING,
-    STORY_PADDING_MAXMIN,
-    series_color,
-)
-from utils.plot_builder import PlotBuilder
-from gui.components.legend import InteractiveLegendItem, create_static_legend_item
+from config.result_config import get_config
+from config.visual_config import TABLE_CELL_PADDING, TABLE_HEADER_PADDING
 from gui.icon_utils import load_svg_icon
 from gui.components.results_table_header import ClickableTableWidget
 from .styles import COLORS
+from .maxmin_data_processor import MaxMinDataProcessor
+from .maxmin_plot_builder import MaxMinPlotBuilder
+from .maxmin_table_builder import MaxMinTableBuilder
 
 if TYPE_CHECKING:
     from services.result_service import MaxMinDataset
@@ -43,6 +32,9 @@ class MaxMinDriftsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
+        self._data_processor = MaxMinDataProcessor()
+        self._plot_builder = MaxMinPlotBuilder(self._data_processor)
+        self._table_builder = MaxMinTableBuilder(self._data_processor)
         self.current_data = None
         self.current_base_type = "Drifts"
         self.current_display_name = "Max/Min Drifts"
@@ -475,24 +467,7 @@ class MaxMinDriftsWidget(QWidget):
         if display_direction is None:
             display_direction = direction
 
-        # Get columns for this direction
-        if direction == "":
-            # Directionless data - no suffix (e.g., QuadRotations)
-            # Get all Max/Min columns that don't have a direction suffix
-            all_cols = [col for col in df.columns if col != 'Story']
-            direction_cols = [col for col in all_cols if not any(col.endswith(f'_{d}') for d in ['X', 'Y', 'V2', 'V3'])]
-        else:
-            # Directional data - columns end with _Direction
-            suffix = f'_{direction}'
-            direction_cols = [col for col in df.columns if col.endswith(suffix)]
-
-        if not direction_cols:
-            self._clear_direction(display_direction)
-            return False
-
-        # Separate into Max (positive) and Min (negative) columns
-        max_cols = sorted([col for col in direction_cols if 'Max' in col])
-        min_cols = sorted([col for col in direction_cols if 'Min' in col])
+        max_cols, min_cols = self._data_processor.split_direction_columns(df, direction)
 
         if not max_cols and not min_cols:
             self._clear_direction(display_direction)
@@ -517,556 +492,114 @@ class MaxMinDriftsWidget(QWidget):
 
     def _plot_maxmin_data(self, plot_widget, legend_layout, df, max_cols, min_cols, story_names, direction, base_result_type: str, config, display_direction: str = None):
         """Plot Max/Min drift data - horizontal orientation (drift on X, story on Y) - matches normal drift page."""
-        plot_widget.clear()
-
-        # Clear external legend
-        self._clear_legend(legend_layout)
-
-        # Use display_direction if provided, otherwise use direction
         if display_direction is None:
             display_direction = direction
 
-        # Clear plot items for this direction
-        if display_direction == 'X':
-            self.x_plot_items.clear()
-            plot_items = self.x_plot_items
-        else:
-            self.y_plot_items.clear()
-            plot_items = self.y_plot_items
+        plot_items = self.x_plot_items if display_direction == "X" else self.y_plot_items
 
-        if not story_names:
-            return
-
-        include_base_anchor = base_result_type == "Displacements"
-        num_stories = len(story_names)
-        story_indices = list(range(num_stories))
-        if include_base_anchor:
-            story_labels = ["Base"] + list(story_names)
-            base_index = 0
-            story_indices = [idx + 1 for idx in range(len(story_names))]
-        else:
-            story_labels = list(story_names)
-            base_index = None
-            story_indices = list(range(len(story_names)))
-
-        # Collect all drift values for range calculation
-        all_values = []
-
-        # Detect whether Min columns already include sign (element-level forces/axials)
-        signed_min_values = any(
-            col in df.columns and (pd.to_numeric(df[col], errors="coerce") < 0).any()
-            for col in min_cols
+        self._plot_builder.plot_maxmin_data(
+            plot_widget=plot_widget,
+            legend_layout=legend_layout,
+            df=df,
+            max_cols=max_cols,
+            min_cols=min_cols,
+            story_names=story_names,
+            direction=direction,
+            base_result_type=base_result_type,
+            config=config,
+            plot_items=plot_items,
+            on_toggle=lambda case: self.toggle_load_case_selection(case, display_direction),
+            on_hover=lambda case: self.hover_load_case(case, display_direction),
+            on_leave=lambda: self.clear_hover(display_direction),
         )
-
-        # Match Max and Min columns by load case
-        load_cases_plotted = []
-
-        # Plot each load case - Max and Min with same color
-        for idx, max_col in enumerate(max_cols):
-            if max_col not in df.columns:
-                continue
-
-            # Extract load case name (remove file prefix and direction suffix)
-            # For directionless: "Max_TH01" -> "TH01"
-            # For directional: "Max_FileName_TH01_X" -> "TH01"
-            if direction:
-                load_case_full = max_col.replace(f'_{direction}', '').replace('Max_', '')
-            else:
-                load_case_full = max_col.replace('Max_', '')
-
-            # Extract just the load case part (last part after underscore, or whole if no underscore)
-            load_case_parts = load_case_full.split('_')
-            load_case = load_case_parts[-1] if len(load_case_parts) > 1 else load_case_full
-
-            # Find corresponding Min column
-            if direction:
-                min_col = f'Min_{load_case_full}_{direction}'
-            else:
-                min_col = f'Min_{load_case_full}'
-
-            if min_col not in min_cols:
-                continue
-
-            color = series_color(idx)
-
-            # Get values
-            max_values = df[max_col].values.tolist()
-            if signed_min_values:
-                min_values = df[min_col].values.tolist()
-            else:
-                # Magnitude-only datasets need to be mirrored to the negative side
-                min_values = (-df[min_col].values).tolist()
-
-            y_positions = list(story_indices)
-
-            if include_base_anchor:
-                # Anchor all series at the base so plotted lines originate at (0, 0)
-                y_positions = [base_index] + y_positions
-                max_values = [0.0] + max_values
-                min_values = [0.0] + min_values
-
-            # Collect values for range calculation
-            all_values.extend(max_values)
-            all_values.extend(min_values)
-
-            # Plot Max values (positive drifts) - SOLID line
-            # Horizontal: drift on X-axis, story on Y-axis
-            max_item = plot_widget.plot(
-                max_values, y_positions,
-                pen=pg.mkPen(color=color, width=2),
-                antialias=True
-            )
-
-            # Plot Min values (negative drifts) - DASHED line, SAME COLOR
-            min_item = plot_widget.plot(
-                min_values, y_positions,
-                pen=pg.mkPen(color=color, width=2, style=Qt.PenStyle.DashLine),
-                antialias=True
-            )
-
-            # Store plot items for highlighting
-            plot_items[load_case] = {
-                'max_item': max_item,
-                'min_item': min_item,
-                'color': color,
-                'width': 2
-            }
-
-            # Add to legend ONCE - just the load case name (no "Max" or "Min")
-            self._add_legend_item(legend_layout, color, load_case, display_direction)
-
-            load_cases_plotted.append(load_case)
-
-        # Plot average envelopes (drawn last so they sit on top)
-        max_avg_series = self._compute_average_series(df, max_cols)
-        if max_avg_series is not None:
-            avg_values = max_avg_series.tolist()
-            y_positions = list(story_indices)
-            if include_base_anchor:
-                avg_values = [0.0] + avg_values
-                y_positions = [base_index] + y_positions
-
-            avg_max_item = plot_widget.plot(
-                avg_values,
-                y_positions,
-                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.SolidLine),
-                antialias=True,
-            )
-            all_values.extend(avg_values)
-            self._add_static_legend_item(legend_layout, AVERAGE_SERIES_COLOR, "Avg Max", Qt.PenStyle.SolidLine)
-
-        min_avg_series = self._compute_average_series(df, min_cols, absolute=not signed_min_values)
-        if min_avg_series is not None:
-            raw_avg_values = min_avg_series.tolist()
-            avg_values = raw_avg_values if signed_min_values else [-val for val in raw_avg_values]
-            y_positions = list(story_indices)
-            if include_base_anchor:
-                avg_values = [0.0] + avg_values
-                y_positions = [base_index] + y_positions
-
-            avg_min_item = plot_widget.plot(
-                avg_values,
-                y_positions,
-                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine),
-                antialias=True,
-            )
-            all_values.extend(avg_values)
-            self._add_static_legend_item(legend_layout, AVERAGE_SERIES_COLOR, "Avg Min", Qt.PenStyle.DashLine)
-
-        # Add zero drift line for symmetry (vertical line at x=0)
-        plot_widget.addLine(x=0, pen=pg.mkPen(ZERO_LINE_COLOR, width=1, style=Qt.PenStyle.DotLine))
-
-        # Use PlotBuilder for axis configuration (matching normal drift page)
-        from utils.plot_builder import PlotBuilder
-        builder = PlotBuilder(plot_widget, config)
-
-        # Configure axes with story labels (include base if needed)
-        builder.setup_axes(story_labels)
-
-        # Set y-axis range with tight padding
-        builder.set_story_range(len(story_labels), padding=STORY_PADDING_MAXMIN)
-
-        # Calculate x-axis range from all values
-        # Filter out zeros and set range with small padding on all sides
-        all_values = [v for v in all_values if v != 0.0]
-        if all_values:
-            min_val = min(all_values)
-            max_val = max(all_values)
-            # Small symmetric padding (3% on left, 5% on right for legend space)
-            builder.set_value_range(min_val, max_val, left_padding=0.03, right_padding=0.05)
-
-        # Set title (matching normal drift page format)
-        # Use data direction for title (V2/V3 for pier shears, X/Y for global)
-        builder.set_title(f"Max/Min {self.current_base_type} - {direction}")
-
-        # Set dynamic tick spacing (6 intervals based on data range)
-        if all_values:
-            builder.set_dynamic_tick_spacing('bottom', min_val, max_val, num_intervals=6)
-
-        # Lock the view ranges to prevent auto-scaling during pen updates
-        view_box = plot_widget.getPlotItem().getViewBox()
-        view_box.enableAutoRange(enable=False)
 
     def _populate_min_max_tables(self, min_table, max_table, df, max_cols, min_cols, story_names, direction, base_result_type, config):
         """Populate separate Min and Max tables with color gradients."""
-        from utils.color_utils import get_gradient_color
-        from utils.data_utils import parse_percentage_value
-        from PyQt6.QtGui import QColor
-
-        # Populate Max table
-        self._populate_single_table(max_table, df, max_cols, story_names, direction, base_result_type, config.color_scheme, is_max=True)
-
-        # Populate Min table
-        self._populate_single_table(min_table, df, min_cols, story_names, direction, base_result_type, config.color_scheme, is_max=False)
+        self._table_builder.populate_min_max_tables(
+            min_table,
+            max_table,
+            df,
+            max_cols,
+            min_cols,
+            story_names,
+            direction,
+            base_result_type,
+            config.color_scheme,
+        )
 
     def _populate_axial_combined_table(self, table, df, max_cols, min_cols, story_names, base_result_type, color_scheme: str):
         """Populate a single table with both Max and Min axial values (no X/Y split)."""
-        from utils.color_utils import get_gradient_color
-        from utils.data_utils import parse_percentage_value
-        from PyQt6.QtGui import QColor
-
-        if table is None:
-            return
-
-        table.clear()
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        # Pair load cases that have both Max and Min columns
-        pairs = []
-        for max_col in sorted(max_cols):
-            load_case_full = max_col.replace("Max_", "")
-            min_col = f"Min_{load_case_full}"
-            if min_col in min_cols:
-                parts = load_case_full.split("_")
-                load_case = parts[-1] if len(parts) > 1 else load_case_full
-                pairs.append((load_case, max_col, min_col))
-
-        if not pairs or not story_names:
-            return
-
-        column_count = 1 + len(pairs) * 2 + 1  # Story + (Max/Min per LC) + Avg
-        table.setRowCount(len(story_names))
-        table.setColumnCount(column_count)
-
-        headers = ["Story"]
-        for load_case, _, _ in pairs:
-            headers.extend([f"{load_case} Max", f"{load_case} Min"])
-        headers.append("Avg")
-        table.setHorizontalHeaderLabels(headers)
-
-        # Gradient range based on absolute values
-        all_values = []
-        for _, max_col, min_col in pairs:
-            for idx in range(len(story_names)):
-                for col in (max_col, min_col):
-                    value = df[col].iloc[idx]
-                    if isinstance(value, str):
-                        numeric_value = parse_percentage_value(value)
-                    else:
-                        numeric_value = float(value)
-                    all_values.append(abs(numeric_value))
-
-        all_values = [v for v in all_values if v != 0.0]
-        if all_values:
-            min_val = min(all_values)
-            max_val = max(all_values)
-        else:
-            min_val = max_val = 0
-
-        for row_idx, story_name in enumerate(story_names):
-            row_values = []
-            story_item = QTableWidgetItem(story_name)
-            story_item.setFlags(story_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            story_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            story_color = QColor("#d1d5db")
-            story_item.setForeground(story_color)
-            story_item._original_color = story_color
-            table.setItem(row_idx, 0, story_item)
-
-            for pair_idx, (_, max_col, min_col) in enumerate(pairs):
-                for offset, col in enumerate((max_col, min_col)):
-                    value = df[col].iloc[row_idx]
-                    if isinstance(value, str):
-                        numeric_value = parse_percentage_value(value)
-                    else:
-                        numeric_value = float(value)
-
-                    display_text = self._format_maxmin_number(numeric_value, base_result_type)
-                    item = QTableWidgetItem(display_text)
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    abs_value = abs(numeric_value)
-                    if abs_value != 0.0 and min_val != max_val and min_val != 0:
-                        color_hex = get_gradient_color(abs_value, min_val, max_val, color_scheme)
-                        gradient_color = QColor(color_hex)
-                        item.setForeground(gradient_color)
-                        item._original_color = gradient_color
-                    else:
-                        default_color = QColor("#d1d5db")
-                        item.setForeground(default_color)
-                        item._original_color = default_color
-
-                    table.setItem(row_idx, 1 + pair_idx * 2 + offset, item)
-                    row_values.append(numeric_value)
-
-            avg_value = self._calculate_row_average(row_values)
-            avg_item = self._create_average_item(avg_value, base_result_type)
-            table.setItem(row_idx, column_count - 1, avg_item)
-
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        for i in range(1, table.columnCount()):
-            table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-
-        self._resize_table_to_content(table)
+        self._table_builder.populate_axial_combined_table(
+            table,
+            df,
+            max_cols,
+            min_cols,
+            story_names,
+            base_result_type,
+            color_scheme,
+        )
 
     def _hide_table_widget(self, table):
         """Hide a table and its container (used for single-table layouts)."""
-        if not table:
-            return
-        table.setVisible(False)
-        parent = table.parent()
-        if parent:
-            parent.setVisible(False)
-            parent.setMaximumWidth(0)
-            parent.setMaximumHeight(0)
+        self._table_builder.hide_table_widget(table)
 
     def _show_table_widget(self, table, label_text: str = None):
         """Show a table and restore its container sizing."""
-        if not table:
-            return
-        table.setVisible(True)
-        if label_text in {"Min", "Max"}:
-            table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        parent = table.parent()
-        if parent:
-            parent.setVisible(True)
-            parent.setMaximumWidth(16777215)
-            parent.setMaximumHeight(16777215)
-        if label_text and hasattr(table, "_label_widget"):
-            table._label_widget.setText(label_text)
+        self._table_builder.show_table_widget(table, label_text)
 
     def _populate_single_table(self, table, df, cols, story_names, direction, base_result_type: str, color_scheme: str, is_max):
         """Populate a single table (Min or Max) with color gradients on text."""
-        from utils.color_utils import get_gradient_color
-        from utils.data_utils import parse_percentage_value
-        from PyQt6.QtGui import QColor
+        self._table_builder.populate_single_table(
+            table,
+            df,
+            cols,
+            story_names,
+            direction,
+            base_result_type,
+            color_scheme,
+            is_max,
+        )
 
-        table.clear()
-
-        if not cols or not story_names:
-            return
-
-        # Set dimensions (Story column + load cases + Avg)
-        table.setRowCount(len(story_names))
-        table.setColumnCount(len(cols) + 2)
-
-        # Extract load case names
-        load_case_names = []
-        for col in cols:
-            # Remove direction suffix and Max/Min prefix
-            # For directionless: "Max_TH01" -> "TH01"
-            # For directional: "Max_FileName_TH01_X" -> "TH01"
-            if direction:
-                col_clean = col.replace(f'_{direction}', '').replace('Max_', '').replace('Min_', '')
-            else:
-                col_clean = col.replace('Max_', '').replace('Min_', '')
-
-            parts = col_clean.split('_')
-            load_case = parts[-1] if len(parts) > 1 else col_clean
-            load_case_names.append(load_case)
-
-        # Set headers (Story + load case names)
-        headers = ['Story'] + load_case_names + ['Avg']
-        table.setHorizontalHeaderLabels(headers)
-
-        # Collect all values for gradient range calculation
-        all_values = []
-        for col in cols:
-            if col in df.columns:
-                for idx in range(len(story_names)):
-                    value = df[col].iloc[idx]
-                    # Handle both string and numeric values
-                    if isinstance(value, str):
-                        numeric_value = parse_percentage_value(value)
-                    else:
-                        numeric_value = float(value)
-                    # Use absolute values for range calculation
-                    all_values.append(abs(numeric_value))
-
-        # Filter zeros and calculate range
-        all_values = [v for v in all_values if v != 0.0]
-        if all_values:
-            min_val = min(all_values)
-            max_val = max(all_values)
-        else:
-            min_val, max_val = 0, 0
-
-        # Populate data with color gradients on text
-        for row_idx in range(len(story_names)):
-            row_values = []
-            # First column: Story name
-            story_item = QTableWidgetItem(story_names[row_idx])
-            story_item.setFlags(story_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            story_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            story_color = QColor("#d1d5db")  # Default text color
-            story_item.setForeground(story_color)
-            # Store original color for hover/selection preservation
-            story_item._original_color = story_color
-            table.setItem(row_idx, 0, story_item)
-
-            # Data columns: drift values
-            for col_idx, col in enumerate(cols):
-                if col in df.columns:
-                    value = df[col].iloc[row_idx]
-
-                    # Handle both raw and already-formatted values
-                    if isinstance(value, str):
-                        numeric_value = parse_percentage_value(value)
-                    else:
-                        # Value is already numeric (likely from cache)
-                        numeric_value = float(value)
-
-                    display_text = self._format_maxmin_number(numeric_value, base_result_type)
-                    item = QTableWidgetItem(display_text)
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    # Ensure no background is set
-                    from PyQt6.QtCore import Qt as QtCore
-                    item.setData(QtCore.ItemDataRole.BackgroundRole, None)
-
-                    # Apply color gradient to text (use absolute value for coloring)
-                    abs_value = abs(numeric_value)
-                    if abs_value != 0.0 and min_val != max_val and min_val != 0:
-                        color_hex = get_gradient_color(abs_value, min_val, max_val, color_scheme)
-                        gradient_color = QColor(color_hex)
-                        item.setForeground(gradient_color)
-                        # Store original color for hover/selection preservation
-                        item._original_color = gradient_color
-                    else:
-                        # Default text color for zeros or invalid range
-                        default_color = QColor("#d1d5db")
-                        item.setForeground(default_color)
-                        # Store original color for hover/selection preservation
-                        item._original_color = default_color
-
-                    table.setItem(row_idx, col_idx + 1, item)  # +1 because Story is column 0
-                    row_values.append(numeric_value)
-
-            avg_value = self._calculate_row_average(row_values)
-            avg_item = self._create_average_item(avg_value, base_result_type)
-            table.setItem(row_idx, len(cols) + 1, avg_item)
-
-        # Resize columns - Story column fixed width, data columns stretch
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        for i in range(1, table.columnCount()):
-            table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-
-        # Resize table to show all rows (no internal scrolling)
-        self._resize_table_to_content(table)
-
-    @staticmethod
-    def _calculate_row_average(values):
+    def _calculate_row_average(self, values):
         """Return the mean of valid numeric values, ignoring None/NaN."""
-        valid = [
-            val for val in values
-            if val is not None and not (isinstance(val, float) and math.isnan(val))
-        ]
-        if not valid:
-            return None
-        return sum(valid) / len(valid)
+        return self._data_processor.calculate_row_average(values)
 
-    def _create_average_item(self, value, base_result_type: str) -> QTableWidgetItem:
+    def _create_average_item(self, value, base_result_type: str):
         """Create a styled table item for the Average column."""
-        from PyQt6.QtGui import QColor
-
-        item = QTableWidgetItem()
-        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        if value is None or (isinstance(value, float) and math.isnan(value)):
-            item.setText("-")
-        else:
-            item.setText(self._format_maxmin_number(value, base_result_type))
-
-        accent = QColor("#ffa500")
-        item.setForeground(accent)
-        item._original_color = QColor(accent)
-        return item
+        return self._table_builder.create_average_item(value, base_result_type)
 
     def _compute_average_series(self, df: pd.DataFrame, columns: list[str], absolute: bool = False):
         """Return a per-story average series for the provided columns."""
-        if not columns:
-            return None
-
-        valid_cols = [col for col in columns if col in df.columns]
-        if not valid_cols:
-            return None
-
-        numeric_df = df[valid_cols].apply(pd.to_numeric, errors='coerce')
-        if numeric_df.empty:
-            return None
-
-        if absolute:
-            numeric_df = numeric_df.abs()
-
-        avg_series = numeric_df.mean(axis=1, skipna=True)
-        if avg_series.isna().all():
-            return None
-
-        return avg_series.fillna(0.0)
+        return self._data_processor.compute_average_series(df, columns, absolute)
 
     def _resize_table_to_content(self, table):
         """Resize table height to show all rows without scrolling."""
-        # Calculate total height needed
-        total_height = table.horizontalHeader().height()  # Header height
-
-        for row in range(table.rowCount()):
-            total_height += table.rowHeight(row)
-
-        # Add some padding for borders
-        total_height += 2
-
-        # Set fixed height to show all content
-        table.setMaximumHeight(total_height)
-        table.setMinimumHeight(total_height)
+        self._table_builder.resize_table_to_content(table)
 
     def _add_legend_item(self, legend_layout, color: str, label: str, direction: str):
         """Add an interactive legend item to the external legend."""
-        item_widget = InteractiveLegendItem(
-            label=label,
-            color=color,
+        self._plot_builder.add_legend_item(
+            legend_layout,
+            color,
+            label,
             on_toggle=lambda case: self.toggle_load_case_selection(case, direction),
             on_hover=lambda case: self.hover_load_case(case, direction),
             on_leave=lambda: self.clear_hover(direction),
         )
-        legend_layout.addWidget(item_widget)
 
     def _add_static_legend_item(self, legend_layout, color: str, label: str, pen_style: Qt.PenStyle):
         """Add a non-interactive legend item (for aggregate lines like averages)."""
-        legend_layout.addWidget(create_static_legend_item(color, label, pen_style))
+        self._plot_builder.add_static_legend_item(legend_layout, color, label, pen_style)
 
     def _clear_legend(self, legend_layout):
         """Clear all items from the external legend."""
-        while legend_layout.count():
-            item = legend_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+        self._plot_builder.clear_legend(legend_layout)
 
     def _base_type_decimals(self, base_type: str) -> int:
-        mapping = {"Drifts": 2, "Accelerations": 2, "Forces": 0, "Displacements": 0, "WallShears": 0, "ColumnShears": 0, "ColumnAxials": 4, "ColumnRotations": 2, "QuadRotations": 2}
-        return mapping.get(base_type, 2)
+        return self._table_builder.base_type_decimals(base_type)
 
     def _format_maxmin_number(self, value: float, base_type: str) -> str:
-        decimals = self._base_type_decimals(base_type)
-        if decimals <= 0:
-            text = f"{round(value):.0f}"
-        else:
-            text = f"{value:.{decimals}f}"
-        # No unit suffix in table cells - unit is shown in title
-        return text
+        return self._table_builder.format_maxmin_number(value, base_type)
 
     def eventFilter(self, obj, event):
         """Handle hover effects and clicks for table rows."""
@@ -1275,130 +808,38 @@ class MaxMinDriftsWidget(QWidget):
         Returns:
             Dict mapping display direction to data direction
         """
-        # If data has V2/V3 (element shear results), map them to X/Y for display
-        if "V2" in available_directions and "V3" in available_directions:
-            return {"X": "V2", "Y": "V3"}
-        # If data has R2/R3 (column rotation results), map them to X/Y for display
-        elif "R2" in available_directions and "R3" in available_directions:
-            return {"X": "R2", "Y": "R3"}
-        # If data has no direction (quad rotations), map both to empty string
-        elif "" in available_directions or len(available_directions) == 1 and not available_directions[0]:
-            return {"X": "", "Y": ""}
-        # Otherwise use identity mapping (X→X, Y→Y for global results)
-        return {"X": "X", "Y": "Y"}
+        return MaxMinDataProcessor.create_direction_map(available_directions)
 
     @staticmethod
     def _infer_base_result_type(result_type: Optional[str]) -> str:
         """Infer the base result type name from a Max/Min identifier."""
-        if not result_type:
-            return "Drifts"
-        if result_type.startswith("MaxMin"):
-            base = result_type.replace("MaxMin", "", 1)
-            return base or "Drifts"
-        return result_type
+        return MaxMinDataProcessor.infer_base_result_type(result_type)
 
     @staticmethod
     def _get_config_key(base_result_type: str, direction: str) -> str:
         """Return the configuration key for a result type/direction."""
-        # For directionless data (empty direction), return base type
-        if not direction or direction == "":
-            return base_result_type
-
-        key = f"{base_result_type}_{direction}"
-        if key in RESULT_CONFIGS:
-            return key
-        return base_result_type
+        return MaxMinDataProcessor.get_config_key(base_result_type, direction)
 
     def highlight_load_cases(self, selected_cases: list, direction: str):
         """Highlight selected load cases, dim others."""
-        plot_items = self.x_plot_items if direction == 'X' else self.y_plot_items
-        current_selection = self.x_current_selection if direction == 'X' else self.y_current_selection
-
-        if not selected_cases:
-            # No selection - restore all to full opacity
-            for case_name, case_data in plot_items.items():
-                max_item = case_data['max_item']
-                min_item = case_data['min_item']
-                color = case_data['color']
-                width = case_data['width']
-
-                max_item.setPen(pg.mkPen(color, width=width))
-                min_item.setPen(pg.mkPen(color, width=width, style=Qt.PenStyle.DashLine))
-        else:
-            # Highlight selected cases, dim others
-            selected_set = set(selected_cases)
-
-            for case_name, case_data in plot_items.items():
-                max_item = case_data['max_item']
-                min_item = case_data['min_item']
-                color = case_data['color']
-                width = case_data['width']
-
-                if case_name in selected_set:
-                    # Selected case - full opacity, keep same width
-                    max_item.setPen(pg.mkPen(color, width=width))
-                    min_item.setPen(pg.mkPen(color, width=width, style=Qt.PenStyle.DashLine))
-                else:
-                    # Non-selected case - reduce opacity
-                    from PyQt6.QtGui import QColor
-                    qcolor = QColor(color)
-                    qcolor.setAlpha(40)  # Low opacity (~15%)
-                    max_item.setPen(pg.mkPen(qcolor, width=width))
-                    min_item.setPen(pg.mkPen(qcolor, width=width, style=Qt.PenStyle.DashLine))
+        plot_items = self.x_plot_items if direction == "X" else self.y_plot_items
+        self._plot_builder.highlight_load_cases(plot_items, selected_cases)
 
     def hover_load_case(self, load_case: str, direction: str):
         """Temporarily highlight a load case on hover."""
-        plot_items = self.x_plot_items if direction == 'X' else self.y_plot_items
-        current_selection = self.x_current_selection if direction == 'X' else self.y_current_selection
-
-        if load_case not in plot_items:
-            return
-
-        from PyQt6.QtGui import QColor
-
-        for case_name, case_data in plot_items.items():
-            max_item = case_data['max_item']
-            min_item = case_data['min_item']
-            color = case_data['color']
-            width = case_data['width']
-
-            if case_name == load_case:
-                # Hovered case - full opacity, keep width constant
-                max_item.setPen(pg.mkPen(color, width=width))
-                min_item.setPen(pg.mkPen(color, width=width, style=Qt.PenStyle.DashLine))
-            elif case_name in current_selection:
-                # Selected but not hovered - heavily dimmed to emphasize hover
-                qcolor = QColor(color)
-                qcolor.setAlpha(60)  # Low opacity (~23%)
-                max_item.setPen(pg.mkPen(qcolor, width=width))
-                min_item.setPen(pg.mkPen(qcolor, width=width, style=Qt.PenStyle.DashLine))
-            else:
-                # Not selected and not hovered - very heavily dimmed
-                qcolor = QColor(color)
-                qcolor.setAlpha(25)  # Very low opacity (~10%)
-                max_item.setPen(pg.mkPen(qcolor, width=width))
-                min_item.setPen(pg.mkPen(qcolor, width=width, style=Qt.PenStyle.DashLine))
+        plot_items = self.x_plot_items if direction == "X" else self.y_plot_items
+        current_selection = self.x_current_selection if direction == "X" else self.y_current_selection
+        self._plot_builder.hover_load_case(plot_items, current_selection, load_case)
 
     def clear_hover(self, direction: str):
         """Clear hover effect and restore to selected state."""
-        current_selection = self.x_current_selection if direction == 'X' else self.y_current_selection
-        self.highlight_load_cases(list(current_selection), direction)
+        plot_items = self.x_plot_items if direction == "X" else self.y_plot_items
+        current_selection = self.x_current_selection if direction == "X" else self.y_current_selection
+        self._plot_builder.clear_hover(plot_items, current_selection)
 
     def toggle_load_case_selection(self, load_case: str, direction: str):
         """Toggle selection of a load case."""
-        current_selection = self.x_current_selection if direction == 'X' else self.y_current_selection
-        legend_layout = self.x_legend_layout if direction == 'X' else self.y_legend_layout
-
-        if load_case in current_selection:
-            current_selection.remove(load_case)
-        else:
-            current_selection.add(load_case)
-
-        # Update highlighting
-        self.highlight_load_cases(list(current_selection), direction)
-
-        # Update legend item visual states
-        for i in range(legend_layout.count()):
-            item = legend_layout.itemAt(i).widget()
-            if isinstance(item, InteractiveLegendItem):
-                item.set_selected(item.label in current_selection)
+        plot_items = self.x_plot_items if direction == "X" else self.y_plot_items
+        current_selection = self.x_current_selection if direction == "X" else self.y_current_selection
+        legend_layout = self.x_legend_layout if direction == "X" else self.y_legend_layout
+        self._plot_builder.toggle_load_case_selection(plot_items, current_selection, load_case, legend_layout)

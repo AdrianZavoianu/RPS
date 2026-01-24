@@ -30,7 +30,7 @@ from pathlib import Path
 
 from .import_dialog import ImportDialog
 from .window_utils import enable_dark_title_bar
-from .project_detail_window import ProjectDetailWindow
+from .project_detail import ProjectDetailWindow
 from .project_grid_widget import ProjectGridWidget
 from .styles import COLORS
 from .diagnostics_dialog import DiagnosticsDialog
@@ -621,11 +621,13 @@ class MainWindow(QMainWindow):
 
     def _on_database_info(self):
         """Show database information."""
-        from database.session import CATALOG_DB_PATH, PROJECTS_DIR
+        from services.project_service import get_database_paths
+
+        catalog_path, projects_dir = get_database_paths()
 
         message = (
-            f"Catalog: {CATALOG_DB_PATH} | "
-            f"Projects root: {PROJECTS_DIR}"
+            f"Catalog: {catalog_path} | "
+            f"Projects root: {projects_dir}"
         )
         self.statusBar().showMessage(message, 7000)
 

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable
 
-from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QApplication
+from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from sqlalchemy.orm import Session
 
 from gui.styles import COLORS
 from services.data_access import DataAccessService
+from .report_models import ReportSection
 
 
 class ReportCheckboxTree(QTreeWidget):
@@ -370,16 +371,12 @@ class ReportCheckboxTree(QTreeWidget):
 
     def get_selected_sections(self, result_set_id: int, analysis_context: str = "NLTHA") -> list:
         """Get list of selected sections as ReportSection objects."""
-        from .report_view import ReportSection
-
         sections = []
         self._collect_selected_items(self.invisibleRootItem(), result_set_id, sections, analysis_context)
         return sections
 
     def _collect_selected_items(self, parent: QTreeWidgetItem, result_set_id: int, sections: list, analysis_context: str = "NLTHA") -> None:
         """Recursively collect checked leaf items."""
-        from .report_view import ReportSection
-
         for i in range(parent.childCount()):
             item = parent.child(i)
             data = item.data(0, Qt.ItemDataRole.UserRole)

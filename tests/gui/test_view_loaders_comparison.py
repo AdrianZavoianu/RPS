@@ -53,6 +53,7 @@ class DummyComparisonSet:
 class DummyWindow:
     def __init__(self):
         self.session = object()
+        self.data_service = None
 
         class StatusBar:
             def __init__(self):
@@ -71,7 +72,7 @@ class RepoStub:
     def __init__(self, _session=None):
         pass
 
-    def get_by_id(self, result_set_id):
+    def get_result_set_by_id(self, result_set_id):
         return type("ResultSet", (), {"id": result_set_id, "name": f"RS{result_set_id}"})()
 
 
@@ -80,14 +81,13 @@ def test_load_comparison_joint_scatter_shows_view(monkeypatch):
     area = DummyArea()
     window = DummyWindow()
     comparison_set = DummyComparisonSet([1, 2])
+    window.data_service = RepoStub()
 
     df = pd.DataFrame({"Shell Object": ["F1"], "Unique Name": ["F1"], "TH01": [-10.0]})
     datasets = [("DES", df, ["TH01"]), ("MCE", df, ["TH01"])]
 
-    import database.repository as repo_module
     import services.result_service.comparison_builder as comparison_builder
 
-    monkeypatch.setattr(repo_module, "ResultSetRepository", RepoStub)
     monkeypatch.setattr(comparison_builder, "build_all_joints_comparison", lambda **_: datasets)
 
     view_loaders.load_comparison_joint_scatter(
@@ -105,19 +105,9 @@ def test_load_comparison_all_beam_rotations(monkeypatch):
     area = DummyArea()
     window = DummyWindow()
     comparison_set = DummyComparisonSet([1, 2])
+    window.data_service = RepoStub()
 
     df = pd.DataFrame({"Element": ["B1"], "Story": ["L1"], "Rotation": [0.5]})
-
-    import database.repository as repo_module
-
-    class RepoStubLocal:
-        def __init__(self, _session=None):
-            pass
-
-        def get_by_id(self, rid):
-            return type("ResultSet", (), {"id": rid, "name": f"RS{rid}"})()
-
-    monkeypatch.setattr(repo_module, "ResultSetRepository", RepoStubLocal)
 
     window.result_service = type(
         "RS",

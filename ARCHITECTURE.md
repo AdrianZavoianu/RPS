@@ -34,6 +34,13 @@
 - **Long-lived sessions**: `ProjectDetailWindow` uses a long-lived session for UI responsiveness. After imports complete, call `session.expire_all()` + `result_service.invalidate_*()` to refresh cached ORM objects.
 - **Avoid**: Passing Session objects between threads, storing Session objects globally, using `session.execute()` for complex queries (use repository methods instead).
 
+**DataAccessService API (UI facade)**
+- Location: `src/services/data_access.py`
+- Core read helpers: `get_project_by_name`, `get_result_sets`, `get_result_set_by_id`, `get_result_set_names`
+- UI lists: `get_stories`, `get_load_cases`, `get_elements_by_type`
+- Comparison/pushover helpers: `get_comparison_sets`, `get_comparison_set_by_id`, `get_pushover_cases`, `get_pushover_case_by_name`, `get_pushover_curve_data`
+- Cache discovery: `get_available_global_types`, `get_available_element_types`, `get_available_joint_types`, `has_time_series`
+
 **New in v2.22**:
 - **Pushover Registry Pattern**: Centralized registry for pushover importers/parsers with lazy loading
   - `PushoverRegistry` class with type categories (GLOBAL, ELEMENT, JOINT, CURVE)

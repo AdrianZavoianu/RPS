@@ -27,6 +27,35 @@ from processing.pushover_global_parser import PushoverGlobalParser
 logger = logging.getLogger(__name__)
 
 
+def ensure_pushover_result_set(
+    session: Session,
+    project_id: int,
+    result_set_name: str,
+) -> ResultSet:
+    """Ensure a pushover result set exists for the project."""
+    result_set = session.query(ResultSet).filter(
+        ResultSet.project_id == project_id,
+        ResultSet.name == result_set_name,
+    ).first()
+
+    if not result_set:
+        result_set = ResultSet(
+            project_id=project_id,
+            name=result_set_name,
+            description="Pushover global results",
+            analysis_type="Pushover",
+        )
+        session.add(result_set)
+        session.flush()
+        return result_set
+
+    if getattr(result_set, "analysis_type", None) != "Pushover":
+        result_set.analysis_type = "Pushover"
+    if not getattr(result_set, "description", None):
+        result_set.description = "Pushover global results"
+    return result_set
+
+
 class PushoverGlobalImporter:
     """Importer for pushover global results.
 

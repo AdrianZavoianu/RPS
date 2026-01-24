@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
-from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -13,9 +12,6 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QLabel,
     QComboBox,
-    QPushButton,
-    QScrollArea,
-    QFrame,
     QApplication,
     QProgressBar,
 )
@@ -25,20 +21,11 @@ from PyQt6.QtGui import QCursor
 from gui.styles import COLORS
 from gui.ui_helpers import create_styled_label, create_styled_button
 from services.project_runtime import ProjectRuntime
+from services.reporting_data import ReportingDataService
+from .report_models import ReportSection
+from .report_section_loader import ReportSectionLoader
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ReportSection:
-    """Data container for a report section."""
-    title: str              # "Story Drifts - X Direction"
-    result_type: str        # "Drifts"
-    direction: str          # "X"
-    result_set_id: int
-    category: str = "Global"  # "Global", "Element", "Joint"
-    element_id: Optional[int] = None
-    analysis_context: str = "NLTHA"  # "NLTHA" or "Pushover"
 
 
 class ReportView(QWidget):
@@ -64,12 +51,18 @@ class ReportView(QWidget):
         super().__init__(parent)
         self.runtime = runtime
         self.result_service = runtime.result_service
+        self.reporting_service = ReportingDataService(runtime.context.session)
         self.project_name = runtime.project.name
         self.project_id = runtime.project.id
         self.analysis_context = analysis_context  # 'NLTHA' or 'Pushover'
 
         self._selected_result_set_id: Optional[int] = None
-        self._cached_sections: dict = {}  # Cache fetched datasets
+        self.section_loader = ReportSectionLoader(
+            self.result_service,
+            self.reporting_service,
+            self.project_id,
+            self.analysis_context,
+        )
 
         # Debounce timer for preview updates (300ms delay)
         self._update_timer = QTimer(self)
@@ -345,12 +338,7 @@ class ReportView(QWidget):
             return
 
         # Check if any sections need fetching (not cached)
-        needs_fetch = any(
-            (section.category == "Global" and ("Global", section.result_type, section.direction, section.result_set_id) not in self._cached_sections) or
-            (section.category == "Element" and ("Element", section.result_type, section.result_set_id) not in self._cached_sections) or
-            (section.category == "Joint" and ("Joint", section.result_type, section.result_set_id) not in self._cached_sections)
-            for section in sections
-        )
+        needs_fetch = self.section_loader.needs_fetch(sections)
         
         # Show loading indicator if fetching is needed
         if needs_fetch:
@@ -360,406 +348,13 @@ class ReportView(QWidget):
 
         try:
             # Fetch datasets for each section (with caching)
-            for section in sections:
-                if section.category == "Global":
-                    cache_key = ("Global", section.result_type, section.direction, section.result_set_id)
-
-                    # Check local cache first
-                    if cache_key in self._cached_sections:
-                        section.dataset = self._cached_sections[cache_key]
-                    else:
-                        # Fetch and cache
-                        dataset = self.result_service.get_standard_dataset(
-                            section.result_type,
-                            section.direction,
-                            section.result_set_id
-                        )
-                        self._cached_sections[cache_key] = dataset
-                        section.dataset = dataset
-
-                elif section.category == "Element":
-                    cache_key = ("Element", section.result_type, section.result_set_id)
-
-                    if cache_key in self._cached_sections:
-                        section.element_data = self._cached_sections[cache_key]
-                    else:
-                        # Fetch element rotation data based on type
-                        if section.result_type == "BeamRotations":
-                            element_data = self._fetch_beam_rotation_data(section.result_set_id)
-                        elif section.result_type == "ColumnRotations":
-                            element_data = self._fetch_column_rotation_data(section.result_set_id)
-                        else:
-                            element_data = None
-                        self._cached_sections[cache_key] = element_data
-                        section.element_data = element_data
-
-                elif section.category == "Joint":
-                    cache_key = ("Joint", section.result_type, section.result_set_id)
-
-                    if cache_key in self._cached_sections:
-                        section.joint_data = self._cached_sections[cache_key]
-                    else:
-                        # Fetch joint data based on type
-                        if section.result_type == "SoilPressures_Min":
-                            joint_data = self._fetch_soil_pressure_data(section.result_set_id)
-                        else:
-                            joint_data = None
-                        self._cached_sections[cache_key] = joint_data
-                        section.joint_data = joint_data
-
+            self.section_loader.load_sections(sections)
             self.preview_widget.set_sections(sections)
         finally:
             # Hide loading indicator
             if needs_fetch:
                 self._loading_container.hide()
                 QApplication.restoreOverrideCursor()
-
-    def _fetch_beam_rotation_data(self, result_set_id: int) -> Optional[dict]:
-        """Fetch beam rotation data for reporting.
-
-        Returns dict with:
-        - 'all_data': DataFrame with all beam rotations (for table - wide format)
-        - 'top_10': DataFrame with top 10 by absolute average (for table)
-        - 'load_cases': List of load case column names
-        - 'stories': List of story names in display order (bottom to top)
-        - 'plot_data_max': List of (story, rotation) tuples for Max step type
-        - 'plot_data_min': List of (story, rotation) tuples for Min step type
-        """
-        import pandas as pd
-        from sqlalchemy import or_
-        from database.models import BeamRotation, LoadCase, Story, Element, ResultCategory
-
-        # Build base query
-        base_query = (
-            self.runtime.session.query(BeamRotation, LoadCase, Story, Element)
-            .join(LoadCase, BeamRotation.load_case_id == LoadCase.id)
-            .join(Story, BeamRotation.story_id == Story.id)
-            .join(Element, BeamRotation.element_id == Element.id)
-        )
-
-        # Apply context-appropriate filtering
-        if self.analysis_context == 'Pushover':
-            # Pushover: Use outerjoin to include records without result_category
-            records = (
-                base_query
-                .outerjoin(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
-                .filter(
-                    Story.project_id == self.project_id,
-                    or_(
-                        ResultCategory.result_set_id == result_set_id,
-                        ResultCategory.result_set_id.is_(None),
-                    ),
-                )
-                .order_by(Story.sort_order, Element.name, LoadCase.name)
-                .all()
-            )
-        else:
-            # NLTHA: Use strict filtering to avoid including unrelated data
-            records = (
-                base_query
-                .join(ResultCategory, BeamRotation.result_category_id == ResultCategory.id)
-                .filter(
-                    Story.project_id == self.project_id,
-                    ResultCategory.result_set_id == result_set_id,
-                )
-                .order_by(Story.sort_order, Element.name, LoadCase.name)
-                .all()
-            )
-
-        if not records:
-            return None
-
-        # Build wide-format data for table AND collect plot data (Max/Min separately)
-        load_cases = sorted({lc.name for _, lc, _, _ in records})
-        data_dict = {}
-        plot_data_max = []  # (story_name, story_order, rotation_value)
-        plot_data_min = []
-
-        for rotation, load_case, story, element in records:
-            # Get step_type to separate Max and Min
-            step_type = getattr(rotation, 'step_type', None)
-            rotation_value = rotation.r3_plastic * 100.0
-
-            # Collect plot data based on step_type
-            if step_type == "Max":
-                plot_data_max.append((story.name, story.sort_order or 0, rotation_value))
-            elif step_type == "Min":
-                plot_data_min.append((story.name, story.sort_order or 0, rotation_value))
-            else:
-                # Legacy data without step_type - include in both
-                plot_data_max.append((story.name, story.sort_order or 0, rotation_value))
-                plot_data_min.append((story.name, story.sort_order or 0, rotation_value))
-
-            # Build wide-format table data (use step_type as part of key to avoid overwriting)
-            key = (story.name, element.name, rotation.generated_hinge or "", rotation.rel_dist or 0.0, step_type or "")
-            entry = data_dict.setdefault(
-                key,
-                {
-                    "Story": story.name,
-                    "StoryOrder": story.sort_order or 0,
-                    "Frame/Wall": element.name,
-                    "Hinge": rotation.hinge or "",
-                },
-            )
-            entry[load_case.name] = rotation_value
-
-        df = pd.DataFrame(list(data_dict.values()))
-        if df.empty:
-            return None
-
-        # Identify load case columns
-        meta_cols = ["Story", "StoryOrder", "Frame/Wall", "Hinge"]
-        load_case_cols = [c for c in df.columns if c not in meta_cols]
-
-        if not load_case_cols:
-            return None
-
-        # Add summary columns (skip Avg for Pushover - not meaningful)
-        numeric_df = df[load_case_cols].apply(pd.to_numeric, errors='coerce')
-        if self.analysis_context != 'Pushover':
-            df["Avg"] = numeric_df.mean(axis=1)
-        df["Max"] = numeric_df.max(axis=1)
-        df["Min"] = numeric_df.min(axis=1)
-
-        # Calculate absolute average for sorting
-        df["_abs_avg"] = numeric_df.abs().mean(axis=1)
-
-        # Get top 10 by absolute average
-        top_10_df = df.nlargest(10, "_abs_avg").copy()
-
-        # Drop helper column
-        df = df.drop(columns=["_abs_avg"])
-        top_10_df = top_10_df.drop(columns=["_abs_avg"])
-
-        # Get stories in display order (bottom to top for plot)
-        stories_df = df[['Story', 'StoryOrder']].drop_duplicates().sort_values('StoryOrder')
-        story_names = list(reversed(stories_df['Story'].tolist()))  # Reverse for bottom-to-top
-
-        return {
-            "all_data": df,
-            "top_10": top_10_df,
-            "load_cases": load_case_cols,
-            "stories": story_names,
-            "plot_data_max": plot_data_max,
-            "plot_data_min": plot_data_min,
-        }
-
-    def _fetch_column_rotation_data(self, result_set_id: int) -> Optional[dict]:
-        """Fetch column rotation data for reporting.
-
-        Returns dict with:
-        - 'all_data': DataFrame with all column rotations (for table - wide format)
-        - 'top_10': DataFrame with top 10 by absolute average (for table)
-        - 'load_cases': List of load case column names
-        - 'stories': List of story names in display order (bottom to top)
-        - 'plot_data_max': List of (story, rotation) tuples for Max step type
-        - 'plot_data_min': List of (story, rotation) tuples for Min step type
-        """
-        import pandas as pd
-        from sqlalchemy import or_
-        from database.models import ColumnRotation, LoadCase, Story, Element, ResultCategory
-
-        # Build base query
-        base_query = (
-            self.runtime.session.query(ColumnRotation, LoadCase, Story, Element)
-            .join(LoadCase, ColumnRotation.load_case_id == LoadCase.id)
-            .join(Story, ColumnRotation.story_id == Story.id)
-            .join(Element, ColumnRotation.element_id == Element.id)
-        )
-
-        # Apply context-appropriate filtering
-        if self.analysis_context == 'Pushover':
-            # Pushover: Use outerjoin to include records without result_category
-            records = (
-                base_query
-                .outerjoin(ResultCategory, ColumnRotation.result_category_id == ResultCategory.id)
-                .filter(
-                    Story.project_id == self.project_id,
-                    or_(
-                        ResultCategory.result_set_id == result_set_id,
-                        ResultCategory.result_set_id.is_(None),
-                    ),
-                )
-                .order_by(Story.sort_order, Element.name, LoadCase.name)
-                .all()
-            )
-        else:
-            # NLTHA: Use strict filtering to avoid including unrelated data
-            records = (
-                base_query
-                .join(ResultCategory, ColumnRotation.result_category_id == ResultCategory.id)
-                .filter(
-                    Story.project_id == self.project_id,
-                    ResultCategory.result_set_id == result_set_id,
-                )
-                .order_by(Story.sort_order, Element.name, LoadCase.name)
-                .all()
-            )
-
-        if not records:
-            return None
-
-        # Build wide-format data for table AND collect plot data (Max/Min separately)
-        load_cases = sorted({lc.name for _, lc, _, _ in records})
-        data_dict = {}
-        plot_data_max = []  # (story_name, story_order, rotation_value)
-        plot_data_min = []
-
-        for rotation, load_case, story, element in records:
-            # Column rotations use max_rotation/min_rotation fields for NLTHA envelope data
-            direction = rotation.direction or "R3"  # R2 or R3
-
-            # For NLTHA envelope data, use max_rotation/min_rotation
-            # For pushover/single case, use rotation field
-            if rotation.max_rotation is not None:
-                rotation_value_max = rotation.max_rotation * 100.0
-                plot_data_max.append((story.name, story.sort_order or 0, rotation_value_max))
-            if rotation.min_rotation is not None:
-                rotation_value_min = rotation.min_rotation * 100.0
-                plot_data_min.append((story.name, story.sort_order or 0, rotation_value_min))
-
-            # If neither max nor min, use rotation field for both
-            if rotation.max_rotation is None and rotation.min_rotation is None and rotation.rotation is not None:
-                rotation_value = rotation.rotation * 100.0
-                plot_data_max.append((story.name, story.sort_order or 0, rotation_value))
-                plot_data_min.append((story.name, story.sort_order or 0, rotation_value))
-
-            # Build wide-format table data
-            # Use max_rotation for table display (absolute max)
-            table_value = None
-            if rotation.max_rotation is not None and rotation.min_rotation is not None:
-                # Use the one with larger absolute value
-                if abs(rotation.max_rotation) >= abs(rotation.min_rotation):
-                    table_value = rotation.max_rotation * 100.0
-                else:
-                    table_value = rotation.min_rotation * 100.0
-            elif rotation.max_rotation is not None:
-                table_value = rotation.max_rotation * 100.0
-            elif rotation.min_rotation is not None:
-                table_value = rotation.min_rotation * 100.0
-            elif rotation.rotation is not None:
-                table_value = rotation.rotation * 100.0
-
-            if table_value is not None:
-                key = (story.name, element.name, direction)
-                entry = data_dict.setdefault(
-                    key,
-                    {
-                        "Story": story.name,
-                        "StoryOrder": story.sort_order or 0,
-                        "Column": element.name,
-                        "Dir": direction,
-                    },
-                )
-                entry[load_case.name] = table_value
-
-        df = pd.DataFrame(list(data_dict.values()))
-        if df.empty:
-            return None
-
-        # Identify load case columns
-        meta_cols = ["Story", "StoryOrder", "Column", "Dir"]
-        load_case_cols = [c for c in df.columns if c not in meta_cols]
-
-        if not load_case_cols:
-            return None
-
-        # Add summary columns (skip Avg for Pushover - not meaningful)
-        numeric_df = df[load_case_cols].apply(pd.to_numeric, errors='coerce')
-        if self.analysis_context != 'Pushover':
-            df["Avg"] = numeric_df.mean(axis=1)
-        df["Max"] = numeric_df.max(axis=1)
-        df["Min"] = numeric_df.min(axis=1)
-
-        # Calculate absolute average for sorting
-        df["_abs_avg"] = numeric_df.abs().mean(axis=1)
-
-        # Get top 10 by absolute average
-        top_10_df = df.nlargest(10, "_abs_avg").copy()
-
-        # Drop helper column
-        df = df.drop(columns=["_abs_avg"])
-        top_10_df = top_10_df.drop(columns=["_abs_avg"])
-
-        # Get stories in display order (bottom to top for plot)
-        stories_df = df[['Story', 'StoryOrder']].drop_duplicates().sort_values('StoryOrder')
-        story_names = list(reversed(stories_df['Story'].tolist()))  # Reverse for bottom-to-top
-
-        return {
-            "all_data": df,
-            "top_10": top_10_df,
-            "load_cases": load_case_cols,
-            "stories": story_names,
-            "plot_data_max": plot_data_max,
-            "plot_data_min": plot_data_min,
-        }
-
-    def _fetch_soil_pressure_data(self, result_set_id: int) -> Optional[dict]:
-        """Fetch soil pressure data for reporting.
-
-        Returns dict with:
-        - 'all_data': DataFrame with all soil pressures (wide format with load cases as columns)
-        - 'top_10': DataFrame with top 10 by absolute average (highest critical values)
-        - 'load_cases': List of load case column names
-        - 'plot_data': List of (load_case_index, pressure_value) for scatter plot
-        """
-        import pandas as pd
-        import numpy as np
-
-        # Use the result service to get joint dataset
-        is_pushover = self.analysis_context == 'Pushover'
-        dataset = self.result_service.get_joint_dataset("SoilPressures_Min", result_set_id, is_pushover=is_pushover)
-
-        if dataset is None or dataset.data is None or dataset.data.empty:
-            return None
-
-        df = dataset.data.copy()
-        load_case_cols = list(dataset.load_case_columns)
-
-        if not load_case_cols:
-            return None
-
-        # The DataFrame has columns: Shell Object, Unique Name, [load case columns], Avg, Max, Min
-        # We need to prepare data for:
-        # 1. Table with top 10 highest avg pressures
-        # 2. Scatter plot showing all pressures per load case
-
-        # Calculate absolute average for sorting (soil pressures are negative, so we use abs)
-        numeric_df = df[load_case_cols].apply(pd.to_numeric, errors='coerce')
-
-        # Add Avg, Max, Min if not already present (skip Avg for Pushover)
-        if "Avg" not in df.columns and self.analysis_context != 'Pushover':
-            df["Avg"] = numeric_df.abs().mean(axis=1)
-        if "Max" not in df.columns:
-            df["Max"] = numeric_df.abs().max(axis=1)
-        if "Min" not in df.columns:
-            df["Min"] = numeric_df.abs().min(axis=1)
-
-        # Calculate absolute average for sorting
-        df["_abs_avg"] = numeric_df.abs().mean(axis=1)
-
-        # Get top 10 by absolute average (highest pressure values = most critical)
-        top_10_df = df.nlargest(10, "_abs_avg").copy()
-
-        # Drop helper column
-        df = df.drop(columns=["_abs_avg"])
-        top_10_df = top_10_df.drop(columns=["_abs_avg"])
-
-        # Prepare scatter plot data: (load_case_index, pressure_value)
-        # Use absolute values for plot (soil pressures are negative)
-        plot_data = []
-        for lc_idx, lc in enumerate(load_case_cols):
-            if lc in numeric_df.columns:
-                values = numeric_df[lc].dropna().abs().values
-                for v in values:
-                    plot_data.append((lc_idx, v))
-
-        return {
-            "all_data": df,
-            "top_10": top_10_df,
-            "load_cases": load_case_cols,
-            "plot_data": plot_data,
-        }
 
     def _on_select_all(self) -> None:
         """Select all items in the checkbox tree."""
@@ -838,45 +433,7 @@ class ReportView(QWidget):
             return []
 
         sections = self.checkbox_tree.get_selected_sections(self._selected_result_set_id, self.analysis_context)
-
-        # Load datasets for each section
-        for section in sections:
-            if section.category == "Global":
-                dataset = self.result_service.get_standard_dataset(
-                    section.result_type,
-                    section.direction,
-                    section.result_set_id
-                )
-                section.dataset = dataset
-            elif section.category == "Element":
-                # Fetch element rotation data based on type
-                if section.result_type == "BeamRotations":
-                    element_data = self._fetch_beam_rotation_data(section.result_set_id)
-                elif section.result_type == "ColumnRotations":
-                    element_data = self._fetch_column_rotation_data(section.result_set_id)
-                else:
-                    element_data = None
-                section.element_data = element_data
-
-            elif section.category == "Joint":
-                # Fetch joint data based on type
-                if section.result_type == "SoilPressures_Min":
-                    joint_data = self._fetch_soil_pressure_data(section.result_set_id)
-                else:
-                    joint_data = None
-                section.joint_data = joint_data
-
-        # Filter out sections without data
-        def has_data(s):
-            if s.category == "Global":
-                return hasattr(s, 'dataset') and s.dataset is not None
-            elif s.category == "Element":
-                return hasattr(s, 'element_data') and s.element_data is not None
-            elif s.category == "Joint":
-                return hasattr(s, 'joint_data') and s.joint_data is not None
-            return False
-
-        return [s for s in sections if has_data(s)]
+        return self.section_loader.get_sections_with_data(sections)
 
     def set_result_set(self, result_set_id: int) -> None:
         """Set the active result set programmatically."""
