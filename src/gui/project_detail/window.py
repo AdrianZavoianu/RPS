@@ -271,7 +271,7 @@ class ProjectDetailWindow(QMainWindow):
 
     def create_comparison_set(self):
         """Open dialog to create a new comparison set."""
-        from gui.comparison_set_dialog import ComparisonSetDialog
+        from gui.dialogs.comparison.comparison_set_dialog import ComparisonSetDialog
         from PyQt6.QtWidgets import QMessageBox
         from services.data_access import DataAccessService
 
@@ -421,7 +421,7 @@ class ProjectDetailWindow(QMainWindow):
     def load_data_from_folder(self):
         """Load data from folder into current project."""
         from PyQt6.QtWidgets import QMessageBox
-        from gui.folder_import_dialog import FolderImportDialog
+        from gui.dialogs.import_.folder_import_dialog import FolderImportDialog
         from gui.ui_helpers import show_dialog_with_blur
 
         dialog = FolderImportDialog(self, context=self.context)
@@ -460,7 +460,7 @@ class ProjectDetailWindow(QMainWindow):
     def load_pushover_curves(self):
         """Load pushover curves from Excel file."""
         from PyQt6.QtWidgets import QMessageBox
-        from gui.pushover_import_dialog import PushoverImportDialog
+        from gui.dialogs.import_.pushover_import_dialog import PushoverImportDialog
         from gui.ui_helpers import show_dialog_with_blur
 
         dialog = PushoverImportDialog(
@@ -488,7 +488,7 @@ class ProjectDetailWindow(QMainWindow):
     def load_pushover_results(self):
         """Load pushover global results from folder."""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from gui.pushover_global_import_dialog import PushoverGlobalImportDialog
+        from gui.dialogs.import_.pushover_global_import_dialog import PushoverGlobalImportDialog
         from gui.ui_helpers import show_dialog_with_blur
 
         folder_path = QFileDialog.getExistingDirectory(
@@ -536,7 +536,7 @@ class ProjectDetailWindow(QMainWindow):
     def load_time_series(self):
         """Load time history data for animated visualization."""
         from PyQt6.QtWidgets import QMessageBox
-        from gui.time_history_import_dialog import TimeHistoryImportDialog
+        from gui.dialogs.import_.time_history_import_dialog import TimeHistoryImportDialog
         from gui.ui_helpers import show_dialog_with_blur
 
         dialog = TimeHistoryImportDialog(

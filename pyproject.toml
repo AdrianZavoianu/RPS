@@ -79,6 +79,7 @@ addopts = [
     "-v",
     "--tb=short",
     "-ra",
+    "--ignore=Old_scripts",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

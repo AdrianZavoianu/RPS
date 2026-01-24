@@ -2,13 +2,14 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 from processing.excel_parser import ExcelParser
 
 files = [
-    "Typical Input/160Wil_DES_Global.xlsx",
-    "Typical Input/160Wil_DES_Elem.xlsx",
+    ROOT / "test_input" / "Typical NLTHA DES" / "160" / "160Wil_DES_Global.xlsx",
+    ROOT / "test_input" / "Typical NLTHA DES" / "160" / "160Wil_DES_Elem.xlsx",
 ]
 
 for file_path in files:
@@ -17,7 +18,7 @@ for file_path in files:
     print('='*60)
 
     try:
-        parser = ExcelParser(file_path)
+        parser = ExcelParser(str(file_path))
         sheets = parser.get_available_sheets()
         print(f"Found {len(sheets)} sheets:")
         for sheet in sorted(sheets):

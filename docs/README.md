@@ -13,24 +13,10 @@ Core documentation files remain in the project root for easy access:
 
 ## Documentation Folders
 
-### fixes/
-Bug fix documentation and debugging notes:
-- `CONFLICT_DETECTION_DEBUG.md` - Conflict detection debugging
-- `CONFLICT_DIALOG_FINAL_FIX.md` - Conflict dialog UI fixes
-- `CONFLICT_DIALOG_OPTIMIZATION.md` - Dialog layout optimization
-- `CONFLICT_SCAN_LOGGING.md` - Scan logging implementation
-- `IMPORT_DEBUG_LOGGING.md` - Import debugging logs
-- `PER_SHEET_CONFLICT_RESOLUTION_FIX.md` - Per-sheet conflict resolution fix
-- `QT_TRANSFORM_FIX.md` - Qt stylesheet property fix
-- `QUAD_WALL_ELEMENT_TYPE_FIX.md` - Element type separation fix
-
-### implementation/
-Feature implementation guides and summaries:
-- `PHASE2_IMPLEMENTATION.md` - Phase 2 implementation details
-- `PHASE3_IMPLEMENTATION.md` - Enhanced load case selection
-- `LOAD_CASE_SELECTION_IMPLEMENTATION.md` - Load case UI implementation
-- `BUILD_SUMMARY.md` - Build process summary
-- `CLAUDE_MD_OPTIMIZATION.md` - Documentation optimization notes
+### archive/
+Historical notes that may be out of date:
+- `archive/fixes/` - Bug fix documentation and debugging notes
+- `archive/implementation/` - Feature implementation guides and summaries
 
 ### Other Documentation
 - `AGENTS.md` - Agent configuration and usage

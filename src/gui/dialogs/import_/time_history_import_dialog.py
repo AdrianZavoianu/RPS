@@ -559,7 +559,7 @@ class TimeHistoryImportDialog(QDialog):
         Returns:
             Dict mapping load_case -> chosen_file, or None if cancelled
         """
-        from gui.load_case_conflict_dialog import LoadCaseConflictDialog
+        from gui.dialogs.load_case.load_case_conflict_dialog import LoadCaseConflictDialog
 
         self.progress_label.setText("Checking for conflicts...")
         QApplication.processEvents()

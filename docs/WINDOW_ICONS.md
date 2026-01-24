@@ -180,7 +180,7 @@ class ProjectDetailWindow(QMainWindow):
 
 **Implementation:**
 - Code: `src/gui/icon_utils.py`
-- Main entry: `src/main.py` (line 43: `set_app_icons(app)`)
+- Main entry: `src/main.py` (calls `set_app_icons(app)` during startup)
 - Icons folder: `resources/icons/`
 
 **Fallback behavior:**

@@ -22,7 +22,7 @@ This guide explains how to build and deploy the Results Processing System (RPS) 
 
 ### First Launch
 On first launch, RPS will:
-- Create a `data/` folder in your user directory for project storage
+- Create a `data/` folder alongside the application for project storage
 - Initialize the project catalog database
 - Show the main project management window
 
@@ -31,7 +31,7 @@ On first launch, RPS will:
 ## Building from Source (For Developers)
 
 ### Prerequisites
-- **Python**: 3.11.3 (exact version required)
+- **Python**: 3.11.x (3.11+ supported)
 - **Pipenv**: For dependency management
 - **Git**: For version control (optional)
 
@@ -110,7 +110,7 @@ build.bat
 **Manual**:
 ```batch
 # Compress the entire RPS folder
-powershell -command "Compress-Archive -Path 'dist\RPS\*' -DestinationPath 'RPS_v1.7.0.zip'"
+powershell -command "Compress-Archive -Path 'dist\RPS\*' -DestinationPath 'RPS_v2.22.0.zip'"
 ```
 
 ### Package Contents
@@ -132,18 +132,18 @@ RPS/
 #### 1. GitHub Releases (Recommended)
 ```bash
 # Tag the release
-git tag v1.7.0
-git push origin v1.7.0
+git tag v2.22.0
+git push origin v2.22.0
 
 # Upload ZIP file to GitHub Releases
-# Add release notes from CHANGELOG.md
+# Add release notes from internal tracker or PR description
 ```
 
 #### 2. Network Share (Enterprise)
 ```
 \\fileserver\software\RPS\
-├── v1.7.0\
-│   └── RPS_v1.7.0.zip
+├── v2.22.0\
+│   └── RPS_v2.22.0.zip
 ├── latest\              # Symlink to current version
 └── README.txt
 ```
@@ -158,8 +158,8 @@ git push origin v1.7.0
 ## Deployment Checklist
 
 ### Pre-Deployment
-- [ ] Update version number in `src/__version__.py`
-- [ ] Update `CHANGELOG.md` with release notes
+- [ ] Update version number in `pyproject.toml`
+- [ ] Capture release notes in internal tracker or PR description
 - [ ] Run full test suite: `pipenv run pytest tests/`
 - [ ] Verify database migrations: `pipenv run alembic upgrade head`
 - [ ] Test application on clean dev machine
@@ -304,14 +304,13 @@ To implement auto-updates:
 
 ## Version History
 
-### v1.7.0 (Current)
-- Initial deployment package
+### v2.22.0 (Current)
+- Production-ready release with expanded export/reporting features
 - Standalone executable with PyInstaller
-- All core features functional
 
 ### Build Details
-- **PyInstaller**: 6.16.0
-- **Python**: 3.11.3
+- **PyInstaller**: See `Pipfile.lock` for pinned version
+- **Python**: 3.11.x
 - **Platform**: Windows 10/11 x64
 - **Compression**: UPX enabled
 - **Size**: ~200-300MB uncompressed
@@ -323,9 +322,9 @@ To implement auto-updates:
 **Build Issues**: Check `build\RPS\warn-RPS.txt` for warnings
 
 **Deployment Questions**: See project documentation:
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Technical details
-- [CLAUDE.md](CLAUDE.md) - Development guide
-- [README.md](README.md) - Project overview
+- [ARCHITECTURE.md](../ARCHITECTURE.md) - Technical details
+- [CLAUDE.md](../CLAUDE.md) - Development guide
+- [README.md](../README.md) - Project overview
 
 **Bug Reports**: File issues in project tracker
 

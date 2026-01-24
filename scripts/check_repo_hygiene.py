@@ -20,10 +20,6 @@ DEFAULT_ALLOWED_DIRS: Set[str] = {
     ".cursor",
     ".git",
     ".pytest_cache",
-    "Typical NLTHA DES",
-    "Typical NLTHA MCE",
-    "Typical Pushover Results",
-    "Typical TH Data",
     "Old_scripts",
     "alembic",
     "build",
@@ -34,6 +30,7 @@ DEFAULT_ALLOWED_DIRS: Set[str] = {
     "resources",
     "scripts",
     "src",
+    "test_input",
     "tests",
 }
 

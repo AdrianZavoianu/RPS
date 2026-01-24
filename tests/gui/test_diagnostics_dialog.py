@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gui.diagnostics_dialog import read_log_tail
+from gui.dialogs.settings.diagnostics_dialog import read_log_tail
 
 
 def test_read_log_tail_returns_full_file_when_small(tmp_path):

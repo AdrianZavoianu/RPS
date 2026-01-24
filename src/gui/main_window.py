@@ -33,7 +33,7 @@ from .window_utils import enable_dark_title_bar
 from .project_detail import ProjectDetailWindow
 from .project_grid_widget import ProjectGridWidget
 from .styles import COLORS
-from .diagnostics_dialog import DiagnosticsDialog
+from .dialogs.settings.diagnostics_dialog import DiagnosticsDialog
 from services.project_service import result_set_exists
 from .controllers.project_controller import ProjectController
 from utils.env import is_dev_mode
@@ -555,7 +555,7 @@ class MainWindow(QMainWindow):
 
     def _on_folder_import(self):
         """Handle folder import action."""
-        from .folder_import_dialog import FolderImportDialog
+        from .dialogs.import_.folder_import_dialog import FolderImportDialog
         from .ui_helpers import show_dialog_with_blur
 
         dialog = FolderImportDialog(self)
@@ -606,7 +606,7 @@ class MainWindow(QMainWindow):
             return
 
         # Show import dialog with preview
-        from .import_project_dialog import ImportProjectDialog
+        from .dialogs.import_.import_project_dialog import ImportProjectDialog
 
         dialog = ImportProjectDialog(Path(file_path), self)
         if dialog.exec():

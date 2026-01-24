@@ -4,6 +4,15 @@ import pytest
 from pathlib import Path
 from processing.excel_parser import ExcelParser
 
+SAMPLE_ROOT = Path("test_input")
+
+
+def _get_sample_excel_files() -> list[Path]:
+    if not SAMPLE_ROOT.exists():
+        return []
+    files = list(SAMPLE_ROOT.rglob("*.xlsx"))
+    return sorted(files, key=lambda path: path.stat().st_size)
+
 
 def test_excel_parser_init():
     """Test ExcelParser initialization with non-existent file."""
@@ -14,10 +23,10 @@ def test_excel_parser_init():
 def test_get_available_sheets():
     """Test getting available sheets from sample Excel file."""
     # Find a sample Excel file
-    sample_files = list(Path("Typical Input").glob("*.xlsx"))
+    sample_files = _get_sample_excel_files()
 
     if not sample_files:
-        pytest.skip("No sample Excel files found in 'Typical Input' directory")
+        pytest.skip("No sample Excel files found in 'test_input' directory")
 
     parser = ExcelParser(str(sample_files[0]))
     sheets = parser.get_available_sheets()
@@ -28,10 +37,10 @@ def test_get_available_sheets():
 
 def test_validate_sheet_exists():
     """Test sheet validation."""
-    sample_files = list(Path("Typical Input").glob("*.xlsx"))
+    sample_files = _get_sample_excel_files()
 
     if not sample_files:
-        pytest.skip("No sample Excel files found")
+        pytest.skip("No sample Excel files found in 'test_input' directory")
 
     parser = ExcelParser(str(sample_files[0]))
     sheets = parser.get_available_sheets()

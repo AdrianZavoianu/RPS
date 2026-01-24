@@ -8,14 +8,14 @@ Quick guide for testing the RPS application on a clean computer without developm
 
 ### What You'll Need
 - A Windows 10/11 computer (64-bit)
-- The distribution ZIP file: `RPS_v1.7.0_Windows_x64.zip`
-- Sample Excel files from ETABS/SAP2000 (or use `Typical Input/` samples)
+- The distribution ZIP file (e.g., `RPS_Build_YYYYMMDD_HHMM.zip`)
+- Sample Excel files from ETABS/SAP2000 (or use `test_input/` samples)
 
 ### Installation Steps
 
 1. **Download the ZIP file**
-   - Get `RPS_v1.7.0_Windows_x64.zip` from the distribution location
-   - Size: ~70MB compressed, ~160MB extracted
+   - Get the latest `RPS_Build_YYYYMMDD_HHMM.zip` from the distribution location
+   - Size varies by build
 
 2. **Extract the files**
    - Right-click the ZIP file
@@ -101,7 +101,7 @@ Quick guide for testing the RPS application on a clean computer without developm
 
 1. Launch RPS.exe (first time)
 2. Create a new project: "TestBuilding"
-3. Import sample Excel files from `Typical Input/`
+3. Import sample Excel files from `test_input/`
 4. Browse through available results:
    - Story Drifts (X and Y directions)
    - Max/Min Drifts
@@ -193,7 +193,7 @@ Quick guide for testing the RPS application on a clean computer without developm
 **Solution**:
 1. Verify Excel file is from ETABS/SAP2000
 2. Check sheet names match expected format
-3. Try importing sample files from `Typical Input/`
+3. Try importing sample files from `test_input/`
 
 ### Issue: Plots don't display
 **Possible causes**:
@@ -228,7 +228,7 @@ When reporting bugs, include:
    - Sample files (if relevant)
 
 5. **Logs**:
-   - Check `%APPDATA%\RPS\logs\` for error logs
+   - Check `data/logs/` for error logs
    - Include latest log file
 
 ---
@@ -287,6 +287,6 @@ The build is ready for deployment if:
 
 ---
 
-**Version**: 1.7.0
-**Last Updated**: November 2025
+**Version**: 2.22.0
+**Last Updated**: 2026-01-24
 **Test Status**: Ready for validation

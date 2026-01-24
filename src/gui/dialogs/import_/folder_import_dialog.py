@@ -793,7 +793,7 @@ class FolderImportDialog(QDialog):
         Returns:
             conflict_resolution dict or None if cancelled
         """
-        from gui.load_case_conflict_dialog import LoadCaseConflictDialog
+        from gui.dialogs.load_case.load_case_conflict_dialog import LoadCaseConflictDialog
 
         # Update UI to show we're checking for conflicts
         self.progress_label.setText("Checking for conflicts...")
