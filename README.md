@@ -21,6 +21,7 @@ pipenv run python dev_watch.py
 ### Repo hygiene
 
 - Detect stray top-level folders (e.g., accidental extracted paths): `pipenv run python scripts/check_repo_hygiene.py`
+- Layering audit report (package-level import edges): `pipenv run python scripts/layering_audit.py`
 
 ## Features
 

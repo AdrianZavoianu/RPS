@@ -1,6 +1,6 @@
 # RPS Architecture
 
-**Version**: 2.22 | **Date**: 2026-01-24
+**Version**: 2.22 | **Date**: 2026-01-25
 
 > Full implementation details in code comments and docstrings. This doc covers key patterns only.
 
@@ -18,7 +18,7 @@
 - UI/widgets do not talk directly to repositories; services own data access
 - Sessions via `database.session.project_session_factory` / `catalog_session_factory`
 - Controller dependencies typed in `gui.controllers.types`
-- Export pipeline modular under `services/export_*` and `services/export/` (e.g., `export_utils`, `export_writer`, `export_metadata`)
+- Export pipeline lives in `services/export/`; legacy `services/export_*` shims remain for compatibility
 
 ### Session Management
 - **GUI queries**: Route through `DataAccessService` with short-lived sessions via `_session_scope()`
@@ -121,7 +121,7 @@ RESULT_CONFIGS = {
 
 ## 5. Key Patterns
 
-### Registry Pattern (`processing/pushover_registry.py`)
+### Registry Pattern (`processing/pushover/pushover_registry.py`)
 
 ```python
 class PushoverRegistry:
@@ -218,6 +218,7 @@ Registration: `TRANSFORMERS['Drifts_X'] = DriftTransformer()`
 ### Main Structure
 - `MainWindow` → Project grid → `ProjectDetailWindow`
 - **3-panel layout**: Browser (25%) | Content (75%)
+- `ProjectDetailWindow` delegates to `window_view`, `event_handlers`, `view_loaders`, `dataset_loaders`, `import_actions`, `export_actions`, `project_data`
 
 ### Key Widgets
 - `StandardResultView` - Table + Plot (directional results)
@@ -244,6 +245,7 @@ Results
 ### PDF Reports (`gui/reporting/`)
 - `ReportWindow` - Modal dialog with checkbox tree + A4 preview
 - `PDFGenerator` - High-quality PDF at 300 DPI
+- `pdf_section_drawers.py` - Dedicated section renderers (e.g., pushover views)
 - One section per page, debounced rendering
 
 ---
@@ -278,6 +280,7 @@ Results
 1. Create widget extending `QWidget`
 2. Add to `gui/project_detail/content.py` in `build_content_area()` and `ContentArea`
 3. Wire loaders in `gui/project_detail/view_loaders.py` and tree click handlers
+4. Optional: add convenience wrappers in `gui/project_detail/dataset_loaders.py`
 
 ### Adding Import Sources
 1. Extend `BaseImporter`

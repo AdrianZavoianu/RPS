@@ -22,8 +22,8 @@ from database.models import (
     QuadRotation,
     ElementResultsCache,
 )
-from processing.pushover_base_importer import BasePushoverImporter
-from processing.pushover_wall_parser import PushoverWallParser
+from processing.pushover.pushover_base_importer import BasePushoverImporter
+from processing.pushover.pushover_wall_parser import PushoverWallParser
 
 logger = logging.getLogger(__name__)
 

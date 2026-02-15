@@ -7,12 +7,13 @@ from typing import Dict, List
 from sqlalchemy.orm import Session
 
 from database.models import StoryDrift, StoryAcceleration, StoryForce, StoryDisplacement
-from database.repository import (
+from database.repositories import (
     StoryDriftDataRepository,
     StoryAccelerationDataRepository,
     StoryForceDataRepository,
     StoryDisplacementDataRepository,
 )
+from .import_filtering import filter_cases_and_dataframe
 from .import_context import ResultImportHelper
 from .result_processor import ResultProcessor
 
@@ -27,16 +28,26 @@ class GlobalImporter:
         parser,
         project_id: int,
         result_category_id: int,
+        allowed_load_cases: set[str] | None = None,
     ) -> None:
         self.session = session
         self.parser = parser
         self.project_id = project_id
         self.result_category_id = result_category_id
+        self.allowed_load_cases = allowed_load_cases
 
     def import_story_drifts(self) -> Dict[str, int]:
         stats = {"load_cases": 0, "stories": 0, "drifts": 0}
         try:
             df, load_cases, stories = self.parser.get_story_drifts()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
             drift_repo = StoryDriftDataRepository(self.session)
 
@@ -75,6 +86,14 @@ class GlobalImporter:
         stats = {"accelerations": 0}
         try:
             df, load_cases, stories = self.parser.get_story_accelerations()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
             accel_repo = StoryAccelerationDataRepository(self.session)
 
@@ -111,6 +130,14 @@ class GlobalImporter:
         stats = {"forces": 0}
         try:
             df, load_cases, stories = self.parser.get_story_forces()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
             force_repo = StoryForceDataRepository(self.session)
 
@@ -148,6 +175,14 @@ class GlobalImporter:
         stats = {"displacements": 0}
         try:
             df, load_cases, stories = self.parser.get_joint_displacements()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             if df.empty:

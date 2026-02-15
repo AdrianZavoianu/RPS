@@ -13,7 +13,7 @@ from gui.design_tokens import FormStyles
 from gui.ui_helpers import create_styled_button, create_styled_label
 from gui.styles import COLORS
 from gui.dialogs.import_.pushover_import_workers import PushoverCurveImportWorker
-from processing.pushover_curve_parser import PushoverParser
+from processing.pushover.pushover_curve_parser import PushoverParser
 
 
 class PushoverImportDialog(QDialog):

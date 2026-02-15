@@ -12,11 +12,11 @@ from typing import Callable, List, Optional
 from sqlalchemy.orm import Session
 
 from database.models import Element, Story, LoadCase, BeamRotation
-from processing.pushover_element_base import (
+from processing.pushover.pushover_element_base import (
     PushoverElementBaseImporter,
     ResultTypeConfig,
 )
-from processing.pushover_beam_parser import PushoverBeamParser
+from processing.pushover.pushover_beam_parser import PushoverBeamParser
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ This eliminates the need for explicit imports in calling code and makes it
 easy to add new result types.
 
 Usage:
-    from processing.pushover_registry import PushoverRegistry
+    from processing.pushover.pushover_registry import PushoverRegistry
     
     # Get an importer class by type
     importer_class = PushoverRegistry.get_importer("wall")
@@ -102,7 +102,7 @@ class PushoverRegistry:
         module_name, class_name = cls._IMPORTER_MAP[result_type]
         
         try:
-            module = __import__(f"processing.{module_name}", fromlist=[class_name])
+            module = __import__(f"processing.pushover.{module_name}", fromlist=[class_name])
             importer_class = getattr(module, class_name)
             cls._importer_cache[result_type] = importer_class
             return importer_class
@@ -133,7 +133,7 @@ class PushoverRegistry:
         module_name, class_name = cls._PARSER_MAP[result_type]
         
         try:
-            module = __import__(f"processing.{module_name}", fromlist=[class_name])
+            module = __import__(f"processing.pushover.{module_name}", fromlist=[class_name])
             parser_class = getattr(module, class_name)
             cls._parser_cache[result_type] = parser_class
             return parser_class

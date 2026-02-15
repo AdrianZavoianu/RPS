@@ -9,7 +9,7 @@ from typing import Dict, Optional, Sequence, Set
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
-from services.import_preparation import ImportPreparationService, PrescanResult
+from processing.import_preparation import ImportPreparationService, PrescanResult
 from services.project_service import ProjectContext
 from processing.folder_importer import TARGET_SHEETS
 

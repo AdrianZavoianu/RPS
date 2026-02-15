@@ -193,20 +193,21 @@ class FormStyles:
         """
 
     @staticmethod
-    def progress_bar() -> str:
+    def progress_bar(*, height: int = 24) -> str:
         """Style for QProgressBar widgets."""
         c = PALETTE
         return f"""
         QProgressBar {{
-            border: none;
+            background-color: {c['bg_primary']};
+            border: 1px solid {c['border_default']};
             border-radius: 4px;
-            background-color: {c['bg_secondary']};
-            height: 8px;
+            height: {height}px;
             text-align: center;
+            color: {c['text_primary']};
         }}
         QProgressBar::chunk {{
             background-color: {c['accent_primary']};
-            border-radius: 4px;
+            border-radius: 3px;
         }}
         """
 

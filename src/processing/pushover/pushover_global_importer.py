@@ -22,7 +22,7 @@ from database.models import (
     StoryForce,
     GlobalResultsCache,
 )
-from processing.pushover_global_parser import PushoverGlobalParser
+from processing.pushover.pushover_global_parser import PushoverGlobalParser
 
 logger = logging.getLogger(__name__)
 

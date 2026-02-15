@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from database.repository import (
+from database.repositories import (
     AbsoluteMaxMinDriftRepository,
     CacheRepository,
     ElementCacheRepository,

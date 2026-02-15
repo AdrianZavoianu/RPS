@@ -6,7 +6,7 @@ from typing import Callable
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from processing.pushover_curve_importer import PushoverImporter
+from processing.pushover.pushover_curve_importer import PushoverImporter
 
 
 class PushoverCurveImportWorker(QThread):

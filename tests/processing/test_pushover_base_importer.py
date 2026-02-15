@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
 from typing import Dict, Set
 
-from processing.pushover_base_importer import BasePushoverImporter
+from processing.pushover.pushover_base_importer import BasePushoverImporter
 
 
 class ConcretePushoverImporter(BasePushoverImporter):

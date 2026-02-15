@@ -4,7 +4,7 @@ This module provides a centralized factory for creating pushover importers,
 reducing the need to import individual importer classes throughout the codebase.
 
 Usage:
-    from processing.pushover_importer_factory import create_importer
+    from processing.pushover.pushover_importer_factory import create_importer
     
     importer = create_importer(
         importer_type="beam_rotation",
@@ -29,7 +29,7 @@ from typing import Callable, Dict, List, Optional, Type, TYPE_CHECKING
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
-    from processing.pushover_base_importer import BasePushoverImporter
+    from processing.pushover.pushover_base_importer import BasePushoverImporter
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +42,19 @@ logger = logging.getLogger(__name__)
 # Note: v2 importers use Template Method pattern for reduced duplication
 IMPORTER_REGISTRY: Dict[str, tuple[str, str]] = {
     # Element importers (v2 - refactored)
-    "wall": ("processing.pushover_wall_importer_v2", "PushoverWallImporter"),
-    "column_rotation": ("processing.pushover_column_importer_v2", "PushoverColumnImporter"),
-    "column_shear": ("processing.pushover_column_shear_importer_v2", "PushoverColumnShearImporter"),
-    "beam_rotation": ("processing.pushover_beam_importer_v2", "PushoverBeamImporter"),
+    "wall": ("processing.pushover.pushover_wall_importer_v2", "PushoverWallImporter"),
+    "column_rotation": ("processing.pushover.pushover_column_importer_v2", "PushoverColumnImporter"),
+    "column_shear": ("processing.pushover.pushover_column_shear_importer_v2", "PushoverColumnShearImporter"),
+    "beam_rotation": ("processing.pushover.pushover_beam_importer_v2", "PushoverBeamImporter"),
     
     # Joint importers
-    "joint_displacement": ("processing.pushover_joint_importer", "PushoverJointImporter"),
-    "soil_pressure": ("processing.pushover_soil_pressure_importer", "PushoverSoilPressureImporter"),
-    "vertical_displacement": ("processing.pushover_vert_displacement_importer", "PushoverVertDisplacementImporter"),
+    "joint_displacement": ("processing.pushover.pushover_joint_importer", "PushoverJointImporter"),
+    "soil_pressure": ("processing.pushover.pushover_soil_pressure_importer", "PushoverSoilPressureImporter"),
+    "vertical_displacement": ("processing.pushover.pushover_vert_displacement_importer", "PushoverVertDisplacementImporter"),
     
     # Global/curve importers
-    "global": ("processing.pushover_global_importer", "PushoverGlobalImporter"),
-    "curve": ("processing.pushover_curve_importer", "PushoverImporter"),
+    "global": ("processing.pushover.pushover_global_importer", "PushoverGlobalImporter"),
+    "curve": ("processing.pushover.pushover_curve_importer", "PushoverImporter"),
 }
 
 

@@ -571,7 +571,7 @@ class ResultDataService:
         if not self.session:
             return None
 
-        from database.repository import ResultSetRepository
+        from database.repositories import ResultSetRepository
         result_set_repo = ResultSetRepository(self.session)
 
         # Build comparison dataset based on scope

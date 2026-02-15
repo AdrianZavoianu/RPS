@@ -9,14 +9,14 @@ from typing import Callable, Optional, TYPE_CHECKING
 import pandas as pd
 
 from utils.timing import PhaseTimer
-from services.export_metadata import ExportMetadataBuilder
-from services.export_excel_sections import write_readme_sheet, write_metadata_sheets
-from services.export_discovery import ExportDiscovery
-from services.export_import_data import ImportDataBuilder
-from services.export_formatting import apply_excel_formatting
+from .metadata import ExportMetadataBuilder
+from .excel_sections import write_readme_sheet, write_metadata_sheets
+from .discovery import ExportDiscovery
+from .import_data import ImportDataBuilder
+from .formatting import apply_excel_formatting
 
 if TYPE_CHECKING:
-    from services.export.service import ProjectExportExcelOptions
+    from .service import ProjectExportExcelOptions
 
 logger = logging.getLogger(__name__)
 

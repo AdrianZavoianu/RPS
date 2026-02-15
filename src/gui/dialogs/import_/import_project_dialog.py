@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from gui.ui_helpers import create_styled_button, create_styled_label
+from gui.design_tokens import FormStyles
 from gui.styles import COLORS
 from services.import_service import ImportService, ImportProjectExcelOptions
 
@@ -130,34 +131,9 @@ class ImportProjectDialog(QDialog):
 
     def _apply_styles(self):
         """Apply GMP design system styles."""
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-            }}
-
-            QTextEdit {{
-                background-color: {COLORS['card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                padding: 12px;
-                color: {COLORS['text']};
-                font-size: 13px;
-                font-family: 'Consolas', 'Monaco', monospace;
-            }}
-
-            QProgressBar {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                background-color: {COLORS['card']};
-                height: 20px;
-                text-align: center;
-            }}
-
-            QProgressBar::chunk {{
-                background-color: {COLORS['accent']};
-                border-radius: 3px;
-            }}
-        """)
+        self.setStyleSheet(FormStyles.dialog())
+        self.preview_text.setStyleSheet(FormStyles.text_log())
+        self.progress_bar.setStyleSheet(FormStyles.progress_bar())
 
     def _preview_file(self):
         """Preview Excel file and validate structure."""

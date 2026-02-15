@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QCursor
 
+from gui.design_tokens import FormStyles
 from gui.styles import COLORS
 from gui.ui_helpers import create_styled_label, create_styled_button
 from services.project_runtime import ProjectRuntime
@@ -240,17 +241,7 @@ class ReportView(QWidget):
         self._progress_bar.setRange(0, 0)  # Indeterminate mode
         self._progress_bar.setFixedHeight(16)
         self._progress_bar.setFixedWidth(120)
-        self._progress_bar.setStyleSheet(f"""
-            QProgressBar {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                background-color: {COLORS['card']};
-            }}
-            QProgressBar::chunk {{
-                background-color: {COLORS['accent']};
-                border-radius: 3px;
-            }}
-        """)
+        self._progress_bar.setStyleSheet(FormStyles.progress_bar(height=16))
         loading_layout.addWidget(self._progress_bar)
         
         loading_label = QLabel("Please wait, loading report data...")

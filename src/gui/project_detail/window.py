@@ -2,34 +2,26 @@
 
 import logging
 
-from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QTableWidget,
-    QDialog,
-)
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QMainWindow
 
-from gui.tree_browser import ResultsTreeBrowser
-from gui.ui_helpers import create_styled_button, create_styled_label
-from gui.window_utils import enable_dark_title_bar
-from gui.styles import COLORS
-from gui.settings_popup import SettingsPopup
-from gui.settings_manager import settings
-from services.project_runtime import ProjectRuntime
-from gui.controllers.result_view_controller import ResultViewController
 from gui.controllers.project_detail_controller import ProjectDetailController
-from config.analysis_types import AnalysisType
-from .window_view import ProjectDetailWindowView
-from .header import ProjectHeader
-from .content import build_content_area, ContentArea
+from gui.controllers.result_view_controller import ResultViewController
+from gui.settings_manager import settings
+from gui.settings_popup import SettingsPopup
+from gui.styles import COLORS
+from gui.tree_browser import ResultsTreeBrowser
+from gui.window_utils import enable_dark_title_bar
+from services.project_runtime import ProjectRuntime
 
+from . import dataset_loaders
 from . import event_handlers
-from utils.error_handling import log_exception
-from . import view_loaders
+from . import export_actions
+from . import import_actions
+from . import project_data
+from .content import ContentArea, build_content_area
+from .header import ProjectHeader
+from .window_view import ProjectDetailWindowView
 
 logger = logging.getLogger(__name__)
 
@@ -192,227 +184,66 @@ class ProjectDetailWindow(QMainWindow):
     # -------------------------------------------------------------------------
 
     def load_standard_dataset(self, result_type: str, direction: str, result_set_id: int) -> None:
-        """Load and display directional results for the selected type."""
-        view_loaders.load_standard_dataset(self, result_type, direction, result_set_id, self.content_area)
+        return dataset_loaders.load_standard_dataset(self, result_type, direction, result_set_id)
 
     def load_element_dataset(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
-        """Load and display element-specific results."""
-        view_loaders.load_element_dataset(self, element_id, result_type, direction, result_set_id, self.content_area)
+        return dataset_loaders.load_element_dataset(self, element_id, result_type, direction, result_set_id)
 
     def load_joint_dataset(self, result_type: str, result_set_id: int) -> None:
-        """Load and display joint-level results."""
-        view_loaders.load_joint_dataset(self, result_type, result_set_id, self.content_area)
+        return dataset_loaders.load_joint_dataset(self, result_type, result_set_id)
 
     def load_maxmin_dataset(self, result_set_id: int, base_result_type: str = "Drifts"):
-        """Load and display absolute Max/Min drift results."""
-        view_loaders.load_maxmin_dataset(self, result_set_id, self.content_area, base_result_type)
+        return dataset_loaders.load_maxmin_dataset(self, result_set_id, base_result_type)
 
     def load_element_maxmin_dataset(self, element_id: int, result_set_id: int, base_result_type: str = "WallShears"):
-        """Load and display element-specific Max/Min results."""
-        view_loaders.load_element_maxmin_dataset(
-            self,
-            element_id,
-            result_set_id,
-            self.content_area,
-            base_result_type,
-        )
+        return dataset_loaders.load_element_maxmin_dataset(self, element_id, result_set_id, base_result_type)
 
     def load_all_rotations(self, result_set_id: int):
-        """Load and display all quad rotations."""
-        view_loaders.load_all_rotations(self, result_set_id, self.content_area)
+        return dataset_loaders.load_all_rotations(self, result_set_id)
 
     def load_all_column_rotations(self, result_set_id: int):
-        """Load and display all column rotations."""
-        view_loaders.load_all_column_rotations(self, result_set_id, self.content_area)
+        return dataset_loaders.load_all_column_rotations(self, result_set_id)
 
     def load_all_beam_rotations(self, result_set_id: int):
-        """Load and display all beam rotations."""
-        view_loaders.load_all_beam_rotations(self, result_set_id, self.content_area)
+        return dataset_loaders.load_all_beam_rotations(self, result_set_id)
 
     def load_beam_rotations_table(self, result_set_id: int):
-        """Load and display beam rotations table."""
-        view_loaders.load_beam_rotations_table(self, result_set_id, self.content_area)
+        return dataset_loaders.load_beam_rotations_table(self, result_set_id)
 
     def load_all_soil_pressures(self, result_set_id: int):
-        """Load and display all soil pressures as bar chart."""
-        view_loaders.load_all_soil_pressures(self, result_set_id, self.content_area)
+        return dataset_loaders.load_all_soil_pressures(self, result_set_id)
 
     def load_soil_pressures_table(self, result_set_id: int):
-        """Load and display soil pressures table."""
-        view_loaders.load_soil_pressures_table(self, result_set_id, self.content_area)
+        return dataset_loaders.load_soil_pressures_table(self, result_set_id)
 
     def load_all_vertical_displacements(self, result_set_id: int):
-        """Load and display all vertical displacements."""
-        view_loaders.load_all_vertical_displacements(self, result_set_id, self.content_area)
+        return dataset_loaders.load_all_vertical_displacements(self, result_set_id)
 
     def load_vertical_displacements_table(self, result_set_id: int):
-        """Load and display vertical displacements table."""
-        view_loaders.load_vertical_displacements_table(self, result_set_id, self.content_area)
+        return dataset_loaders.load_vertical_displacements_table(self, result_set_id)
 
     def load_pushover_curve(self, case_name: str):
-        """Load and display a pushover curve."""
-        view_loaders.load_pushover_curve(self, case_name, self.content_area)
+        return dataset_loaders.load_pushover_curve(self, case_name)
 
     def load_all_pushover_curves(self, direction: str):
-        """Load and display all pushover curves for a given direction."""
-        view_loaders.load_all_pushover_curves(self, direction, self.content_area)
+        return dataset_loaders.load_all_pushover_curves(self, direction)
 
     def load_comparison_all_rotations(self, comparison_set):
-        """Load and display all quad rotations comparison."""
-        view_loaders.load_comparison_all_rotations(self, comparison_set, self.content_area)
+        return dataset_loaders.load_comparison_all_rotations(self, comparison_set)
 
     def load_comparison_joint_scatter(self, comparison_set, result_type: str):
-        """Load and display joint results comparison scatter plot."""
-        view_loaders.load_comparison_joint_scatter(self, comparison_set, result_type, self.content_area)
-
-    # -------------------------------------------------------------------------
-    # Project data management
-    # -------------------------------------------------------------------------
+        return dataset_loaders.load_comparison_joint_scatter(self, comparison_set, result_type)
 
     def create_comparison_set(self):
-        """Open dialog to create a new comparison set."""
-        from gui.dialogs.comparison.comparison_set_dialog import ComparisonSetDialog
-        from PyQt6.QtWidgets import QMessageBox
-        from services.data_access import DataAccessService
-
-        data_service = self.data_service or DataAccessService(self.context.session)
-        result_sets = data_service.get_result_sets(self.project_id)
-
-        if len(result_sets) < 2:
-            QMessageBox.warning(
-                self,
-                "Insufficient Result Sets",
-                "You need at least 2 result sets to create a comparison.\n\n"
-                "Please import more result sets first."
-            )
-            return
-
-        from gui.ui_helpers import show_dialog_with_blur
-        # Pass session_factory for DataAccessService usage
-        dialog = ComparisonSetDialog(self.project_id, result_sets, self.context.session, self)
-        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
-            data = dialog.get_comparison_data()
-
-            if data_service.check_comparison_set_duplicate(self.project_id, data['name']):
-                QMessageBox.warning(
-                    self,
-                    "Duplicate Name",
-                    f"A comparison set named '{data['name']}' already exists.\n"
-                    "Please choose a different name."
-                )
-                return
-
-            try:
-                data_service.create_comparison_set(
-                    project_id=self.project_id,
-                    name=data['name'],
-                    result_set_ids=data['result_set_ids'],
-                    result_types=data['result_types'],
-                    description=data['description']
-                )
-
-                QMessageBox.information(
-                    self,
-                    "Comparison Set Created",
-                    f"Comparison set '{data['name']}' has been created successfully!\n\n"
-                    "Reload the project data to see it in the browser."
-                )
-
-                self.load_project_data()
-
-            except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Failed to create comparison set:\n{str(e)}"
-                )
+        return dataset_loaders.create_comparison_set(self)
 
     def _get_available_result_types(self, result_sets):
         """Check which result types have data for each result set."""
-        from services.data_access import DataAccessService
-
-        available_types = {}
-        data_service = self.data_service or DataAccessService(self.context.session)
-
-        for result_set in result_sets:
-            types_for_set = set()
-
-            global_types = data_service.get_available_global_types([result_set.id])
-            types_for_set.update(global_types)
-
-            element_types = data_service.get_available_element_types([result_set.id])
-            for result_type in element_types:
-                base_type = result_type.split('_')[0]
-                types_for_set.add(base_type)
-
-            joint_types = data_service.get_available_joint_types([result_set.id])
-            for result_type in joint_types:
-                types_for_set.add(result_type)
-                base_type = result_type.split('_')[0]
-                types_for_set.add(base_type)
-
-            # Check for time series data
-            if data_service.has_time_series(result_set.id):
-                types_for_set.add("TimeSeriesGlobal")
-
-            available_types[result_set.id] = types_for_set
-
-        return available_types
+        return dataset_loaders.get_available_result_types(self, result_sets)
 
     def load_project_data(self):
         """Load project data and populate browser."""
-        from services.data_access import DataAccessService
-
-        self.session.expire_all()
-        self.result_service.invalidate_all()
-        self.controller.reset_pushover_mapping()
-        try:
-            data_service = self.data_service or DataAccessService(self.context.session)
-            result_sets = data_service.get_result_sets(self.project_id)
-
-            if result_sets and not self.controller.selection.result_set_id:
-                self.controller.update_selection(result_set_id=result_sets[0].id)
-
-            stories = data_service.get_stories(self.project_id)
-            elements = data_service.get_elements(self.project_id)
-
-            comparison_sets = data_service.get_comparison_sets(self.project_id)
-
-            pushover_cases = {}
-            logger.debug("Checking %s result sets for pushover analysis type", len(result_sets))
-            pushover_result_set_ids = [
-                rs.id for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover'
-            ]
-            if pushover_result_set_ids:
-                pushover_cases = data_service.get_pushover_cases_by_result_sets(pushover_result_set_ids)
-                for rs_id, cases in pushover_cases.items():
-                    logger.debug(
-                        "Found %s pushover cases for result set %s",
-                        len(cases) if cases else 0,
-                        rs_id,
-                    )
-                    if cases:
-                        self.controller.get_pushover_mapping(rs_id)
-
-            available_result_types = self._get_available_result_types(result_sets)
-
-            # Query time series load cases for each result set
-            time_series_load_cases = data_service.get_time_series_load_cases(
-                self.project_id,
-                [rs.id for rs in result_sets],
-            )
-
-            self.browser.populate_tree(
-                result_sets, stories, elements, available_result_types,
-                comparison_sets, pushover_cases, time_series_load_cases
-            )
-
-            logger.info(
-                "Loaded project: %s (%d stories, %d result sets, %d comparisons, %d elements)",
-                self.project_name, len(stories), len(result_sets), len(comparison_sets), len(elements)
-            )
-        except Exception as e:
-            logger.error("Error loading project data: %s", str(e))
+        return project_data.load_project_data(self)
 
     # -------------------------------------------------------------------------
     # Import dialogs
@@ -420,142 +251,31 @@ class ProjectDetailWindow(QMainWindow):
 
     def load_data_from_folder(self):
         """Load data from folder into current project."""
-        from PyQt6.QtWidgets import QMessageBox
-        from gui.dialogs.import_.folder_import_dialog import FolderImportDialog
-        from gui.ui_helpers import show_dialog_with_blur
-
-        dialog = FolderImportDialog(self, context=self.context)
-
-        if show_dialog_with_blur(dialog, self) == QDialog.DialogCode.Accepted:
-            self.session.expire_all()
-            result_set_id = getattr(dialog, "last_result_set_id", None)
-            if result_set_id:
-                self.result_service.invalidate_result_set(result_set_id)
-            else:
-                self.result_service.invalidate_all()
-            self.load_project_data()
-
-            sel = self.controller.selection
-            if sel.result_type and sel.result_set_id:
-                if sel.result_type.startswith("MaxMin"):
-                    base_type = self._extract_base_result_type(sel.result_type)
-                    self.result_service.invalidate_maxmin_dataset(sel.result_set_id, base_type)
-                    self.load_maxmin_dataset(sel.result_set_id, base_type)
-                elif sel.element_id > 0:
-                    self.result_service.invalidate_element_dataset(
-                        sel.element_id, sel.result_type, sel.direction, sel.result_set_id
-                    )
-                    self.load_element_dataset(sel.element_id, sel.result_type, sel.direction, sel.result_set_id)
-                else:
-                    self.result_service.invalidate_standard_dataset(sel.result_type, sel.direction, sel.result_set_id)
-                    self.load_standard_dataset(sel.result_type, sel.direction, sel.result_set_id)
-
-            QMessageBox.information(
-                self,
-                "Load Complete",
-                f"Successfully loaded data into project: {self.project_name}\n\n"
-                f"The results browser has been refreshed."
-            )
+        return import_actions.load_data_from_folder(self)
 
     def load_pushover_curves(self):
         """Load pushover curves from Excel file."""
-        from PyQt6.QtWidgets import QMessageBox
-        from gui.dialogs.import_.pushover_import_dialog import PushoverImportDialog
-        from gui.ui_helpers import show_dialog_with_blur
-
-        dialog = PushoverImportDialog(
-            project_id=self.project.id,
-            project_name=self.project_name,
-            session_factory=self.context.session_factory(),
-            parent=self
-        )
-
-        dialog.import_completed.connect(lambda stats: self._on_pushover_import_completed(stats))
-
-        show_dialog_with_blur(dialog, self)
+        return import_actions.load_pushover_curves(self)
 
     def _on_pushover_import_completed(self, stats: dict):
         """Handle pushover import completion."""
-        self.session.expire_all()
-        result_set_id = stats.get("result_set_id")
-        if result_set_id:
-            self.result_service.invalidate_result_set(result_set_id)
-        else:
-            self.result_service.invalidate_all()
-        self.load_project_data()
-        logger.info("Imported %d pushover curves into %s", stats['curves_imported'], stats['result_set_name'])
+        return import_actions.on_pushover_import_completed(self, stats)
 
     def load_pushover_results(self):
         """Load pushover global results from folder."""
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from gui.dialogs.import_.pushover_global_import_dialog import PushoverGlobalImportDialog
-        from gui.ui_helpers import show_dialog_with_blur
-
-        folder_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Folder with Pushover Global Results",
-            "",
-            QFileDialog.Option.ShowDirsOnly
-        )
-
-        if not folder_path:
-            return
-
-        try:
-            dialog = PushoverGlobalImportDialog(
-                project_id=self.project.id,
-                project_name=self.project_name,
-                folder_path=folder_path,
-                session_factory=self.context.session_factory(),
-                parent=self
-            )
-
-            dialog.import_completed.connect(lambda stats: self._on_pushover_global_import_completed(stats))
-
-            show_dialog_with_blur(dialog, self)
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Import Error",
-                f"Failed to open pushover global import dialog:\n\n{str(e)}"
-            )
-            log_exception(e, "Failed to open pushover global import dialog")
+        return import_actions.load_pushover_results(self)
 
     def _on_pushover_global_import_completed(self, stats: dict):
         """Handle pushover global results import completion."""
-        self.session.expire_all()
-        result_set_id = stats.get("result_set_id")
-        if result_set_id:
-            self.result_service.invalidate_result_set(result_set_id)
-        else:
-            self.result_service.invalidate_all()
-        self.load_project_data()
-        logger.info("Imported pushover global results: %d result types", stats.get('result_types_imported', 0))
+        return import_actions.on_pushover_global_import_completed(self, stats)
 
     def load_time_series(self):
         """Load time history data for animated visualization."""
-        from PyQt6.QtWidgets import QMessageBox
-        from gui.dialogs.import_.time_history_import_dialog import TimeHistoryImportDialog
-        from gui.ui_helpers import show_dialog_with_blur
-
-        dialog = TimeHistoryImportDialog(
-            project_id=self.project.id,
-            project_name=self.project_name,
-            session_factory=self.context.session_factory(),
-            parent=self
-        )
-
-        dialog.import_completed.connect(lambda count: self._on_time_series_import_completed(count))
-
-        show_dialog_with_blur(dialog, self)
+        return import_actions.load_time_series(self)
 
     def _on_time_series_import_completed(self, count: int):
         """Handle time series import completion."""
-        self.session.expire_all()
-        self.result_service.invalidate_all()
-        self.load_project_data()
-        logger.info("Imported %d time series records", count)
+        return import_actions.on_time_series_import_completed(self, count)
 
     # -------------------------------------------------------------------------
     # Export methods
@@ -563,133 +283,27 @@ class ProjectDetailWindow(QMainWindow):
 
     def export_results(self):
         """Export results to file - contextual based on active mode."""
-        if self.controller.get_active_context() == AnalysisType.PUSHOVER:
-            self.export_pushover_results()
-        else:
-            self.export_nltha_results()
+        return export_actions.export_results(self)
 
     def export_nltha_results(self):
         """Export NLTHA results."""
-        from gui.export import ComprehensiveExportDialog
-
-        result_set_id = self.controller.selection.result_set_id
-        if not result_set_id:
-            from services.data_access import DataAccessService
-
-            data_service = self.data_service or DataAccessService(self.context.session)
-            result_sets = data_service.get_result_sets(self.project_id)
-            if result_sets:
-                result_set_id = result_sets[0].id
-                self.controller.update_selection(result_set_id=result_set_id)
-            else:
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "No Data", "No result sets available in this project")
-                return
-
-        from gui.ui_helpers import show_dialog_with_blur
-        dialog = ComprehensiveExportDialog(
-            context=self.context,
-            result_service=self.result_service,
-            current_result_set_id=result_set_id,
-            project_name=self.project_name,
-            analysis_context='NLTHA',
-            parent=self
-        )
-
-        show_dialog_with_blur(dialog, self)
+        return export_actions.export_nltha_results(self)
 
     def open_reporting(self):
         """Open the reporting window for generating PDF reports."""
-        from gui.reporting.report_window import ReportWindow
-        from gui.ui_helpers import show_dialog_with_blur
-
-        result_set_id = self.controller.selection.result_set_id
-        if not result_set_id:
-            from services.data_access import DataAccessService
-
-            data_service = self.data_service or DataAccessService(self.context.session)
-            result_sets = data_service.get_result_sets(self.project_id)
-            nltha_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) != 'Pushover']
-            if nltha_sets:
-                result_set_id = nltha_sets[0].id
-            else:
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "No Data", "No NLTHA result sets available in this project")
-                return
-
-        dialog = ReportWindow(self.runtime, result_set_id, parent=self, analysis_context='NLTHA')
-        show_dialog_with_blur(dialog, self)
+        return export_actions.open_reporting(self)
 
     def open_pushover_reporting(self):
         """Open the reporting window for generating PDF reports for Pushover results."""
-        from gui.reporting.report_window import ReportWindow
-        from gui.ui_helpers import show_dialog_with_blur
-
-        result_set_id = self.controller.selection.result_set_id
-        if not result_set_id:
-            from services.data_access import DataAccessService
-
-            data_service = self.data_service or DataAccessService(self.context.session)
-            result_sets = data_service.get_result_sets(self.project_id)
-            pushover_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
-            if pushover_sets:
-                result_set_id = pushover_sets[0].id
-            else:
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "No Data", "No Pushover result sets available in this project")
-                return
-
-        dialog = ReportWindow(self.runtime, result_set_id, parent=self, analysis_context='Pushover')
-        show_dialog_with_blur(dialog, self)
+        return export_actions.open_pushover_reporting(self)
 
     def export_pushover_results(self):
         """Export pushover results."""
-        from gui.export import ComprehensiveExportDialog
-        from PyQt6.QtWidgets import QMessageBox
-
-        result_set_id = self.controller.selection.result_set_id
-        if not result_set_id:
-            from services.data_access import DataAccessService
-
-            data_service = self.data_service or DataAccessService(self.context.session)
-            result_sets = data_service.get_result_sets(self.project_id)
-            pushover_sets = [rs for rs in result_sets if getattr(rs, 'analysis_type', None) == 'Pushover']
-            if pushover_sets:
-                result_set_id = pushover_sets[0].id
-                self.controller.update_selection(result_set_id=result_set_id)
-            else:
-                QMessageBox.warning(
-                    self,
-                    "No Pushover Data",
-                    "No pushover result sets found in this project.\n\n"
-                    "Please import pushover curves or global results first."
-                )
-                return
-
-        from gui.ui_helpers import show_dialog_with_blur
-        dialog = ComprehensiveExportDialog(
-            context=self.context,
-            result_service=self.result_service,
-            current_result_set_id=result_set_id,
-            project_name=self.project_name,
-            analysis_context='Pushover',
-            parent=self
-        )
-
-        show_dialog_with_blur(dialog, self)
+        return export_actions.export_pushover_results(self)
 
     def export_project_excel(self):
         """Export complete project to Excel workbook."""
-        from gui.export import ExportProjectExcelDialog
-
-        dialog = ExportProjectExcelDialog(
-            context=self.context,
-            result_service=self.result_service,
-            project_name=self.project_name,
-            parent=self
-        )
-
-        dialog.exec()
+        return export_actions.export_project_excel(self)
 
     def _show_settings_popup(self):
         """Show the settings popup below the settings button."""

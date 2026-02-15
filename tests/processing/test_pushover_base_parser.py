@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch, MagicMock
 from dataclasses import dataclass
 from typing import List, Optional
 
-from processing.pushover_base_parser import BasePushoverParser
+from processing.pushover.pushover_base_parser import BasePushoverParser
 
 
 @dataclass

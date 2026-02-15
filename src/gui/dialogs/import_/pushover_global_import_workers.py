@@ -49,14 +49,14 @@ class PushoverImportWorker(QThread):
 
     def run(self):
         """Run import in background thread with thread-safe session."""
-        from processing.pushover_global_importer import (
+        from processing.pushover.pushover_global_importer import (
             PushoverGlobalImporter,
             ensure_pushover_result_set,
         )
-        from processing.pushover_wall_importer_v2 import PushoverWallImporter
-        from processing.pushover_column_importer_v2 import PushoverColumnImporter
-        from processing.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporter
+        from processing.pushover.pushover_wall_importer_v2 import PushoverWallImporter
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporter
+        from processing.pushover.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporter
 
         try:
             session = self.session_factory()
@@ -181,7 +181,7 @@ class PushoverImportWorker(QThread):
 
                 # Import joint displacements if present (from global results files)
                 if self.global_files:
-                    from processing.pushover_joint_importer import PushoverJointImporter
+                    from processing.pushover.pushover_joint_importer import PushoverJointImporter
 
                     self.progress.emit("Importing joint displacements...", 85, 100)
 
@@ -205,7 +205,7 @@ class PushoverImportWorker(QThread):
 
                 # Import soil pressures if present (from global results files)
                 if self.global_files:
-                    from processing.pushover_soil_pressure_importer import PushoverSoilPressureImporter
+                    from processing.pushover.pushover_soil_pressure_importer import PushoverSoilPressureImporter
 
                     self.progress.emit("Importing soil pressures...", 90, 100)
 
@@ -229,7 +229,7 @@ class PushoverImportWorker(QThread):
 
                 # Import vertical displacements if present (from global results files)
                 if self.global_files:
-                    from processing.pushover_vert_displacement_importer import (
+                    from processing.pushover.pushover_vert_displacement_importer import (
                         PushoverVertDisplacementImporter,
                     )
 
@@ -292,10 +292,10 @@ class PushoverScanWorker(QThread):
 
     def run(self):
         """Scan folder for pushover global and element results files."""
-        from processing.pushover_global_parser import PushoverGlobalParser
-        from processing.pushover_wall_parser import PushoverWallParser
-        from processing.pushover_column_parser import PushoverColumnParser
-        from processing.pushover_beam_parser import PushoverBeamParser
+        from processing.pushover.pushover_global_parser import PushoverGlobalParser
+        from processing.pushover.pushover_wall_parser import PushoverWallParser
+        from processing.pushover.pushover_column_parser import PushoverColumnParser
+        from processing.pushover.pushover_beam_parser import PushoverBeamParser
 
         try:
             self.progress.emit("Scanning folder...", 0, 100)

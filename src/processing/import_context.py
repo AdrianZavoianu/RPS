@@ -7,7 +7,7 @@ from typing import Dict, Iterable, Optional
 
 from sqlalchemy.orm import Session
 
-from database.repository import LoadCaseRepository, StoryRepository
+from database.repositories import LoadCaseRepository, StoryRepository
 
 
 @dataclass

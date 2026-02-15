@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.styles import COLORS
+from gui.design_tokens import FormStyles
 from gui.ui_helpers import create_styled_button, create_styled_label
 from gui.dialogs.import_.pushover_global_import_workers import (
     PushoverImportWorker,
@@ -252,7 +253,7 @@ class PushoverGlobalImportDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setStyleSheet(self._progress_style())
+        self.progress_bar.setStyleSheet(FormStyles.progress_bar())
         progress_layout.addWidget(self.progress_bar)
 
         self.log_output = QTextEdit()
@@ -337,22 +338,6 @@ class PushoverGlobalImportDialog(QDialog):
             }}
         """
 
-    @staticmethod
-    def _progress_style() -> str:
-        return f"""
-            QProgressBar {{
-                background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                height: 24px;
-                text-align: center;
-                color: {COLORS['text']};
-            }}
-            QProgressBar::chunk {{
-                background-color: {COLORS['accent']};
-                border-radius: 3px;
-            }}
-        """
 
     @staticmethod
     def _log_style() -> str:

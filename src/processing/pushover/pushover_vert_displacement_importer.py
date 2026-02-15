@@ -12,7 +12,7 @@ import pandas as pd
 
 from .pushover_joint_base import BasePushoverJointImporter
 from .pushover_vert_displacement_parser import PushoverVertDisplacementParser
-from .import_utils import require_sheets
+from ..import_utils import require_sheets
 
 logger = logging.getLogger(__name__)
 

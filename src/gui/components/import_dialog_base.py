@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
     QApplication,
 )
 
-from ..styles import COLORS
+from ..design_tokens import FormStyles
 from ..ui_helpers import create_styled_button, create_styled_label, create_checkbox_icons
 
 logger = logging.getLogger(__name__)
@@ -134,7 +134,7 @@ class ImportDialogBase(QDialog):
         Returns: (progress_bar, log_text, container_widget)
         """
         group = QGroupBox("Progress")
-        group.setStyleSheet(self._get_group_box_style())
+        group.setStyleSheet(FormStyles.group_box())
         layout = QVBoxLayout(group)
         layout.setSpacing(8)
         
@@ -142,13 +142,13 @@ class ImportDialogBase(QDialog):
         progress_bar.setRange(0, 100)
         progress_bar.setValue(0)
         progress_bar.setTextVisible(True)
-        progress_bar.setStyleSheet(self._get_progress_bar_style())
+        progress_bar.setStyleSheet(FormStyles.progress_bar())
         layout.addWidget(progress_bar)
         
         log_text = QTextEdit()
         log_text.setReadOnly(True)
         log_text.setMaximumHeight(120)
-        log_text.setStyleSheet(self._get_log_text_style())
+        log_text.setStyleSheet(FormStyles.text_log())
         layout.addWidget(log_text)
         
         return progress_bar, log_text, group
@@ -159,7 +159,7 @@ class ImportDialogBase(QDialog):
         Returns: (list_widget, container_widget)
         """
         group = QGroupBox(title)
-        group.setStyleSheet(self._get_group_box_style())
+        group.setStyleSheet(FormStyles.group_box())
         layout = QVBoxLayout(group)
         
         # Select all / Clear buttons
@@ -180,16 +180,10 @@ class ImportDialogBase(QDialog):
         # Scroll area with list
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                background-color: {COLORS['card']};
-            }}
-        """)
+        scroll.setStyleSheet(FormStyles.scroll_area())
         
         list_widget = QListWidget()
-        list_widget.setStyleSheet(self._get_list_widget_style())
+        list_widget.setStyleSheet(FormStyles.list_widget())
         scroll.setWidget(list_widget)
         
         layout.addWidget(scroll, stretch=1)
@@ -301,80 +295,5 @@ class ImportDialogBase(QDialog):
     
     def _apply_styles(self) -> None:
         """Apply dialog styles."""
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-            }}
-        """)
+        self.setStyleSheet(FormStyles.dialog())
     
-    def _get_group_box_style(self) -> str:
-        """Get style for group boxes."""
-        return f"""
-            QGroupBox {{
-                font-weight: bold;
-                font-size: 13px;
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                margin-top: 12px;
-                padding-top: 8px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-            }}
-        """
-    
-    def _get_progress_bar_style(self) -> str:
-        """Get style for progress bars."""
-        return f"""
-            QProgressBar {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                background-color: {COLORS['card']};
-                text-align: center;
-                color: {COLORS['text']};
-                height: 20px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {COLORS['accent']};
-                border-radius: 3px;
-            }}
-        """
-    
-    def _get_log_text_style(self) -> str:
-        """Get style for log text areas."""
-        return f"""
-            QTextEdit {{
-                background-color: {COLORS['card']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 11px;
-                padding: 8px;
-            }}
-        """
-    
-    def _get_list_widget_style(self) -> str:
-        """Get style for list widgets."""
-        return f"""
-            QListWidget {{
-                background-color: {COLORS['card']};
-                color: {COLORS['text']};
-                border: none;
-                outline: none;
-            }}
-            QListWidget::item {{
-                padding: 6px 8px;
-                border-radius: 4px;
-            }}
-            QListWidget::item:hover {{
-                background-color: {COLORS['hover']};
-            }}
-            QListWidget::item:selected {{
-                background-color: {COLORS['accent']};
-                color: white;
-            }}
-        """

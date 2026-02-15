@@ -12,7 +12,7 @@ Key components:
 - BasePushoverParser: Base class for pushover parsers
 """
 
-from .pushover_registry import (
+from .pushover.pushover_registry import (
     PushoverRegistry,
     get_pushover_importer,
     get_pushover_parser,

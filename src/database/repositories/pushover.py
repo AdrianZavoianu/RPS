@@ -1,6 +1,6 @@
 """Pushover repositories for PushoverCase and PushoverCurvePoint operations."""
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from ..models import PushoverCase, PushoverCurvePoint
 from ..base_repository import BaseRepository
@@ -15,6 +15,15 @@ class PushoverCaseRepository(BaseRepository[PushoverCase]):
         """Get all pushover cases for a result set."""
         return self.session.query(PushoverCase).filter(
             PushoverCase.result_set_id == result_set_id
+        ).all()
+
+    def get_by_result_sets(self, result_set_ids: Iterable[int]) -> List[PushoverCase]:
+        """Get all pushover cases for multiple result sets."""
+        ids = list(result_set_ids)
+        if not ids:
+            return []
+        return self.session.query(PushoverCase).filter(
+            PushoverCase.result_set_id.in_(ids)
         ).all()
 
     def get_by_name(self, project_id: int, result_set_id: int, name: str) -> Optional[PushoverCase]:

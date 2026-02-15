@@ -7,7 +7,7 @@ from typing import Dict, Optional
 from sqlalchemy.orm import Session
 
 from database.models import SoilPressure, VerticalDisplacement
-from database.repository import ResultCategoryRepository
+from database.repositories import ResultCategoryRepository
 from .import_context import ResultImportHelper
 
 

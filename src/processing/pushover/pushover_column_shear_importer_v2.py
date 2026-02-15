@@ -11,8 +11,8 @@ from typing import Dict, List, Set, Any
 import pandas as pd
 
 from database.models import Element, Story, LoadCase, ColumnShear, ElementResultsCache
-from processing.pushover_base_importer import BasePushoverImporter
-from processing.pushover_column_shear_parser import PushoverColumnShearParser
+from processing.pushover.pushover_base_importer import BasePushoverImporter
+from processing.pushover.pushover_column_shear_parser import PushoverColumnShearParser
 
 logger = logging.getLogger(__name__)
 

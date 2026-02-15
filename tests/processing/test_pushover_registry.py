@@ -2,7 +2,7 @@
 
 import pytest
 
-from processing.pushover_registry import (
+from processing.pushover.pushover_registry import (
     PushoverRegistry,
     get_pushover_importer,
     get_pushover_parser,

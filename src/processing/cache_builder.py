@@ -24,7 +24,7 @@ from sqlalchemy import and_
 
 from utils.error_handling import timed
 
-from database.repository import (
+from database.repositories import (
     StoryRepository,
     CacheRepository,
     ResultRepository,
@@ -83,10 +83,9 @@ class CacheBuilder:
         """Generate cache rows for all supported result types."""
         stories = self._story_repo.get_by_project(self.project_id)
 
-        self._cache_drifts(stories)
-        self._cache_accelerations(stories)
-        self._cache_forces(stories)
-        self._cache_displacements(stories)
+        # Global caches are config-driven; update cache_builder_config.py to add new types.
+        for config_name in ["drifts", "accelerations", "forces", "displacements"]:
+            self.cache_from_config(config_name)
         self._cache_pier_forces(stories)
         self._cache_column_shears(stories)
         self._cache_column_axials(stories)

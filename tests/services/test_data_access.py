@@ -163,13 +163,15 @@ class TestDataAccessService:
         mock_session = mock_session_factory.return_value
 
         mock_rs1 = MagicMock()
+        mock_rs1.id = 1
         mock_rs1.name = "DES"
         mock_rs2 = MagicMock()
+        mock_rs2.id = 2
         mock_rs2.name = "MCE"
 
-        with patch("database.repository.ResultSetRepository") as MockRepo:
+        with patch("database.repositories.ResultSetRepository") as MockRepo:
             mock_repo = MockRepo.return_value
-            mock_repo.get_by_id.side_effect = [mock_rs1, mock_rs2]
+            mock_repo.get_by_ids.return_value = [mock_rs1, mock_rs2]
 
             service = DataAccessService(mock_session_factory)
             names = service.get_result_set_names([1, 2])
@@ -190,7 +192,7 @@ class TestDataAccessService:
         mock_case2.direction = "Y"
         mock_case2.result_set_id = 5
 
-        with patch("database.repository.PushoverCaseRepository") as MockRepo:
+        with patch("database.repositories.PushoverCaseRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_result_set.return_value = [mock_case1, mock_case2]
 
@@ -214,7 +216,7 @@ class TestDataAccessService:
         mock_point2.base_shear = 500.0
         mock_point2.displacement = 10.0
 
-        with patch("database.repository.PushoverCaseRepository") as MockRepo:
+        with patch("database.repositories.PushoverCaseRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_curve_data.return_value = [mock_point1, mock_point2]
 
@@ -234,7 +236,7 @@ class TestDataAccessService:
         mock_rs1.description = None
         mock_rs1.analysis_type = "NLTHA"
 
-        with patch("database.repository.ResultSetRepository") as MockRepo:
+        with patch("database.repositories.ResultSetRepository") as MockRepo:
             mock_repo = MockRepo.return_value
             mock_repo.get_by_project.return_value = [mock_rs1]
 
@@ -261,7 +263,7 @@ class TestDataAccessServiceIntegration:
         service = DataAccessService(session_factory)
 
         # Make multiple calls
-        with patch("database.repository.ResultSetRepository"):
+        with patch("database.repositories.ResultSetRepository"):
             service.get_result_sets(1)
             service.get_result_sets(2)
 
@@ -275,7 +277,7 @@ class TestDataAccessServiceIntegration:
 
         service = DataAccessService(mock_session_factory)
 
-        with patch("database.repository.ResultSetRepository") as MockRepo:
+        with patch("database.repositories.ResultSetRepository") as MockRepo:
             MockRepo.side_effect = Exception("Database error")
 
             with pytest.raises(Exception, match="Database error"):

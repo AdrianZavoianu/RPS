@@ -9,13 +9,25 @@ from dataclasses import dataclass
 import pandas as pd
 
 from utils.timing import PhaseTimer
-from services.export_utils import (
+from utils.error_handling import timed
+from .utils import (
     extract_direction,
     extract_base_type,
     build_filename,
     get_result_config,
 )
-from services.export_writer import ExportWriter
+from .writer import ExportWriter
+from .serialization import (
+    serialize_absolute_maxmin_drifts,
+    serialize_element_cache,
+    serialize_global_cache,
+    serialize_quad_rotations,
+    serialize_story_accelerations,
+    serialize_story_displacements,
+    serialize_story_drifts,
+    serialize_story_forces,
+    serialize_wall_shears,
+)
 from database.models import GlobalResultsCache
 
 from .excel_writer import ProjectExcelExporter
@@ -85,6 +97,7 @@ class ExportService:
             df[numeric_cols] = df[numeric_cols] / multiplier
         return df
 
+    @timed
     def export_result_type(
         self,
         options: ExportOptions,
@@ -181,7 +194,7 @@ class ExportService:
         """
         import pandas as pd
         from database.models import ElementResultsCache, Element, Story
-        from database.repository import ElementCacheRepository
+        from database.repositories import ElementCacheRepository
 
         # Special handling for BeamRotations - use wide format with all source rows
         if result_type.startswith("BeamRotations"):
@@ -339,6 +352,7 @@ class ExportService:
 
     # ===== PROJECT EXPORT TO EXCEL =====
 
+    @timed
     def export_project_excel(
         self,
         options: ProjectExportExcelOptions,
@@ -549,290 +563,39 @@ class ExportService:
 
     def _serialize_story_drifts(self, session) -> list:
         """Serialize all story_drifts table data."""
-        from database.models import StoryDrift, Story, LoadCase
-
-        results = session.query(
-            Story.name.label('story_name'),
-            LoadCase.name.label('load_case_name'),
-            StoryDrift.direction,
-            StoryDrift.drift,
-            StoryDrift.max_drift,
-            StoryDrift.min_drift,
-            StoryDrift.story_sort_order
-        ).join(Story, StoryDrift.story_id == Story.id
-        ).join(LoadCase, StoryDrift.load_case_id == LoadCase.id
-        ).all()
-
-        return [
-            {
-                "story_name": r.story_name,
-                "load_case_name": r.load_case_name,
-                "direction": r.direction,
-                "drift": r.drift,
-                "max_drift": r.max_drift,
-                "min_drift": r.min_drift,
-                "story_sort_order": r.story_sort_order
-            }
-            for r in results
-        ]
+        return serialize_story_drifts(session)
 
     def _serialize_story_accelerations(self, session) -> list:
         """Serialize all story_accelerations table data."""
-        from database.models import StoryAcceleration, Story, LoadCase, ResultCategory, ResultSet
-
-        results = session.query(
-            Story.name.label('story_name'),
-            LoadCase.name.label('load_case_name'),
-            ResultSet.name.label('result_set_name'),
-            ResultCategory.category_name.label('result_category_name'),
-            StoryAcceleration.direction,
-            StoryAcceleration.acceleration,
-            StoryAcceleration.max_acceleration,
-            StoryAcceleration.min_acceleration,
-            StoryAcceleration.story_sort_order
-        ).join(Story, StoryAcceleration.story_id == Story.id
-        ).join(LoadCase, StoryAcceleration.load_case_id == LoadCase.id
-        ).join(ResultCategory, StoryAcceleration.result_category_id == ResultCategory.id
-        ).join(ResultSet, ResultCategory.result_set_id == ResultSet.id
-        ).all()
-
-        return [
-            {
-                "story_name": r.story_name,
-                "load_case_name": r.load_case_name,
-                "result_set_name": r.result_set_name,
-                "result_category_name": r.result_category_name,
-                "direction": r.direction,
-                "acceleration": r.acceleration,
-                "max_acceleration": r.max_acceleration,
-                "min_acceleration": r.min_acceleration,
-                "story_sort_order": r.story_sort_order
-            }
-            for r in results
-        ]
+        return serialize_story_accelerations(session)
 
     def _serialize_story_forces(self, session) -> list:
         """Serialize all story_forces table data."""
-        from database.models import StoryForce, Story, LoadCase, ResultCategory, ResultSet
-
-        results = session.query(
-            Story.name.label('story_name'),
-            LoadCase.name.label('load_case_name'),
-            ResultSet.name.label('result_set_name'),
-            ResultCategory.category_name.label('result_category_name'),
-            StoryForce.direction,
-            StoryForce.location,
-            StoryForce.force,
-            StoryForce.max_force,
-            StoryForce.min_force,
-            StoryForce.story_sort_order
-        ).join(Story, StoryForce.story_id == Story.id
-        ).join(LoadCase, StoryForce.load_case_id == LoadCase.id
-        ).join(ResultCategory, StoryForce.result_category_id == ResultCategory.id
-        ).join(ResultSet, ResultCategory.result_set_id == ResultSet.id
-        ).all()
-
-        return [
-            {
-                "story_name": r.story_name,
-                "load_case_name": r.load_case_name,
-                "result_set_name": r.result_set_name,
-                "result_category_name": r.result_category_name,
-                "direction": r.direction,
-                "location": r.location,
-                "force": r.force,
-                "max_force": r.max_force,
-                "min_force": r.min_force,
-                "story_sort_order": r.story_sort_order
-            }
-            for r in results
-        ]
+        return serialize_story_forces(session)
 
     def _serialize_story_displacements(self, session) -> list:
         """Serialize all story_displacements table data."""
-        from database.models import StoryDisplacement, Story, LoadCase, ResultCategory, ResultSet
-
-        results = session.query(
-            Story.name.label('story_name'),
-            LoadCase.name.label('load_case_name'),
-            ResultSet.name.label('result_set_name'),
-            ResultCategory.category_name.label('result_category_name'),
-            StoryDisplacement.direction,
-            StoryDisplacement.displacement,
-            StoryDisplacement.max_displacement,
-            StoryDisplacement.min_displacement,
-            StoryDisplacement.story_sort_order
-        ).join(Story, StoryDisplacement.story_id == Story.id
-        ).join(LoadCase, StoryDisplacement.load_case_id == LoadCase.id
-        ).join(ResultCategory, StoryDisplacement.result_category_id == ResultCategory.id
-        ).join(ResultSet, ResultCategory.result_set_id == ResultSet.id
-        ).all()
-
-        return [
-            {
-                "story_name": r.story_name,
-                "load_case_name": r.load_case_name,
-                "result_set_name": r.result_set_name,
-                "result_category_name": r.result_category_name,
-                "direction": r.direction,
-                "displacement": r.displacement,
-                "max_displacement": r.max_displacement,
-                "min_displacement": r.min_displacement,
-                "story_sort_order": r.story_sort_order
-            }
-            for r in results
-        ]
+        return serialize_story_displacements(session)
 
     def _serialize_absolute_maxmin_drifts(self, session) -> list:
         """Serialize all absolute_maxmin_drifts table data."""
-        from database.models import AbsoluteMaxMinDrift, Story, LoadCase, ResultSet
-
-        results = session.query(
-            ResultSet.name.label('result_set_name'),
-            Story.name.label('story_name'),
-            Story.sort_order.label('story_sort_order'),
-            LoadCase.name.label('load_case_name'),
-            AbsoluteMaxMinDrift.direction,
-            AbsoluteMaxMinDrift.absolute_max_drift,
-            AbsoluteMaxMinDrift.sign,
-            AbsoluteMaxMinDrift.original_max,
-            AbsoluteMaxMinDrift.original_min
-        ).join(ResultSet, AbsoluteMaxMinDrift.result_set_id == ResultSet.id
-        ).join(Story, AbsoluteMaxMinDrift.story_id == Story.id
-        ).join(LoadCase, AbsoluteMaxMinDrift.load_case_id == LoadCase.id
-        ).all()
-
-        return [
-            {
-                "result_set_name": r.result_set_name,
-                "story_name": r.story_name,
-                "story_sort_order": r.story_sort_order,
-                "load_case_name": r.load_case_name,
-                "direction": r.direction,
-                "absolute_max_drift": r.absolute_max_drift,
-                "sign": r.sign,
-                "original_max": r.original_max,
-                "original_min": r.original_min
-            }
-            for r in results
-        ]
+        return serialize_absolute_maxmin_drifts(session)
 
     def _serialize_quad_rotations(self, session) -> list:
         """Serialize all quad_rotations table data."""
-        from database.models import QuadRotation, Story, LoadCase, Element
-
-        results = session.query(
-            Element.name.label('element_name'),
-            Story.name.label('story_name'),
-            LoadCase.name.label('load_case_name'),
-            QuadRotation.rotation,
-            QuadRotation.max_rotation,
-            QuadRotation.min_rotation,
-            QuadRotation.story_sort_order
-        ).join(Element, QuadRotation.element_id == Element.id
-        ).join(Story, QuadRotation.story_id == Story.id
-        ).join(LoadCase, QuadRotation.load_case_id == LoadCase.id
-        ).all()
-
-        return [
-            {
-                "element_name": r.element_name,
-                "story_name": r.story_name,
-                "load_case_name": r.load_case_name,
-                "rotation": r.rotation,
-                "max_rotation": r.max_rotation,
-                "min_rotation": r.min_rotation,
-                "story_sort_order": r.story_sort_order
-            }
-            for r in results
-        ]
+        return serialize_quad_rotations(session)
 
     def _serialize_wall_shears(self, session) -> list:
         """Serialize all wall_shears table data."""
-        from database.models import WallShear, Story, LoadCase, Element
-
-        results = session.query(
-            Element.name.label('element_name'),
-            Story.name.label('story_name'),
-            LoadCase.name.label('load_case_name'),
-            WallShear.direction,
-            WallShear.location,
-            WallShear.force,
-            WallShear.max_force,
-            WallShear.min_force,
-            WallShear.story_sort_order
-        ).join(Element, WallShear.element_id == Element.id
-        ).join(Story, WallShear.story_id == Story.id
-        ).join(LoadCase, WallShear.load_case_id == LoadCase.id
-        ).all()
-
-        return [
-            {
-                "element_name": r.element_name,
-                "story_name": r.story_name,
-                "load_case_name": r.load_case_name,
-                "direction": r.direction,
-                "location": r.location,
-                "force": r.force,
-                "max_force": r.max_force,
-                "min_force": r.min_force,
-                "story_sort_order": r.story_sort_order
-            }
-            for r in results
-        ]
+        return serialize_wall_shears(session)
 
     def _serialize_global_cache(self, session) -> list:
         """Serialize all global_results_cache table data."""
-        from database.models import GlobalResultsCache, Story, ResultSet
-
-        results = session.query(
-            ResultSet.name.label('result_set_name'),
-            Story.name.label('story_name'),
-            GlobalResultsCache.result_type,
-            GlobalResultsCache.story_sort_order,
-            GlobalResultsCache.results_matrix
-        ).join(ResultSet, GlobalResultsCache.result_set_id == ResultSet.id
-        ).join(Story, GlobalResultsCache.story_id == Story.id
-        ).all()
-
-        return [
-            {
-                "result_set_name": r.result_set_name,
-                "story_name": r.story_name,
-                "result_type": r.result_type,
-                "story_sort_order": r.story_sort_order,
-                "results_matrix": r.results_matrix
-            }
-            for r in results
-        ]
+        return serialize_global_cache(session)
 
     def _serialize_element_cache(self, session) -> list:
         """Serialize all element_results_cache table data."""
-        from database.models import ElementResultsCache, Story, ResultSet, Element
-
-        results = session.query(
-            ResultSet.name.label('result_set_name'),
-            Element.name.label('element_name'),
-            Story.name.label('story_name'),
-            ElementResultsCache.result_type,
-            ElementResultsCache.story_sort_order,
-            ElementResultsCache.results_matrix
-        ).join(ResultSet, ElementResultsCache.result_set_id == ResultSet.id
-        ).join(Element, ElementResultsCache.element_id == Element.id
-        ).join(Story, ElementResultsCache.story_id == Story.id
-        ).all()
-
-        return [
-            {
-                "result_set_name": r.result_set_name,
-                "element_name": r.element_name,
-                "story_name": r.story_name,
-                "result_type": r.result_type,
-                "story_sort_order": r.story_sort_order,
-                "results_matrix": r.results_matrix
-            }
-            for r in results
-        ]
+        return serialize_element_cache(session)
 
     # ===== PUSHOVER CURVES EXPORT =====
 

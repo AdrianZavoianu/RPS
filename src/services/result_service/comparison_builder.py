@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from config.result_config import ResultTypeConfig
-from database.repository import ResultSetRepository
+from database.repositories import ResultSetRepository
 
 from .models import ComparisonDataset, ComparisonSeries, ResultDatasetMeta
 from config.result_config import format_result_type_with_unit

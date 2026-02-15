@@ -6,7 +6,7 @@ from typing import Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from database.repository import ProjectRepository, ResultSetRepository, ResultCategoryRepository
+from database.repositories import ProjectRepository, ResultSetRepository, ResultCategoryRepository
 
 
 class MetadataImporter:

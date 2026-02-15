@@ -5,7 +5,7 @@ import pandas as pd
 from io import BytesIO
 from unittest.mock import patch, MagicMock
 
-from processing.pushover_curve_parser import PushoverParser, PushoverCurveData
+from processing.pushover.pushover_curve_parser import PushoverParser, PushoverCurveData
 
 
 class TestPushoverCurveData:

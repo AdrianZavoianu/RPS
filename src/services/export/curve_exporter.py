@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from services.export_pushover import PushoverExporter
+from .pushover import PushoverExporter
 
 
 class CurveExporter:

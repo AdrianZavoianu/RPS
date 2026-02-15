@@ -4,8 +4,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from processing.pushover_curve_importer import PushoverImporter
-from processing.pushover_curve_parser import PushoverCurveData
+from processing.pushover.pushover_curve_importer import PushoverImporter
+from processing.pushover.pushover_curve_parser import PushoverCurveData
 
 
 class MockSession:
@@ -33,8 +33,8 @@ class TestPushoverImporterInit:
         """Test that importer creates necessary repositories."""
         session = MockSession()
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository'):
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository'):
                 importer = PushoverImporter(session)
 
                 assert importer.session == session
@@ -50,8 +50,8 @@ class TestGetOrCreateResultSet:
         session = MockSession()
         mock_result_set = MockResultSet()
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository') as MockRepo:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository') as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.check_duplicate.return_value = False
                 mock_repo.get_or_create.return_value = mock_result_set
@@ -72,8 +72,8 @@ class TestGetOrCreateResultSet:
         """Test that error is raised when result set exists and overwrite is False."""
         session = MockSession()
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository') as MockRepo:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository') as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.check_duplicate.return_value = True
 
@@ -94,8 +94,8 @@ class TestGetOrCreateResultSet:
         session = MockSession()
         mock_result_set = MockResultSet()
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository') as MockRepo:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository') as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.check_duplicate.return_value = True
                 mock_repo.get_or_create.return_value = mock_result_set
@@ -118,8 +118,8 @@ class TestImportPushoverFile:
         """Test that FileNotFoundError is raised for missing file."""
         session = MockSession()
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository'):
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository'):
                 importer = PushoverImporter(session)
 
                 with pytest.raises(FileNotFoundError) as exc_info:
@@ -148,17 +148,17 @@ class TestImportPushoverFile:
 
         all_curves = {"Push_X+": curve_x, "Push_Y+": curve_y}
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository') as MockRepo:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository') as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.check_duplicate.return_value = False
                 mock_repo.get_or_create.return_value = mock_result_set
 
-                with patch('processing.pushover_curve_importer.PushoverParser') as MockParser:
+                with patch('processing.pushover.pushover_curve_importer.PushoverParser') as MockParser:
                     mock_parser = MockParser.return_value
                     mock_parser.parse_curves.return_value = all_curves
 
-                    with patch('processing.pushover_curve_importer.PushoverTransformer') as MockTransformer:
+                    with patch('processing.pushover.pushover_curve_importer.PushoverTransformer') as MockTransformer:
                         mock_transformer = MockTransformer.return_value
                         mock_transformer.transform_curves.return_value = []
 
@@ -187,13 +187,13 @@ class TestImportPushoverFile:
         curve_x = PushoverCurveData("Push_X+", "X")
         all_curves = {"Push_X+": curve_x}
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository') as MockRepo:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository') as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.check_duplicate.return_value = False
                 mock_repo.get_or_create.return_value = mock_result_set
 
-                with patch('processing.pushover_curve_importer.PushoverParser') as MockParser:
+                with patch('processing.pushover.pushover_curve_importer.PushoverParser') as MockParser:
                     mock_parser = MockParser.return_value
                     mock_parser.parse_curves.return_value = all_curves
 
@@ -228,17 +228,17 @@ class TestImportPushoverFile:
         mock_case = MagicMock()
         mock_case.curve_points = [MagicMock(), MagicMock(), MagicMock()]  # 3 points
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository') as MockRepo:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository') as MockRepo:
                 mock_repo = MockRepo.return_value
                 mock_repo.check_duplicate.return_value = False
                 mock_repo.get_or_create.return_value = mock_result_set
 
-                with patch('processing.pushover_curve_importer.PushoverParser') as MockParser:
+                with patch('processing.pushover.pushover_curve_importer.PushoverParser') as MockParser:
                     mock_parser = MockParser.return_value
                     mock_parser.parse_curves.return_value = all_curves
 
-                    with patch('processing.pushover_curve_importer.PushoverTransformer') as MockTransformer:
+                    with patch('processing.pushover.pushover_curve_importer.PushoverTransformer') as MockTransformer:
                         mock_transformer = MockTransformer.return_value
                         mock_transformer.transform_curves.return_value = [mock_case]
 
@@ -264,9 +264,9 @@ class TestGetAvailableStories:
         """Test that get_available_stories delegates to parser."""
         session = MockSession()
 
-        with patch('processing.pushover_curve_importer.ProjectRepository'):
-            with patch('processing.pushover_curve_importer.ResultSetRepository'):
-                with patch('processing.pushover_curve_importer.PushoverParser') as MockParser:
+        with patch('processing.pushover.pushover_curve_importer.ProjectRepository'):
+            with patch('processing.pushover.pushover_curve_importer.ResultSetRepository'):
+                with patch('processing.pushover.pushover_curve_importer.PushoverParser') as MockParser:
                     mock_parser = MockParser.return_value
                     mock_parser.get_available_stories.return_value = ['Base', 'L1', 'L2']
 

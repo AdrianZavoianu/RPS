@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from database.models import Project, ResultSet
-from database.repository import ProjectRepository, ResultSetRepository
+from database.repositories import ProjectRepository, ResultSetRepository
 from .pushover_curve_parser import PushoverParser
 from .pushover_transformer import PushoverTransformer
 

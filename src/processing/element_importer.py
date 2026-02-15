@@ -7,7 +7,8 @@ from typing import Dict
 from sqlalchemy.orm import Session
 
 from database.models import WallShear, QuadRotation, ColumnShear, ColumnAxial, ColumnRotation, BeamRotation
-from database.repository import ElementRepository
+from database.repositories import ElementRepository
+from .import_filtering import filter_cases_and_dataframe
 from .import_context import ResultImportHelper
 from .result_processor import ResultProcessor
 
@@ -22,17 +23,27 @@ class ElementImporter:
         parser,
         project_id: int,
         result_category_id: int,
+        allowed_load_cases: set[str] | None = None,
     ) -> None:
         self.session = session
         self.parser = parser
         self.project_id = project_id
         self.result_category_id = result_category_id
+        self.allowed_load_cases = allowed_load_cases
         self._element_repo = ElementRepository(session)
 
     def import_pier_forces(self) -> Dict[str, int]:
         stats = {"pier_forces": 0, "piers": 0}
         try:
             df, load_cases, stories, piers = self.parser.get_pier_forces()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             pier_elements = {
@@ -85,6 +96,14 @@ class ElementImporter:
         stats = {"quad_rotations": 0, "piers": 0}
         try:
             df, load_cases, stories, piers = self.parser.get_quad_rotations()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             pier_elements = {
@@ -135,6 +154,14 @@ class ElementImporter:
         stats = {"column_forces": 0, "columns": 0}
         try:
             df, load_cases, stories, columns = self.parser.get_column_forces()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             column_elements = {
@@ -186,6 +213,14 @@ class ElementImporter:
         stats = {"column_axials": 0}
         try:
             df, load_cases, stories, columns = self.parser.get_column_forces()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             column_elements = {
@@ -232,6 +267,14 @@ class ElementImporter:
         stats = {"column_rotations": 0, "columns": 0}
         try:
             df, load_cases, stories, columns = self.parser.get_fiber_hinge_states()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             column_elements = {
@@ -282,6 +325,14 @@ class ElementImporter:
         stats = {"beam_rotations": 0, "beams": 0}
         try:
             df, load_cases, stories, beams = self.parser.get_hinge_states()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
             helper = ResultImportHelper(self.session, self.project_id, stories)
 
             beam_elements = {

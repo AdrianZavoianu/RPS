@@ -10,6 +10,7 @@ from .excel_parser import ExcelParser
 from .base_importer import BaseImporter
 from .import_tasks import DEFAULT_IMPORT_TASKS, ImportTask
 from utils.timing import PhaseTimer
+from utils.error_handling import timed
 from .metadata_importer import MetadataImporter
 from .import_runner import run_import_tasks, task_sheets_available, merge_task_stats
 from .import_logging import (
@@ -21,7 +22,7 @@ from .import_logging import (
 from .import_utils import sheet_available
 
 if TYPE_CHECKING:
-    from services.import_preparation import FilePrescanSummary
+    from .import_preparation import FilePrescanSummary
 
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ class DataImporter(BaseImporter):
             return sheet_name in self._available_sheets_hint
         return sheet_available(sheet_name, self.parser.validate_sheet_exists)
 
+    @timed
     def import_all(self) -> dict:
         """Import all available data from Excel file.
 

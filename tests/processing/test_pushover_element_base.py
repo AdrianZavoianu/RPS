@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from processing.pushover_element_base import (
+from processing.pushover.pushover_element_base import (
     PushoverElementBaseImporter,
     ResultTypeConfig,
 )
@@ -98,12 +98,12 @@ class TestPushoverBeamImporterV2:
 
     def test_import(self):
         """Test that beam importer can be imported."""
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporterV2
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
         assert PushoverBeamImporterV2 is not None
 
     def test_get_element_type(self):
         """Test that element type is 'Beam'."""
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporterV2
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
 
         mock_session = MagicMock()
         importer = PushoverBeamImporterV2(
@@ -119,7 +119,7 @@ class TestPushoverBeamImporterV2:
 
     def test_get_cache_base_name(self):
         """Test cache base name is 'BeamRotations'."""
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporterV2
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
 
         mock_session = MagicMock()
         importer = PushoverBeamImporterV2(
@@ -135,7 +135,7 @@ class TestPushoverBeamImporterV2:
 
     def test_result_types_config(self):
         """Test that result types are configured correctly."""
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporterV2
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
         from database.models import BeamRotation
 
         mock_session = MagicMock()
@@ -164,12 +164,12 @@ class TestPushoverColumnImporterV2:
 
     def test_import(self):
         """Test that column importer can be imported."""
-        from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
         assert PushoverColumnImporterV2 is not None
 
     def test_get_element_type(self):
         """Test that element type is 'Column'."""
-        from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
 
         mock_session = MagicMock()
         importer = PushoverColumnImporterV2(
@@ -185,7 +185,7 @@ class TestPushoverColumnImporterV2:
 
     def test_get_cache_base_name(self):
         """Test cache base name is 'ColumnRotations'."""
-        from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
 
         mock_session = MagicMock()
         importer = PushoverColumnImporterV2(
@@ -201,7 +201,7 @@ class TestPushoverColumnImporterV2:
 
     def test_result_types_config(self):
         """Test that result types are configured correctly for R2 and R3."""
-        from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
         from database.models import ColumnRotation
 
         mock_session = MagicMock()
@@ -231,7 +231,7 @@ class TestPushoverColumnImporterV2:
 
     def test_cache_query_filters(self):
         """Test that cache query filters by direction."""
-        from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
         from database.models import ColumnRotation
 
         mock_session = MagicMock()
@@ -256,23 +256,23 @@ class TestBackwardCompatibility:
 
     def test_beam_importer_alias_exists(self):
         """Test that v2 module exports PushoverBeamImporter alias."""
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporter
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporterV2
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporter
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
         assert PushoverBeamImporter is PushoverBeamImporterV2
 
     def test_column_importer_alias_exists(self):
         """Test that v2 module exports PushoverColumnImporter alias."""
-        from processing.pushover_column_importer_v2 import PushoverColumnImporter
-        from processing.pushover_column_importer_v2 import PushoverColumnImporterV2
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporter
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
         assert PushoverColumnImporter is PushoverColumnImporterV2
 
     def test_v2_importers_have_backward_compat_aliases(self):
         """Test that v2 importers export backward-compatible class names."""
         # V2 modules export non-V2 names for backward compatibility
-        from processing.pushover_beam_importer_v2 import PushoverBeamImporter
-        from processing.pushover_column_importer_v2 import PushoverColumnImporter
-        from processing.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
-        from processing.pushover_wall_importer_v2 import PushoverWallImporter
+        from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporter
+        from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporter
+        from processing.pushover.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
+        from processing.pushover.pushover_wall_importer_v2 import PushoverWallImporter
 
         # All should be importable (aliased to V2 classes)
         assert PushoverBeamImporter is not None

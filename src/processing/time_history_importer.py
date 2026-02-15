@@ -17,7 +17,7 @@ from database.models import (
     Story,
     TimeSeriesGlobalCache,
 )
-from database.repository import StoryRepository
+from database.repositories import StoryRepository
 
 from .time_history_parser import TimeHistoryParser, TimeHistoryParseResult, TimeSeriesData
 
@@ -197,6 +197,33 @@ class TimeSeriesRepository:
         ).distinct().all()
 
         return [r[0] for r in result]
+
+    def get_available_load_cases_by_result_set(
+        self,
+        project_id: int,
+        result_set_ids: List[int],
+    ) -> dict[int, List[str]]:
+        """Get available load cases grouped by result set ID."""
+        if not result_set_ids:
+            return {}
+
+        rows = (
+            self.session.query(
+                TimeSeriesGlobalCache.result_set_id,
+                TimeSeriesGlobalCache.load_case_name,
+            )
+            .filter(
+                TimeSeriesGlobalCache.project_id == project_id,
+                TimeSeriesGlobalCache.result_set_id.in_(result_set_ids),
+            )
+            .distinct()
+            .all()
+        )
+
+        result: dict[int, List[str]] = {rs_id: [] for rs_id in result_set_ids}
+        for rs_id, load_case_name in rows:
+            result.setdefault(rs_id, []).append(load_case_name)
+        return result
 
     def get_available_result_types(
         self,

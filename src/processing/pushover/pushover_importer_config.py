@@ -38,7 +38,7 @@ class PushoverImporterConfig:
     description: str
     
     # Parser configuration
-    parser_module: str  # e.g., "processing.pushover_wall_parser"
+    parser_module: str  # e.g., "processing.pushover.pushover_wall_parser"
     parser_class: str   # e.g., "PushoverWallParser"
     
     # Model configuration
@@ -76,7 +76,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "wall_shear_v2": PushoverImporterConfig(
         name="wall_shear_v2",
         description="Wall (Pier) V2 Shear Forces",
-        parser_module="processing.pushover_wall_parser",
+        parser_module="processing.pushover.pushover_wall_parser",
         parser_class="PushoverWallParser",
         model_module="database.models",
         model_class="WallShear",
@@ -96,7 +96,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "wall_shear_v3": PushoverImporterConfig(
         name="wall_shear_v3",
         description="Wall (Pier) V3 Shear Forces",
-        parser_module="processing.pushover_wall_parser",
+        parser_module="processing.pushover.pushover_wall_parser",
         parser_class="PushoverWallParser",
         model_module="database.models",
         model_class="WallShear",
@@ -116,7 +116,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "wall_rotation": PushoverImporterConfig(
         name="wall_rotation",
         description="Wall (Quad) Rotations",
-        parser_module="processing.pushover_wall_parser",
+        parser_module="processing.pushover.pushover_wall_parser",
         parser_class="PushoverWallParser",
         model_module="database.models",
         model_class="QuadRotation",
@@ -137,7 +137,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "column_rotation_r2": PushoverImporterConfig(
         name="column_rotation_r2",
         description="Column R2 Plastic Rotations",
-        parser_module="processing.pushover_column_parser",
+        parser_module="processing.pushover.pushover_column_parser",
         parser_class="PushoverColumnParser",
         model_module="database.models",
         model_class="ColumnRotation",
@@ -158,7 +158,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "column_rotation_r3": PushoverImporterConfig(
         name="column_rotation_r3",
         description="Column R3 Plastic Rotations",
-        parser_module="processing.pushover_column_parser",
+        parser_module="processing.pushover.pushover_column_parser",
         parser_class="PushoverColumnParser",
         model_module="database.models",
         model_class="ColumnRotation",
@@ -179,7 +179,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "column_shear_v2": PushoverImporterConfig(
         name="column_shear_v2",
         description="Column V2 Shear Forces",
-        parser_module="processing.pushover_column_parser",
+        parser_module="processing.pushover.pushover_column_parser",
         parser_class="PushoverColumnParser",
         model_module="database.models",
         model_class="ColumnShear",
@@ -201,7 +201,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "beam_rotation": PushoverImporterConfig(
         name="beam_rotation",
         description="Beam R3 Plastic Rotations",
-        parser_module="processing.pushover_beam_parser",
+        parser_module="processing.pushover.pushover_beam_parser",
         parser_class="PushoverBeamParser",
         model_module="database.models",
         model_class="BeamRotation",
@@ -223,7 +223,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "joint_displacement": PushoverImporterConfig(
         name="joint_displacement",
         description="Joint Displacements (Ux, Uy, Uz)",
-        parser_module="processing.pushover_joint_parser",
+        parser_module="processing.pushover.pushover_joint_parser",
         parser_class="PushoverJointParser",
         model_module="database.models",
         model_class="JointResultsCache",  # Direct to cache
@@ -246,7 +246,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "soil_pressure": PushoverImporterConfig(
         name="soil_pressure",
         description="Soil Pressures",
-        parser_module="processing.pushover_soil_pressure_parser",
+        parser_module="processing.pushover.pushover_soil_pressure_parser",
         parser_class="PushoverSoilPressureParser",
         model_module="database.models",
         model_class="SoilPressure",
@@ -264,7 +264,7 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
     "vertical_displacement": PushoverImporterConfig(
         name="vertical_displacement",
         description="Vertical Displacements",
-        parser_module="processing.pushover_vert_displacement_parser",
+        parser_module="processing.pushover.pushover_vert_displacement_parser",
         parser_class="PushoverVertDisplacementParser",
         model_module="database.models",
         model_class="VerticalDisplacement",

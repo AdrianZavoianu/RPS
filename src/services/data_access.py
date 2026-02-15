@@ -228,7 +228,7 @@ class DataAccessService:
         Returns:
             List of ResultSetInfo DTOs
         """
-        from database.repository import ResultSetRepository
+        from database.repositories import ResultSetRepository
         
         with self._session_scope() as session:
             repo = ResultSetRepository(session)
@@ -244,7 +244,7 @@ class DataAccessService:
         Returns:
             ResultSetInfo or None if not found
         """
-        from database.repository import ResultSetRepository
+        from database.repositories import ResultSetRepository
         
         with self._session_scope() as session:
             repo = ResultSetRepository(session)
@@ -260,15 +260,13 @@ class DataAccessService:
         Returns:
             Dict mapping ID to name
         """
-        from database.repository import ResultSetRepository
+        from database.repositories import ResultSetRepository
         
         with self._session_scope() as session:
             repo = ResultSetRepository(session)
-            names = {}
-            for rs_id in result_set_ids:
-                rs = repo.get_by_id(rs_id)
-                if rs:
-                    names[rs_id] = rs.name
+            names: Dict[int, str] = {}
+            for rs in repo.get_by_ids(result_set_ids):
+                names[rs.id] = rs.name
             return names
 
     # =========================================================================
@@ -284,7 +282,7 @@ class DataAccessService:
         Returns:
             ProjectInfo or None if not found
         """
-        from database.repository import ProjectRepository
+        from database.repositories import ProjectRepository
 
         with self._session_scope() as session:
             repo = ProjectRepository(session)
@@ -304,7 +302,7 @@ class DataAccessService:
         Returns:
             List of ComparisonSetInfo DTOs
         """
-        from database.repository import ComparisonSetRepository
+        from database.repositories import ComparisonSetRepository
         
         with self._session_scope() as session:
             repo = ComparisonSetRepository(session)
@@ -320,7 +318,7 @@ class DataAccessService:
         Returns:
             ComparisonSetInfo or None if not found
         """
-        from database.repository import ComparisonSetRepository
+        from database.repositories import ComparisonSetRepository
         
         with self._session_scope() as session:
             repo = ComparisonSetRepository(session)
@@ -337,7 +335,7 @@ class DataAccessService:
         Returns:
             True if duplicate exists
         """
-        from database.repository import ComparisonSetRepository
+        from database.repositories import ComparisonSetRepository
         
         with self._session_scope() as session:
             repo = ComparisonSetRepository(session)
@@ -352,7 +350,7 @@ class DataAccessService:
         description: Optional[str] = None,
     ) -> ComparisonSetInfo:
         """Create a comparison set and return DTO."""
-        from database.repository import ComparisonSetRepository
+        from database.repositories import ComparisonSetRepository
 
         with self._session_scope() as session:
             repo = ComparisonSetRepository(session)
@@ -379,7 +377,7 @@ class DataAccessService:
         Returns:
             List of PushoverCaseInfo DTOs
         """
-        from database.repository import PushoverCaseRepository
+        from database.repositories import PushoverCaseRepository
         
         with self._session_scope() as session:
             repo = PushoverCaseRepository(session)
@@ -402,7 +400,7 @@ class DataAccessService:
         Returns:
             PushoverCaseInfo or None if not found
         """
-        from database.repository import PushoverCaseRepository
+        from database.repositories import PushoverCaseRepository
 
         with self._session_scope() as session:
             repo = PushoverCaseRepository(session)
@@ -421,14 +419,13 @@ class DataAccessService:
         Returns:
             Dict mapping result_set_id to list of PushoverCaseInfo
         """
-        from database.repository import PushoverCaseRepository
+        from database.repositories import PushoverCaseRepository
         
         with self._session_scope() as session:
             repo = PushoverCaseRepository(session)
-            result = {}
-            for rs_id in result_set_ids:
-                cases = repo.get_by_result_set(rs_id)
-                result[rs_id] = [PushoverCaseInfo.from_model(c) for c in cases]
+            result: Dict[int, List[PushoverCaseInfo]] = {rs_id: [] for rs_id in result_set_ids}
+            for case in repo.get_by_result_sets(result_set_ids):
+                result.setdefault(case.result_set_id, []).append(PushoverCaseInfo.from_model(case))
             return result
 
     def get_pushover_curve_data(
@@ -443,7 +440,7 @@ class DataAccessService:
         Returns:
             List of PushoverCurvePointInfo DTOs ordered by step number
         """
-        from database.repository import PushoverCaseRepository
+        from database.repositories import PushoverCaseRepository
 
         with self._session_scope() as session:
             repo = PushoverCaseRepository(session)
@@ -463,7 +460,7 @@ class DataAccessService:
         Returns:
             ElementInfo or None if not found
         """
-        from database.repository import ElementRepository
+        from database.repositories import ElementRepository
         
         with self._session_scope() as session:
             repo = ElementRepository(session)
@@ -484,7 +481,7 @@ class DataAccessService:
         Returns:
             List of ElementInfo DTOs
         """
-        from database.repository import ElementRepository
+        from database.repositories import ElementRepository
         
         with self._session_scope() as session:
             repo = ElementRepository(session)
@@ -493,7 +490,7 @@ class DataAccessService:
 
     def get_elements(self, project_id: int) -> List[ElementInfo]:
         """Get all elements for a project."""
-        from database.repository import ElementRepository
+        from database.repositories import ElementRepository
 
         with self._session_scope() as session:
             repo = ElementRepository(session)
@@ -513,7 +510,7 @@ class DataAccessService:
         Returns:
             List of StoryInfo DTOs ordered by sort_order
         """
-        from database.repository import StoryRepository
+        from database.repositories import StoryRepository
         
         with self._session_scope() as session:
             repo = StoryRepository(session)
@@ -533,7 +530,7 @@ class DataAccessService:
         Returns:
             List of LoadCaseInfo DTOs
         """
-        from database.repository import LoadCaseRepository
+        from database.repositories import LoadCaseRepository
         
         with self._session_scope() as session:
             repo = LoadCaseRepository(session)
@@ -562,12 +559,7 @@ class DataAccessService:
         
         with self._session_scope() as session:
             repo = TimeSeriesRepository(session)
-            result = {}
-            for rs_id in result_set_ids:
-                # Get unique load case names for this result set
-                load_cases = repo.get_available_load_cases(project_id, rs_id)
-                result[rs_id] = load_cases
-            return result
+            return repo.get_available_load_cases_by_result_set(project_id, result_set_ids)
 
     def get_time_series_entries(
         self,
@@ -603,7 +595,7 @@ class DataAccessService:
         Returns:
             True if project with name exists
         """
-        from database.repository import CatalogProjectRepository
+        from database.catalog_repository import CatalogProjectRepository
         from database.session import get_catalog_session
 
         with get_catalog_session() as session:

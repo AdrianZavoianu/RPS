@@ -12,7 +12,7 @@ import pandas as pd
 
 from .pushover_joint_base import BasePushoverJointImporter
 from .pushover_soil_pressure_parser import PushoverSoilPressureParser
-from .import_utils import require_sheets
+from ..import_utils import require_sheets
 
 logger = logging.getLogger(__name__)
 

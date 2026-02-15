@@ -21,7 +21,7 @@ from database.session import (
     dispose_project_engine,
 )
 from database.catalog_repository import CatalogProjectRepository
-from database.repository import ProjectRepository, ResultSetRepository
+from database.repositories import ProjectRepository, ResultSetRepository
 from utils.slug import slugify
 
 

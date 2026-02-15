@@ -1,6 +1,6 @@
 """Result set repositories for ResultSet and ComparisonSet operations."""
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
 from sqlalchemy import and_
 
 from ..models import ResultSet, ComparisonSet
@@ -53,6 +53,13 @@ class ResultSetRepository(BaseRepository[ResultSet]):
             .order_by(ResultSet.name)
             .all()
         )
+
+    def get_by_ids(self, result_set_ids: Iterable[int]) -> List[ResultSet]:
+        """Get result sets by ID in a single query."""
+        ids = list(result_set_ids)
+        if not ids:
+            return []
+        return self.session.query(ResultSet).filter(ResultSet.id.in_(ids)).all()
 
 
 class ComparisonSetRepository(BaseRepository[ComparisonSet]):

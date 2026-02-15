@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from processing.pushover_importer_factory import (
+from processing.pushover.pushover_importer_factory import (
     IMPORTER_REGISTRY,
     get_importer_class,
     create_importer,
@@ -106,7 +106,7 @@ class TestCreateImporter:
         mock_session = MagicMock()
 
         # Use curve importer as it's simpler
-        with patch("processing.pushover_importer_factory.get_importer_class") as mock_get_class:
+        with patch("processing.pushover.pushover_importer_factory.get_importer_class") as mock_get_class:
             mock_importer_class = MagicMock()
             mock_instance = MagicMock()
             mock_importer_class.return_value = mock_instance
@@ -131,7 +131,7 @@ class TestCreateImporter:
         mock_callback = MagicMock()
         file_path = Path("test.xlsx")
 
-        with patch("processing.pushover_importer_factory.get_importer_class") as mock_get_class:
+        with patch("processing.pushover.pushover_importer_factory.get_importer_class") as mock_get_class:
             mock_importer_class = MagicMock()
             mock_get_class.return_value = mock_importer_class
 
@@ -199,8 +199,8 @@ class TestImportMultiple:
         """Test that types without file paths are skipped."""
         mock_session = MagicMock()
 
-        with patch("processing.pushover_importer_factory.create_importer") as mock_create:
-            with patch("processing.pushover_importer_factory.logger") as mock_logger:
+        with patch("processing.pushover.pushover_importer_factory.create_importer") as mock_create:
+            with patch("processing.pushover.pushover_importer_factory.logger") as mock_logger:
                 result = import_multiple(
                     importer_types=["wall", "beam_rotation"],
                     project_id=1,
@@ -221,7 +221,7 @@ class TestImportMultiple:
         mock_session = MagicMock()
         mock_callback = MagicMock()
 
-        with patch("processing.pushover_importer_factory.create_importer") as mock_create:
+        with patch("processing.pushover.pushover_importer_factory.create_importer") as mock_create:
             mock_importer = MagicMock()
             mock_importer.import_all.return_value = {"records": 10}
             mock_create.return_value = mock_importer
@@ -247,7 +247,7 @@ class TestImportMultiple:
         """Test that results from each importer are returned."""
         mock_session = MagicMock()
 
-        with patch("processing.pushover_importer_factory.create_importer") as mock_create:
+        with patch("processing.pushover.pushover_importer_factory.create_importer") as mock_create:
             mock_importer = MagicMock()
             mock_importer.import_all.return_value = {"records": 10, "success": True}
             mock_create.return_value = mock_importer
@@ -273,7 +273,7 @@ class TestImportMultiple:
         """Test that import errors are captured in results."""
         mock_session = MagicMock()
 
-        with patch("processing.pushover_importer_factory.create_importer") as mock_create:
+        with patch("processing.pushover.pushover_importer_factory.create_importer") as mock_create:
             mock_create.side_effect = ValueError("Import failed")
 
             result = import_multiple(
@@ -294,7 +294,7 @@ class TestImportMultiple:
         """Test that processing continues after an error."""
         mock_session = MagicMock()
 
-        with patch("processing.pushover_importer_factory.create_importer") as mock_create:
+        with patch("processing.pushover.pushover_importer_factory.create_importer") as mock_create:
             # First call fails, second succeeds
             def side_effect(*args, **kwargs):
                 if kwargs.get("importer_type") == "wall":

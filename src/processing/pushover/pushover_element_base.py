@@ -30,7 +30,7 @@ from database.models import (
     Element,
     ElementResultsCache,
 )
-from processing.pushover_base_importer import BasePushoverImporter
+from processing.pushover.pushover_base_importer import BasePushoverImporter
 
 logger = logging.getLogger(__name__)
 

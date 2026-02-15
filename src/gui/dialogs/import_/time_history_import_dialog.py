@@ -216,7 +216,7 @@ class TimeHistoryImportDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setStyleSheet(self._progress_style())
+        self.progress_bar.setStyleSheet(FormStyles.progress_bar())
         progress_layout.addWidget(self.progress_bar)
 
         self.status_text = QTextEdit()
@@ -706,22 +706,6 @@ class TimeHistoryImportDialog(QDialog):
             }}
         """
 
-    @staticmethod
-    def _progress_style() -> str:
-        return f"""
-            QProgressBar {{
-                background-color: {COLORS['background']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 4px;
-                height: 24px;
-                text-align: center;
-                color: {COLORS['text']};
-            }}
-            QProgressBar::chunk {{
-                background-color: {COLORS['accent']};
-                border-radius: 3px;
-            }}
-        """
 
     @staticmethod
     def _log_style() -> str:
