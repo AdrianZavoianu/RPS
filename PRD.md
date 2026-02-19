@@ -18,7 +18,7 @@ RPS is a desktop application for importing ETABS/SAP2000 Excel exports, persisti
 ## Non-goals
 - Cloud or multi-user collaboration features.
 - Direct ETABS/SAP2000 API integration.
-- Full 3D model rendering or BIM viewer.
+- Full 3D model rendering or BIM viewer
 - Web or mobile deployment.
 
 ## Target users

@@ -48,6 +48,8 @@ class ProjectHeader(QWidget):
 
         self._on_switch_context = on_switch_context
         self._on_settings = on_settings
+        self._active_context = "NLTHA"
+        self._context_menu_expanded = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 4, 12, 4)
@@ -71,7 +73,8 @@ class ProjectHeader(QWidget):
         layout.addWidget(self.nltha_tab)
         layout.addWidget(self.pushover_tab)
 
-        layout.addWidget(self._create_separator())
+        self._context_left_separator = self._create_separator()
+        layout.addWidget(self._context_left_separator)
 
         # NLTHA buttons
         self.nltha_buttons: list[QPushButton] = []
@@ -138,7 +141,8 @@ class ProjectHeader(QWidget):
             pushover_reporting_btn.hide()
             self.pushover_buttons.append(pushover_reporting_btn)
 
-        layout.addWidget(self._create_separator())
+        self._context_right_separator = self._create_separator()
+        layout.addWidget(self._context_right_separator)
 
         export_project_btn = self._create_text_link_button("Export Project")
         export_project_btn.setToolTip("Export complete project to Excel")
@@ -150,22 +154,31 @@ class ProjectHeader(QWidget):
         layout.addWidget(settings_btn)
         self.settings_button = settings_btn
 
+        self._update_context_buttons()
         self._update_tab_styling()
 
     def set_context(self, context: str) -> None:
         """Update tab/button visibility based on active context."""
+        self._active_context = context
         is_nltha = context == "NLTHA"
         self.nltha_tab.setChecked(is_nltha)
         self.pushover_tab.setChecked(not is_nltha)
 
-        for btn in self.nltha_buttons:
-            btn.setVisible(is_nltha)
-        for btn in self.pushover_buttons:
-            btn.setVisible(not is_nltha)
+        self._update_context_buttons()
 
         self._update_tab_styling()
 
     def _on_tab_clicked(self, context: str) -> None:
+        if context == self._active_context:
+            self._context_menu_expanded = not self._context_menu_expanded
+            # Keep the active tab checked even when toggling the menu.
+            self.nltha_tab.setChecked(self._active_context == "NLTHA")
+            self.pushover_tab.setChecked(self._active_context == "Pushover")
+            self._update_context_buttons()
+            self._update_tab_styling()
+            return
+
+        self._context_menu_expanded = True
         self._on_switch_context(context)
 
     def _create_separator(self) -> QWidget:
@@ -228,6 +241,19 @@ class ProjectHeader(QWidget):
         """
         )
         return btn
+
+    def _update_context_buttons(self) -> None:
+        show_nltha = self._context_menu_expanded and self._active_context == "NLTHA"
+        show_pushover = self._context_menu_expanded and self._active_context == "Pushover"
+
+        for btn in self.nltha_buttons:
+            btn.setVisible(show_nltha)
+        for btn in self.pushover_buttons:
+            btn.setVisible(show_pushover)
+
+        show_separators = self._context_menu_expanded
+        self._context_left_separator.setVisible(show_separators)
+        self._context_right_separator.setVisible(show_separators)
 
     def _update_tab_styling(self) -> None:
         """Restyle tabs to reflect the active context."""

@@ -249,7 +249,6 @@ class ResultsTreeBrowser(QWidget):
                     )
 
             # Pushover section (top-level, if any pushover result sets exist)
-            # Collapse Pushover if NLTHA exists (since NLTHA comes first)
             if pushover_sets:
                 pushover_root = QTreeWidgetItem(self.tree)
                 pushover_root.setText(0, "◆ Pushover")
@@ -315,6 +314,19 @@ class ResultsTreeBrowser(QWidget):
 
     def on_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle tree item click - delegates to click_handlers module."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data and isinstance(data, dict):
+            item_type = data.get("type")
+            if item_type in ("result_set", "pushover_result_set"):
+                self._collapse_other_result_sets(item)
+                if not item.isExpanded():
+                    item.setExpanded(True)
+                QTimer.singleShot(0, lambda: self._auto_select_first_in_subtree(item))
+                return
+
+        result_set_item = self._find_result_set_ancestor(item)
+        if result_set_item is not None:
+            self._collapse_other_result_sets(result_set_item)
         click_handlers.on_item_clicked(self, item, column)
 
     def _on_item_expanded(self, item: QTreeWidgetItem):
@@ -329,22 +341,7 @@ class ResultsTreeBrowser(QWidget):
         if item_type not in ("result_set", "pushover_result_set"):
             return
 
-        parent = item.parent()
-        if not parent:
-            return
-
-        # Collapse all sibling result sets (same parent)
-        for i in range(parent.childCount()):
-            sibling = parent.child(i)
-            if sibling == item:
-                continue
-
-            sibling_data = sibling.data(0, Qt.ItemDataRole.UserRole)
-            if sibling_data and isinstance(sibling_data, dict):
-                sibling_type = sibling_data.get("type")
-                # Collapse other result sets and comparison sets
-                if sibling_type in ("result_set", "pushover_result_set", "comparison_set"):
-                    sibling.setExpanded(False)
+        self._collapse_other_result_sets(item)
 
         # Auto-select first selectable item within this result set
         QTimer.singleShot(50, lambda: self._auto_select_first_in_subtree(item))
@@ -364,6 +361,34 @@ class ResultsTreeBrowser(QWidget):
             self.tree.setCurrentItem(first_item)
             self.tree.scrollToItem(first_item)
             self.on_item_clicked(first_item, 0)
+
+    def _find_result_set_ancestor(self, item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+        """Return the result set root item for a given tree item."""
+        current = item
+        while current is not None:
+            data = current.data(0, Qt.ItemDataRole.UserRole)
+            if data and isinstance(data, dict):
+                item_type = data.get("type")
+                if item_type in ("result_set", "pushover_result_set"):
+                    return current
+            current = current.parent()
+        return None
+
+    def _collapse_other_result_sets(self, active_item: QTreeWidgetItem) -> None:
+        """Collapse all other result set roots (NLTHA and Pushover)."""
+        for item in self._iter_tree_items(self.tree.invisibleRootItem()):
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if not data or not isinstance(data, dict):
+                continue
+            if data.get("type") in ("result_set", "pushover_result_set") and item is not active_item:
+                item.setExpanded(False)
+
+    def _iter_tree_items(self, parent_item: QTreeWidgetItem):
+        """Yield all descendant items of a tree node."""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            yield child
+            yield from self._iter_tree_items(child)
 
 
 class _FadeIndicatorOverlay(QWidget):
