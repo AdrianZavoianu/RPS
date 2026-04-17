@@ -286,7 +286,7 @@ class ResultDataService:
             return None
 
         data_rows: List[Dict[str, object]] = []
-        for rotation, load_case, story, element, _ in records:
+        for rotation, load_case, story, element in records:
             value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
             if value is None:
                 continue

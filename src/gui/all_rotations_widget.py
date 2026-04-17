@@ -37,11 +37,13 @@ class AllRotationsWidget(QWidget):
         # Create scatter plot widget using factory
         from gui.components.plot_factory import create_plot_widget
         self.plot_widget = create_plot_widget(show_border=False, grid_alpha=0.35)
+        self.plot_widget.getAxis('bottom').enableAutoSIPrefix(False)
 
         # Create histogram widget using factory
         self.histogram_widget = create_plot_widget(
             plot_type='histogram', show_border=False, grid_alpha=0.35
         )
+        self.histogram_widget.getAxis('bottom').enableAutoSIPrefix(False)
 
         # Add tabs
         self.tabs.addTab(self.plot_widget, "Scatter")
