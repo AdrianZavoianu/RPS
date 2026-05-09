@@ -207,8 +207,14 @@ class ProjectDetailWindow(QMainWindow):
     def load_all_beam_rotations(self, result_set_id: int):
         return dataset_loaders.load_all_beam_rotations(self, result_set_id)
 
+    def load_all_brace_axials(self, result_set_id: int):
+        return dataset_loaders.load_all_brace_axials(self, result_set_id)
+
     def load_beam_rotations_table(self, result_set_id: int):
         return dataset_loaders.load_beam_rotations_table(self, result_set_id)
+
+    def load_brace_axials_table(self, result_set_id: int):
+        return dataset_loaders.load_brace_axials_table(self, result_set_id)
 
     def load_all_soil_pressures(self, result_set_id: int):
         return dataset_loaders.load_all_soil_pressures(self, result_set_id)

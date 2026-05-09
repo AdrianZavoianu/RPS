@@ -6,6 +6,7 @@ import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
@@ -20,6 +21,7 @@ class ComparisonAllRotationsWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._crosshair_enabled = False
         self.setup_ui()
         self.current_datasets = []  # List of (result_set_name, df_data)
 
@@ -27,7 +29,38 @@ class ComparisonAllRotationsWidget(QWidget):
         """Setup the UI with plot and legend."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(8)
+        main_layout.setSpacing(4)
+
+        # ── Toolbar row (checkbox lives here) ─────────────────────────
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(4, 2, 4, 0)
+        toolbar.addStretch()
+
+        self._crosshair_cb = QCheckBox("Crosshair")
+        self._crosshair_cb.setChecked(False)
+        self._crosshair_cb.setToolTip(
+            "Show a vertical crosshair with the exact rotation value when hovering over the scatter plot"
+        )
+        self._crosshair_cb.setStyleSheet("""
+            QCheckBox {
+                color: #94a3b8;
+                font-size: 11px;
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 13px; height: 13px;
+                border: 1px solid #475569;
+                border-radius: 3px;
+                background: #1e293b;
+            }
+            QCheckBox::indicator:checked {
+                background: #06b6d4;
+                border-color: #06b6d4;
+            }
+        """)
+        self._crosshair_cb.toggled.connect(self._on_crosshair_toggled)
+        toolbar.addWidget(self._crosshair_cb)
+        main_layout.addLayout(toolbar)
 
         # Create horizontal layout for plot and legend
         h_layout = QHBoxLayout()
@@ -55,6 +88,62 @@ class ComparisonAllRotationsWidget(QWidget):
         # Store references
         self.legend_layout = legend_layout
         self.legend_items = []
+
+        # ── Crosshair: cyan vertical line with built-in bottom label ──
+        _CYAN = '#06b6d4'
+        self._vline = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen(QColor(_CYAN), width=1, style=Qt.PenStyle.DashLine),
+            label='{value:.4f} %',
+            labelOpts={
+                'position': 0.04,           # 0 = bottom of line, 1 = top
+                'color': QColor(_CYAN),
+                'fill': pg.mkBrush(QColor(15, 23, 42, 200)),  # dark semi-transparent bg
+                'movable': False,
+            },
+        )
+        self._vline.setVisible(False)
+
+        self.plot_widget.addItem(self._vline, ignoreBounds=True)
+
+        # Rate-limited mouse-move signal (~60 fps)
+        self._mouse_proxy = pg.SignalProxy(
+            self.plot_widget.scene().sigMouseMoved,
+            rateLimit=60,
+            slot=self._on_mouse_moved,
+        )
+        vb = self.plot_widget.getViewBox()
+        vb.hoverEvent = self._on_vb_hover
+
+    # ------------------------------------------------------------------
+    # Crosshair helpers
+    # ------------------------------------------------------------------
+
+    def _on_crosshair_toggled(self, checked: bool):
+        """Enable or disable the hover crosshair."""
+        self._crosshair_enabled = checked
+        if not checked:
+            self._vline.setVisible(False)
+
+    def _on_mouse_moved(self, evt):
+        """Update the vertical crosshair line on mouse move (only when enabled)."""
+        if not self._crosshair_enabled:
+            return
+        pos = evt[0]  # SignalProxy wraps events in a tuple
+        vb = self.plot_widget.getViewBox()
+        if not self.plot_widget.sceneBoundingRect().contains(pos):
+            self._vline.setVisible(False)
+            return
+
+        mouse_point = vb.mapSceneToView(pos)
+        self._vline.setPos(mouse_point.x())
+        self._vline.setVisible(True)
+
+    def _on_vb_hover(self, ev):
+        """Hide crosshair when mouse leaves the ViewBox."""
+        if ev.isExit():
+            self._vline.setVisible(False)
 
     def set_x_label(self, label: str):
         """Update the X-axis label.
@@ -84,6 +173,9 @@ class ComparisonAllRotationsWidget(QWidget):
         """Plot scatter plot with data from multiple result sets."""
         self.plot_widget.clear()
         self._clear_legend()
+
+        # Re-add persistent crosshair line
+        self.plot_widget.addItem(self._vline, ignoreBounds=True)
 
         # Get reference dataframe for story setup (use first non-empty)
         df_ref = None
@@ -118,6 +210,11 @@ class ComparisonAllRotationsWidget(QWidget):
             '#ec4899',  # Pink
         ]
 
+        # Collect all average markers across datasets so we add them on top
+        all_avg_x: list = []
+        all_avg_y: list = []
+        all_avg_colors: list = []
+
         # Plot data for each result set
         for idx, (result_set_name, df_data) in enumerate(datasets):
             if df_data is None or df_data.empty:
@@ -145,6 +242,30 @@ class ComparisonAllRotationsWidget(QWidget):
 
                 # Add legend item for this result set
                 self._add_legend_item(color, result_set_name)
+
+            # Compute per-hinge averages for this result set
+            avg_x, avg_y = self._compute_hinge_averages(df_data, story_to_index)
+            all_avg_x.extend(avg_x)
+            all_avg_y.extend(avg_y)
+            # Use a slightly muted/solid version of the same color for averages
+            qc = QColor(color)
+            darker = qc.darker(130)
+            all_avg_colors.extend([darker] * len(avg_x))
+            all_x_values.extend(avg_x)
+
+        # Overlay all average diamonds on top
+        if all_avg_x:
+            spots = [
+                {'pos': (ax, ay), 'size': 10, 'symbol': 'd',
+                 'pen': pg.mkPen(QColor('#000000'), width=1),
+                 'brush': pg.mkBrush(ac)}
+                for ax, ay, ac in zip(all_avg_x, all_avg_y, all_avg_colors)
+            ]
+            avg_scatter = pg.ScatterPlotItem(spots=spots)
+            self.plot_widget.addItem(avg_scatter)
+
+            # Add a single legend entry for the averages
+            self._add_legend_item('#2563eb', 'Avg per hinge (◆)')
 
         # Add vertical line at x=0 to show center
         zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
@@ -175,6 +296,36 @@ class ComparisonAllRotationsWidget(QWidget):
 
             # Set symmetric range around 0
             self.plot_widget.setXRange(-(max_abs + padding_x), max_abs + padding_x, padding=0)
+
+    def _compute_hinge_averages(self, df: pd.DataFrame, story_to_index: dict):
+        """Compute mean rotation per individual hinge across all ground motions.
+
+        A hinge is identified by (Element, Story) — or (Element, Story, Direction)
+        when the Direction column is present.
+
+        Returns:
+            Tuple of (x_values, y_values) for the average markers.
+        """
+        avg_x: list = []
+        avg_y: list = []
+
+        if df is None or df.empty:
+            return avg_x, avg_y
+
+        group_keys = ['Element', 'Story']
+        if 'Direction' in df.columns:
+            group_keys.append('Direction')
+
+        grouped = df.groupby(group_keys)['Rotation'].mean()
+
+        for key_vals, mean_rot in grouped.items():
+            story_name = key_vals[1] if isinstance(key_vals, tuple) else key_vals
+            if story_name not in story_to_index:
+                continue
+            avg_x.append(mean_rot)
+            avg_y.append(float(story_to_index[story_name]))
+
+        return avg_x, avg_y
 
     def _prepare_scatter_data(self, df: pd.DataFrame, story_to_index: dict, seed_offset: int):
         """Prepare scatter data with jitter for a dataset.
@@ -277,4 +428,7 @@ class ComparisonAllRotationsWidget(QWidget):
         """Clear all data from plot."""
         self.plot_widget.clear()
         self._clear_legend()
+        # Re-add crosshair line and hide it
+        self.plot_widget.addItem(self._vline, ignoreBounds=True)
+        self._vline.setVisible(False)
         self.current_datasets = []

@@ -97,9 +97,15 @@ def on_browser_selection_changed(
         elif result_type == "AllBeamRotations":
             window.content_area.show_all_rotations()
             view_loaders.load_all_beam_rotations(window, result_set_id, window.content_area)
+        elif result_type == "AllBraceAxials":
+            window.content_area.show_all_rotations()
+            view_loaders.load_all_brace_axials(window, result_set_id, window.content_area)
         elif result_type == "BeamRotationsTable":
             window.content_area.show_beam_table()
             view_loaders.load_beam_rotations_table(window, result_set_id, window.content_area)
+        elif result_type == "BraceAxialsTable":
+            window.content_area.show_beam_table()
+            view_loaders.load_brace_axials_table(window, result_set_id, window.content_area)
         elif result_type.startswith("MaxMin") and element_id > 0:
             window.content_area.show_maxmin()
             base_type = window._extract_base_result_type(result_type)

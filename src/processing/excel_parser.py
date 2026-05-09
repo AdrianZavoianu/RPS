@@ -26,6 +26,7 @@ class ExcelParser:
         self._joint_displacements_df: Optional[pd.DataFrame] = None
         self._available_sheets: Optional[List[str]] = None
         self._column_forces_df: Optional[pd.DataFrame] = None
+        self._brace_forces_df: Optional[pd.DataFrame] = None
 
     def _get_excel_file(self) -> pd.ExcelFile:
         if self._excel_file is None:
@@ -335,6 +336,33 @@ class ExcelParser:
         # Keep stories in Excel order (no reversal - maintain source order)
 
         return df, load_cases, stories, columns_list
+
+    def get_brace_forces(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
+        """Parse brace force data from Excel file.
+
+        Returns:
+            Tuple of (DataFrame, load_cases, stories, braces)
+
+        Note:
+            Stories list preserves exact order from Excel. The raw sheet includes
+            multiple stations/elements per brace; downstream processing envelopes
+            axial P values per story, brace, and load case.
+        """
+        sheet = "Element Forces - Braces"
+        # Columns: Story, Brace, Unique Name, Output Case, Case Type, Step Type, Station, P
+        # Indices:   0      1      2            3            4          5          6        7
+        columns = [0, 1, 2, 3, 5, 6, 7]
+
+        if self._brace_forces_df is None:
+            self._brace_forces_df = self.read_sheet(sheet, columns)
+        df = self._brace_forces_df.copy()
+
+        unique_vals = self.get_unique_values(df, ["Output Case", "Story", "Brace"])
+        load_cases = unique_vals["Output Case"]
+        stories = unique_vals["Story"]
+        braces = unique_vals["Brace"]
+
+        return df, load_cases, stories, braces
 
     def get_quad_rotations(self) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
         """Parse quad strain gauge rotation data from Excel file.

@@ -511,6 +511,131 @@ class ResultDataService:
 
         return df
 
+    def get_all_brace_axials_dataset(
+        self, result_set_id: int, max_min: str = "Max"
+    ) -> Optional[pd.DataFrame]:
+        """Return brace axial force points (all braces) for floor scatter visuals."""
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import BraceAxial, LoadCase, Story, Element, ResultCategory
+
+        records = (
+            self.session.query(BraceAxial, LoadCase, Story, Element, ResultCategory)
+            .join(LoadCase, BraceAxial.load_case_id == LoadCase.id)
+            .join(Story, BraceAxial.story_id == Story.id)
+            .join(Element, BraceAxial.element_id == Element.id)
+            .outerjoin(ResultCategory, BraceAxial.result_category_id == ResultCategory.id)
+            .filter(
+                Story.project_id == self.project_id,
+                or_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.result_set_id.is_(None),
+                ),
+            )
+            .all()
+        )
+
+        if not records:
+            return None
+
+        data_rows: List[Dict[str, object]] = []
+        for axial, load_case, story, element, _ in records:
+            value = axial.max_axial if max_min == "Max" else axial.min_axial
+            if value is None:
+                continue
+
+            story_order = axial.story_sort_order
+            if story_order is None:
+                story_order = story.sort_order or 0
+
+            data_rows.append(
+                {
+                    "Element": element.name,
+                    "Story": story.name,
+                    "LoadCase": load_case.name,
+                    "Rotation": value,
+                    "StoryOrder": story_order,
+                    "StoryIndex": story_order,
+                }
+            )
+
+        if not data_rows:
+            return None
+
+        df = pd.DataFrame(data_rows)
+        return df.sort_values(by="StoryOrder", ascending=True).reset_index(drop=True)
+
+    def get_brace_axials_table_dataset(self, result_set_id: int) -> Optional[pd.DataFrame]:
+        """Return brace axial force envelopes in wide format for table display."""
+        if not self.session or not self.element_repo:
+            return None
+
+        from database.models import BraceAxial, LoadCase, Story, Element, ResultCategory
+
+        records = (
+            self.session.query(BraceAxial, LoadCase, Story, Element, ResultCategory)
+            .join(LoadCase, BraceAxial.load_case_id == LoadCase.id)
+            .join(Story, BraceAxial.story_id == Story.id)
+            .join(Element, BraceAxial.element_id == Element.id)
+            .outerjoin(ResultCategory, BraceAxial.result_category_id == ResultCategory.id)
+            .filter(
+                Story.project_id == self.project_id,
+                or_(
+                    ResultCategory.result_set_id == result_set_id,
+                    ResultCategory.result_set_id.is_(None),
+                ),
+            )
+            .order_by(Story.sort_order, Element.name, LoadCase.name)
+            .all()
+        )
+
+        if not records:
+            return None
+
+        load_cases = sorted({load_case.name for _, load_case, *_, in records})
+        data_dict: Dict[Tuple[str, str], Dict[str, object]] = {}
+        story_orders: Dict[Tuple[str, str], int] = {}
+
+        for axial, load_case, story, element, *_ in records:
+            key = (story.name, element.name)
+            story_orders.setdefault(key, axial.story_sort_order if axial.story_sort_order is not None else story.sort_order or 0)
+            entry = data_dict.setdefault(
+                key,
+                {
+                    "Story": story.name,
+                    "Brace": element.name,
+                },
+            )
+            entry[f"{load_case.name}_Min"] = axial.min_axial
+            if axial.max_axial is not None:
+                entry[f"{load_case.name}_Max"] = axial.max_axial
+
+        rows = sorted(
+            data_dict.values(),
+            key=lambda row: (story_orders.get((row["Story"], row["Brace"]), 0), row["Brace"]),
+        )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return None
+
+        load_case_cols = []
+        for load_case in load_cases:
+            for suffix in ("Min", "Max"):
+                col = f"{load_case}_{suffix}"
+                if col in df.columns:
+                    load_case_cols.append(col)
+
+        if load_case_cols:
+            df["Avg"] = df[load_case_cols].mean(axis=1)
+            df["Max"] = df[load_case_cols].max(axis=1)
+            df["Min"] = df[load_case_cols].min(axis=1)
+
+        ordered_cols = ["Story", "Brace"] + load_case_cols
+        if "Avg" in df.columns:
+            ordered_cols += ["Avg", "Max", "Min"]
+        return df[ordered_cols]
+
     # ------------------------------------------------------------------
     # Comparison datasets
     # ------------------------------------------------------------------

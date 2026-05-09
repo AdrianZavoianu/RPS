@@ -280,6 +280,21 @@ class DataImporter(BaseImporter):
         except Exception as e:
             raise ValueError(f"Error importing column axials: {e}")
 
+    def _import_brace_axials(self, session, project_id: int) -> dict:
+        """Import brace axial force data (minimum and maximum P values)."""
+        from .element_importer import ElementImporter
+
+        try:
+            importer = ElementImporter(
+                session=session,
+                parser=self.parser,
+                project_id=project_id,
+                result_category_id=self.result_category_id,
+            )
+            return importer.import_brace_axials()
+        except Exception as e:
+            raise ValueError(f"Error importing brace axials: {e}")
+
     def _import_column_rotations(self, session, project_id: int) -> dict:
         """Import column rotation data from Fiber Hinge States (R2 and R3 rotations)."""
         from .element_importer import ElementImporter

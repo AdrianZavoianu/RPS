@@ -95,6 +95,7 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
 
     add_walls_section(browser, elements_item, result_set.id)
     add_columns_section(browser, elements_item, result_set.id)
+    add_braces_section(browser, elements_item, result_set.id)
     add_beams_section(browser, elements_item, result_set.id)
 
     if elements_item.childCount() == 0:
@@ -681,6 +682,116 @@ def add_beams_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetIte
     beam_elements = [elem for elem in browser.elements if elem.element_type == "Beam"]
 
     add_beam_rotations_section(browser, beams_parent, result_set_id, beam_elements)
+
+
+def add_braces_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+    """Add Braces section with axial force results."""
+    has_axials = browser._has_data_for(result_set_id, "BraceAxials")
+
+    if not has_axials:
+        return
+
+    braces_parent = QTreeWidgetItem(parent_item)
+    braces_parent.setText(0, "› Braces")
+    braces_parent.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "element_type_parent",
+        "result_set_id": result_set_id,
+        "category": "Envelopes",
+        "element_type": "Braces"
+    })
+    braces_parent.setExpanded(False)
+
+    brace_elements = [elem for elem in browser.elements if elem.element_type == "Brace"]
+    add_brace_axials_section(browser, braces_parent, result_set_id, brace_elements)
+
+
+def add_brace_axials_section(
+    browser: "ResultsTreeBrowser",
+    parent_item: QTreeWidgetItem,
+    result_set_id: int,
+    brace_elements: List,
+) -> None:
+    """Add Brace Axials subsection with all-brace plot/table plus per-brace views."""
+    axials_parent = QTreeWidgetItem(parent_item)
+    axials_parent.setText(0, "  › Axial Forces")
+    axials_parent.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "brace_result_type_parent",
+        "result_set_id": result_set_id,
+        "category": "Envelopes",
+        "result_type": "BraceAxials"
+    })
+    axials_parent.setExpanded(False)
+
+    plot_item = QTreeWidgetItem(axials_parent)
+    plot_item.setText(0, "    ├ Plot")
+    plot_item.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "brace_axials_plot",
+        "result_set_id": result_set_id,
+        "category": "Envelopes",
+        "result_type": "AllBraceAxials",
+        "element_id": -1
+    })
+
+    table_item = QTreeWidgetItem(axials_parent)
+    table_item.setText(0, "    ├ Table")
+    table_item.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "brace_axials_table",
+        "result_set_id": result_set_id,
+        "category": "Envelopes",
+        "result_type": "BraceAxialsTable",
+        "element_id": -1
+    })
+
+    if not brace_elements:
+        placeholder = QTreeWidgetItem(axials_parent)
+        placeholder.setText(0, "    └ No braces found")
+        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+        return
+
+    for idx, element in enumerate(brace_elements):
+        branch_prefix = "    └" if idx == len(brace_elements) - 1 else "    ›"
+        brace_item = QTreeWidgetItem(axials_parent)
+        brace_item.setText(0, f"{branch_prefix} {element.name}")
+        brace_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "element_parent",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "element_id": element.id,
+            "element_name": element.name
+        })
+        brace_item.setExpanded(False)
+
+        min_item = QTreeWidgetItem(brace_item)
+        min_item.setText(0, "      ├ Min")
+        min_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "result_type",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "BraceAxials",
+            "direction": "Min",
+            "element_id": element.id
+        })
+
+        max_item = QTreeWidgetItem(brace_item)
+        max_item.setText(0, "      ├ Max")
+        max_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "result_type",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "BraceAxials",
+            "direction": "Max",
+            "element_id": element.id
+        })
+
+        maxmin_item = QTreeWidgetItem(brace_item)
+        maxmin_item.setText(0, "      └ Max/Min")
+        maxmin_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "maxmin_results",
+            "result_set_id": result_set_id,
+            "category": "Envelopes",
+            "result_type": "MaxMinBraceAxials",
+            "element_id": element.id
+        })
 
 
 def add_beam_rotations_section(

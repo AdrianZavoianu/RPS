@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database.models import (
     BeamRotation,
+    BraceAxial,
     ColumnAxial,
     ColumnRotation,
     ColumnShear,
@@ -50,6 +51,13 @@ class ElementResultQueryRepository:
         ),
         "ColumnAxials": ElementResultModelInfo(
             model=ColumnAxial,
+            max_attr="max_axial",
+            min_attr="min_axial",
+            direction_attr=None,
+            multiplier=1.0,
+        ),
+        "BraceAxials": ElementResultModelInfo(
+            model=BraceAxial,
             max_attr="max_axial",
             min_attr="min_axial",
             direction_attr=None,

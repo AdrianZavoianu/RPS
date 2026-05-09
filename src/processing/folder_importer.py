@@ -44,6 +44,7 @@ TARGET_SHEETS: Dict[str, List[str]] = {
     "Pier Forces": ["Pier Forces"],
     # Columns sheet supplies both shears and axial compression envelopes.
     "Element Forces - Columns": ["Column Forces", "Column Axials"],
+    "Element Forces - Braces": ["Brace Axials"],
     # Fiber Hinge States sheet supplies column rotations (R2, R3).
     "Fiber Hinge States": ["Column Rotations"],
     # Hinge States sheet supplies beam rotations (R3 Plastic).

@@ -262,6 +262,28 @@ RESULT_TYPE_SPECS: Tuple[ResultTypeSpec, ...] = (
         ),
     ),
     ResultTypeSpec(
+        key="BraceAxials",
+        direction_suffix="",
+        unit="kN",
+        decimal_places=0,
+        multiplier=1.0,
+        y_label="Brace Axial Force (kN)",
+        plot_mode="building_profile",
+        color_scheme="blue_orange",
+        variants=(
+            ResultTypeVariantSpec(
+                key_suffix="Min",
+                direction_suffix="_Min",
+                y_label="Min Brace Axial Force (kN)",
+            ),
+            ResultTypeVariantSpec(
+                key_suffix="Max",
+                direction_suffix="_Max",
+                y_label="Max Brace Axial Force (kN)",
+            ),
+        ),
+    ),
+    ResultTypeSpec(
         key="ColumnRotations",
         direction_suffix="",
         unit="%",
@@ -353,6 +375,9 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
         'ColumnAxials': 'Column Axials',
         'ColumnAxials_Min': 'Min Axial Force',
         'ColumnAxials_Max': 'Max Axial Force',
+        'BraceAxials': 'Brace Axials',
+        'BraceAxials_Min': 'Min Brace Axial Force',
+        'BraceAxials_Max': 'Max Brace Axial Force',
         'ColumnRotations': 'Column Rotations',
         'BeamRotations': 'Beam Rotations',
         'SoilPressures_Min': 'Min Soil Pressures',
@@ -362,8 +387,8 @@ def format_result_type_with_unit(result_type: str, direction: str = None) -> str
     # Get display name
     display_name = display_names.get(result_type, result_type)
 
-    # Special handling for Column Axials: direction is used to pick Min/Max label, not appended
-    if result_type == "ColumnAxials" and direction in {"Min", "Max"}:
+    # Special handling for axial force envelopes: direction selects Min/Max label.
+    if result_type in {"ColumnAxials", "BraceAxials"} and direction in {"Min", "Max"}:
         display_name = display_names.get(f"{result_type}_{direction}", display_name)
         config = RESULT_CONFIGS.get(f"{result_type}_{direction}")
         if config and config.unit:

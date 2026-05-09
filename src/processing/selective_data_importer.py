@@ -199,6 +199,17 @@ class SelectiveDataImporter(DataImporter):
         except Exception as e:
             raise ValueError(f"Error importing column axial forces: {e}")
 
+    def _import_brace_axials(self, session, project_id: int) -> dict:
+        """Import brace axial forces with load case filtering (min and max)."""
+        stats = {"brace_axials": 0, "braces": 0}
+        if not self._sheet_has_allowed_load_cases("Element Forces - Braces"):
+            return stats
+        try:
+            importer = self._build_element_importer(session, project_id)
+            return importer.import_brace_axials()
+        except Exception as e:
+            raise ValueError(f"Error importing brace axial forces: {e}")
+
     def _import_column_rotations(self, session, project_id: int) -> dict:
         """Import column rotations with load case filtering."""
         stats = {"column_rotations": 0}

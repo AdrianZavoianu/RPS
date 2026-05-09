@@ -61,6 +61,12 @@ DEFAULT_IMPORT_TASKS: tuple[ImportTask, ...] = (
         sheets=("Element Forces - Columns",),
     ),
     ImportTask(
+        label="Brace Axials",
+        handler="_import_brace_axials",
+        phase="brace_axials",
+        sheets=("Element Forces - Braces",),
+    ),
+    ImportTask(
         label="Column Rotations",
         handler="_import_column_rotations",
         phase="column_rotations",

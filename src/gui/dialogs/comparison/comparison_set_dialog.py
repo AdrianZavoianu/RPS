@@ -332,6 +332,7 @@ class ComparisonSetDialog(QDialog):
             'QuadRotations': 'QuadRotations',
             'ColumnShears': 'ColumnShears',
             'ColumnAxials': 'ColumnAxials',
+            'BraceAxials': 'BraceAxials',
             'ColumnRotations': 'ColumnRotations',
             'BeamRotations': 'BeamRotations',
         }

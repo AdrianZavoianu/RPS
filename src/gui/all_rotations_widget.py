@@ -1,11 +1,15 @@
 """All Rotations widget - scatter plot and histogram showing distribution of quad rotations across all elements."""
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
     QVBoxLayout,
     QWidget,
     QTabWidget,
@@ -13,12 +17,16 @@ from PyQt6.QtWidgets import (
 
 from gui.design_tokens import PALETTE
 
+logger = logging.getLogger(__name__)
+
 
 class AllRotationsWidget(QWidget):
     """Widget for displaying all quad rotations as scatter plot and histogram (Max and Min combined)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._crosshair_enabled = False  # starts off; checkbox controls this
+        self._x_label = "Quad Rotation (%)"
         self.setup_ui()
         self.current_data_max = None
         self.current_data_min = None
@@ -27,9 +35,40 @@ class AllRotationsWidget(QWidget):
         """Setup the UI with tabs for scatter plot and histogram."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(4)
 
-        # Create tab widget
+        # ── Toolbar row (checkbox lives here) ─────────────────────────
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(4, 2, 4, 0)
+        toolbar.addStretch()
+
+        self._crosshair_cb = QCheckBox("Crosshair")
+        self._crosshair_cb.setChecked(False)
+        self._crosshair_cb.setToolTip(
+            "Show a vertical crosshair with the exact rotation value when hovering over the scatter plot"
+        )
+        self._crosshair_cb.setStyleSheet("""
+            QCheckBox {
+                color: #94a3b8;
+                font-size: 11px;
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 13px; height: 13px;
+                border: 1px solid #475569;
+                border-radius: 3px;
+                background: #1e293b;
+            }
+            QCheckBox::indicator:checked {
+                background: #06b6d4;
+                border-color: #06b6d4;
+            }
+        """)
+        self._crosshair_cb.toggled.connect(self._on_crosshair_toggled)
+        toolbar.addWidget(self._crosshair_cb)
+        layout.addLayout(toolbar)
+
+        # ── Tab widget ────────────────────────────────────────────────
         from gui.design_tokens import FormStyles
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(FormStyles.tab_widget_minimal())
@@ -38,6 +77,33 @@ class AllRotationsWidget(QWidget):
         from gui.components.plot_factory import create_plot_widget
         self.plot_widget = create_plot_widget(show_border=False, grid_alpha=0.35)
         self.plot_widget.getAxis('bottom').enableAutoSIPrefix(False)
+
+        # ── Crosshair: cyan vertical line with built-in bottom label ──
+        _CYAN = '#06b6d4'
+        self._vline = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen(QColor(_CYAN), width=1, style=Qt.PenStyle.DashLine),
+            label='{value:.4f}',
+            labelOpts={
+                'position': 0.04,           # 0 = bottom of line, 1 = top
+                'color': QColor(_CYAN),
+                'fill': pg.mkBrush(QColor(15, 23, 42, 200)),  # dark semi-transparent bg
+                'movable': False,
+            },
+        )
+        self._vline.setVisible(False)
+
+        self.plot_widget.addItem(self._vline, ignoreBounds=True)
+
+        # Rate-limited mouse-move signal (~60 fps)
+        self._mouse_proxy = pg.SignalProxy(
+            self.plot_widget.scene().sigMouseMoved,
+            rateLimit=60,
+            slot=self._on_mouse_moved,
+        )
+        vb = self.plot_widget.getViewBox()
+        vb.hoverEvent = self._on_vb_hover
 
         # Create histogram widget using factory
         self.histogram_widget = create_plot_widget(
@@ -51,14 +117,63 @@ class AllRotationsWidget(QWidget):
 
         layout.addWidget(self.tabs)
 
+    # ------------------------------------------------------------------
+    # Crosshair helpers
+    # ------------------------------------------------------------------
+
+    def _on_crosshair_toggled(self, checked: bool):
+        """Enable or disable the hover crosshair."""
+        self._crosshair_enabled = checked
+        if not checked:
+            self._vline.setVisible(False)
+
+    def _on_mouse_moved(self, evt):
+        """Update the vertical crosshair line on mouse move (only when enabled)."""
+        if not self._crosshair_enabled:
+            return
+        pos = evt[0]  # SignalProxy wraps events in a tuple
+        vb = self.plot_widget.getViewBox()
+        if not self.plot_widget.sceneBoundingRect().contains(pos):
+            self._vline.setVisible(False)
+            return
+
+        mouse_point = vb.mapSceneToView(pos)
+        self._vline.setPos(mouse_point.x())
+        self._vline.setVisible(True)
+
+    def _on_vb_hover(self, ev):
+        """Hide crosshair when mouse leaves the ViewBox."""
+        if ev.isExit():
+            self._vline.setVisible(False)
+
+
     def set_x_label(self, label: str):
         """Update the X-axis label for both plots.
 
         Args:
             label: New X-axis label text
         """
+        self._x_label = label
         self.plot_widget.setLabel('bottom', label)
         self.histogram_widget.setLabel('bottom', label)
+        self._set_crosshair_label_unit(label)
+
+    def _set_crosshair_label_unit(self, label: str):
+        """Keep the hover label unit aligned with the current x-axis label."""
+        unit = ""
+        if "(" in label and ")" in label:
+            unit = label.rsplit("(", 1)[1].split(")", 1)[0].strip()
+        elif "[" in label and "]" in label:
+            unit = label.rsplit("[", 1)[1].split("]", 1)[0].strip()
+
+        label_format = "{value:.4f}" + (f" {unit}" if unit else "")
+        line_label = getattr(self._vline, "label", None)
+        if line_label is None:
+            return
+        if hasattr(line_label, "setFormat"):
+            line_label.setFormat(label_format)
+        else:
+            line_label.format = label_format
 
     def load_dataset(self, df_max: pd.DataFrame, df_min: pd.DataFrame):
         """Load and display all rotation data points (both Max and Min).
@@ -83,6 +198,8 @@ class AllRotationsWidget(QWidget):
     def _plot_combined_scatter(self, df_max: pd.DataFrame, df_min: pd.DataFrame):
         """Plot scatter plot with both Max and Min data, story bins, and vertical jitter."""
         self.plot_widget.clear()
+        # Re-add persistent crosshair line (clear() removes everything)
+        self.plot_widget.addItem(self._vline, ignoreBounds=True)
 
         # Use whichever dataframe is available to get story info
         df_ref = df_max if df_max is not None and not df_max.empty else df_min
@@ -141,6 +258,24 @@ class AllRotationsWidget(QWidget):
                 self.plot_widget.addItem(scatter_min)
                 all_x_values.extend(x_min)
 
+        # --- Average per-hinge markers (blue diamonds) ---
+        # Hinge identity: Element + Story (+ Direction if present for column data)
+        avg_x, avg_y = self._compute_hinge_averages(df_max, df_min, story_to_index)
+        logger.debug("Hinge averages computed: %d points", len(avg_x))
+        if avg_x:
+            avg_x_arr = np.array(avg_x, dtype=float)
+            avg_y_arr = np.array(avg_y, dtype=float)
+            blue_pen = pg.mkPen(QColor('#1e3a8a'), width=1)
+            blue_brush = pg.mkBrush(QColor('#2563eb'))
+            spots = [
+                {'pos': (float(ax), float(ay)), 'size': 11,
+                 'symbol': 'd', 'pen': blue_pen, 'brush': blue_brush}
+                for ax, ay in zip(avg_x_arr, avg_y_arr)
+            ]
+            scatter_avg = pg.ScatterPlotItem(spots=spots)
+            self.plot_widget.addItem(scatter_avg)
+            all_x_values.extend(avg_x)
+
         # Add vertical line at x=0 to show center
         zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
         self.plot_widget.addItem(zero_line)
@@ -154,7 +289,7 @@ class AllRotationsWidget(QWidget):
         self.plot_widget.setYRange(-0.5, num_stories - 0.5, padding=0)
 
         # Set X-axis label
-        self.plot_widget.setLabel('bottom', 'Quad Rotation (%)')
+        self.plot_widget.setLabel('bottom', self._x_label)
         self.plot_widget.setLabel('left', 'Story')
 
         # Set X-axis range centered at 0 for symmetry
@@ -170,6 +305,54 @@ class AllRotationsWidget(QWidget):
 
             # Set symmetric range around 0
             self.plot_widget.setXRange(-(max_abs + padding_x), max_abs + padding_x, padding=0)
+
+    def _compute_hinge_averages(
+        self,
+        df_max: pd.DataFrame,
+        df_min: pd.DataFrame,
+        story_to_index: dict,
+    ):
+        """Compute mean rotation per individual hinge across all ground motions.
+
+        A hinge is identified by (Element, Story) — or (Element, Story, Direction)
+        when the Direction column is present (column rotation data).  The mean
+        is computed separately for Max and Min envelopes so that Max averages
+        plot on the positive side and Min averages on the negative side.
+
+        Returns:
+            Tuple of (x_values, y_values) for the blue average markers.
+        """
+        avg_x: list = []
+        avg_y: list = []
+
+        # Determine groupby keys — include Direction when present
+        def _group_keys(df: pd.DataFrame) -> list:
+            keys = ['Element', 'Story']
+            if 'Direction' in df.columns:
+                keys.append('Direction')
+            return keys
+
+        for df in (df_max, df_min):
+            if df is None or df.empty:
+                continue
+
+            group_keys = _group_keys(df)
+            grouped = df.groupby(group_keys)['Rotation'].mean()
+
+            for key_vals, mean_rot in grouped.items():
+                # key_vals is a scalar when one group key, tuple otherwise
+                if isinstance(key_vals, tuple):
+                    story_name = key_vals[1]  # index 1 is always Story
+                else:
+                    story_name = key_vals  # shouldn't happen given 2+ keys, but safe
+
+                if story_name not in story_to_index:
+                    continue
+
+                avg_x.append(mean_rot)
+                avg_y.append(float(story_to_index[story_name]))
+
+        return avg_x, avg_y
 
     def _prepare_scatter_data(self, df: pd.DataFrame, story_to_index: dict, label: str):
         """Prepare scatter data with jitter for a dataset.
@@ -285,7 +468,7 @@ class AllRotationsWidget(QWidget):
         self.histogram_widget.addItem(zero_line)
 
         # Set axis labels
-        self.histogram_widget.setLabel('bottom', 'Quad Rotation (%)')
+        self.histogram_widget.setLabel('bottom', self._x_label)
         self.histogram_widget.setLabel('left', 'Count')
 
         # Set Y-axis to start at 0
@@ -302,5 +485,8 @@ class AllRotationsWidget(QWidget):
         """Clear all data from plots."""
         self.plot_widget.clear()
         self.histogram_widget.clear()
+        # Re-add crosshair line (clear() removes it) and hide until next hover
+        self.plot_widget.addItem(self._vline, ignoreBounds=True)
+        self._vline.setVisible(False)
         self.current_data_max = None
         self.current_data_min = None

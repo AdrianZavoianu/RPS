@@ -41,6 +41,7 @@ from database.models import (
     WallShear,
     ColumnShear,
     ColumnAxial,
+    BraceAxial,
     ColumnRotation,
     QuadRotation,
     BeamRotation,
@@ -89,6 +90,7 @@ class CacheBuilder:
         self._cache_pier_forces(stories)
         self._cache_column_shears(stories)
         self._cache_column_axials(stories)
+        self._cache_brace_axials(stories)
         self._cache_column_rotations(stories)
         self._cache_beam_rotations(stories)
         self._cache_quad_rotations(stories)
@@ -528,6 +530,73 @@ class CacheBuilder:
 
         self._replace_element_cache_entries("ColumnAxials_Min", entries_min)
         self._replace_element_cache_entries("ColumnAxials_Max", entries_max)
+
+    def _cache_brace_axials(self, stories):
+        """Cache brace axial forces (both min and max) - batched query for performance."""
+        axials = (
+            self.session.query(BraceAxial, LoadCase.name, Story, Element)
+            .join(LoadCase, BraceAxial.load_case_id == LoadCase.id)
+            .join(Story, BraceAxial.story_id == Story.id)
+            .join(Element, BraceAxial.element_id == Element.id)
+            .filter(Element.project_id == self.project_id)
+            .filter(Element.element_type == "Brace")
+            .filter(BraceAxial.result_category_id == self.result_category_id)
+            .all()
+        )
+
+        grouped = {}
+        story_sort_orders = {}
+
+        for axial, case_name, story, element in axials:
+            elem_id = element.id
+            if elem_id not in grouped:
+                grouped[elem_id] = {}
+            if story.id not in grouped[elem_id]:
+                grouped[elem_id][story.id] = {"min": {}, "max": {}}
+                story_sort_orders[(elem_id, story.id)] = axial.story_sort_order
+
+            grouped[elem_id][story.id]["min"][case_name] = axial.min_axial
+            if axial.max_axial is not None:
+                grouped[elem_id][story.id]["max"][case_name] = axial.max_axial
+
+        timestamp = datetime.utcnow()
+        entries_min: list[dict] = []
+        entries_max: list[dict] = []
+
+        for elem_id, story_data in grouped.items():
+            for story_id, data in story_data.items():
+                sort_order = story_sort_orders.get((elem_id, story_id))
+
+                if data["min"]:
+                    entries_min.append(
+                        {
+                            "project_id": self.project_id,
+                            "result_set_id": self.result_set_id,
+                            "result_type": "BraceAxials_Min",
+                            "element_id": elem_id,
+                            "story_id": story_id,
+                            "results_matrix": data["min"],
+                            "story_sort_order": sort_order,
+                            "last_updated": timestamp,
+                        }
+                    )
+
+                if data["max"]:
+                    entries_max.append(
+                        {
+                            "project_id": self.project_id,
+                            "result_set_id": self.result_set_id,
+                            "result_type": "BraceAxials_Max",
+                            "element_id": elem_id,
+                            "story_id": story_id,
+                            "results_matrix": data["max"],
+                            "story_sort_order": sort_order,
+                            "last_updated": timestamp,
+                        }
+                    )
+
+        self._replace_element_cache_entries("BraceAxials_Min", entries_min)
+        self._replace_element_cache_entries("BraceAxials_Max", entries_max)
 
     def _cache_quad_rotations(self, stories):
         """Cache quad rotations - batched query for performance."""

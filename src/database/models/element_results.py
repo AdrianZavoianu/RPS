@@ -1,4 +1,4 @@
-"""Element-level result models: WallShear, QuadRotation, ColumnShear, ColumnAxial, ColumnRotation, BeamRotation."""
+"""Element-level result models: WallShear, QuadRotation, ColumnShear, ColumnAxial, BraceAxial, ColumnRotation, BeamRotation."""
 
 from sqlalchemy import (
     Column,
@@ -153,6 +153,40 @@ class ColumnAxial(Base):
 
     def __repr__(self):
         return f"<ColumnAxial(element_id={self.element_id}, story_id={self.story_id}, case={self.load_case_id}, min_axial={self.min_axial})>"
+
+
+class BraceAxial(Base):
+    """Brace axial force results (element-level compression/tension forces by story).
+
+    Data from 'Element Forces - Braces' sheet.
+    Stores both minimum (compression) and maximum (tension) P values.
+    """
+
+    __tablename__ = "brace_axials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    element_id = Column(Integer, ForeignKey("elements.id"), nullable=False)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False)
+    load_case_id = Column(Integer, ForeignKey("load_cases.id"), nullable=False)
+    result_category_id = Column(Integer, ForeignKey("result_categories.id"), nullable=True)
+    min_axial = Column(Float, nullable=False)
+    max_axial = Column(Float, nullable=True)
+    story_sort_order = Column(Integer, nullable=True)
+
+    # Relationships
+    element = relationship("Element", overlaps="brace_axials")
+    story = relationship("Story")
+    load_case = relationship("LoadCase", overlaps="brace_axials")
+    result_category = relationship("ResultCategory", overlaps="brace_axials")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_braceaxial_element_story_case", "element_id", "story_id", "load_case_id"),
+        Index("ix_braceaxial_category", "result_category_id"),
+    )
+
+    def __repr__(self):
+        return f"<BraceAxial(element_id={self.element_id}, story_id={self.story_id}, case={self.load_case_id}, min_axial={self.min_axial})>"
 
 
 class ColumnRotation(Base):

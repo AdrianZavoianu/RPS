@@ -11,6 +11,7 @@ DISPLAY_NAME_OVERRIDES = {
     "WallShears": "Wall Shears",
     "ColumnShears": "Column Shears",
     "ColumnAxials": "Column Axials",
+    "BraceAxials": "Brace Axials",
     "MinAxial": "Min Axial Force",
     "QuadRotations": "Quad Rotations",
     "MaxMinDrifts": "Max/Min Drifts",
@@ -20,6 +21,7 @@ DISPLAY_NAME_OVERRIDES = {
     "MaxMinWallShears": "Max/Min Wall Shears",
     "MaxMinColumnShears": "Max/Min Column Shears",
     "MaxMinColumnAxials": "Max/Min Column Axials",
+    "MaxMinBraceAxials": "Max/Min Brace Axials",
     "MaxMinColumnRotations": "Max/Min Column Rotations",
     "MaxMinQuadRotations": "Max/Min Quad Rotations",
 }

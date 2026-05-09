@@ -51,6 +51,10 @@ def on_item_clicked(
         _handle_beam_rotations_plot(browser, data)
     elif item_type == "beam_rotations_table":
         _handle_beam_rotations_table(browser, data)
+    elif item_type == "brace_axials_plot":
+        _handle_brace_axials_plot(browser, data)
+    elif item_type == "brace_axials_table":
+        _handle_brace_axials_table(browser, data)
     elif item_type == "soil_pressure_plot":
         _handle_soil_pressure_plot(browser, data)
     elif item_type == "soil_pressure_table":
@@ -172,6 +176,20 @@ def _handle_beam_rotations_table(browser: "ResultsTreeBrowser", data: dict) -> N
     result_set_id = data.get("result_set_id")
     category = data.get("category")
     browser.selection_changed.emit(result_set_id, category, "BeamRotationsTable", "", -1)
+
+
+def _handle_brace_axials_plot(browser: "ResultsTreeBrowser", data: dict) -> None:
+    """Handle Brace Axials Plot view click."""
+    result_set_id = data.get("result_set_id")
+    category = data.get("category")
+    browser.selection_changed.emit(result_set_id, category, "AllBraceAxials", "", -1)
+
+
+def _handle_brace_axials_table(browser: "ResultsTreeBrowser", data: dict) -> None:
+    """Handle Brace Axials Table view click."""
+    result_set_id = data.get("result_set_id")
+    category = data.get("category")
+    browser.selection_changed.emit(result_set_id, category, "BraceAxialsTable", "", -1)
 
 
 def _handle_soil_pressure_plot(browser: "ResultsTreeBrowser", data: dict) -> None:

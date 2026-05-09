@@ -154,6 +154,8 @@ class ElementDatasetProvider:
                 fallback_types.extend(["ColumnRotations_R3", "ColumnRotations_R2"])
             elif result_type == "ColumnAxials":
                 fallback_types.extend(["ColumnAxials_Min", "ColumnAxials_Max"])
+            elif result_type == "BraceAxials":
+                fallback_types.extend(["BraceAxials_Min", "BraceAxials_Max"])
 
         cache_entries = None
         chosen_direction = direction

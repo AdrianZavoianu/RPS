@@ -1,4 +1,4 @@
-"""Element-level import helpers for walls, quads, columns, and beams."""
+"""Element-level import helpers for walls, quads, columns, braces, and beams."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Dict
 
 from sqlalchemy.orm import Session
 
-from database.models import WallShear, QuadRotation, ColumnShear, ColumnAxial, ColumnRotation, BeamRotation
+from database.models import WallShear, QuadRotation, ColumnShear, ColumnAxial, BraceAxial, ColumnRotation, BeamRotation
 from database.repositories import ElementRepository
 from .import_filtering import filter_cases_and_dataframe
 from .import_context import ResultImportHelper
@@ -14,7 +14,7 @@ from .result_processor import ResultProcessor
 
 
 class ElementImporter:
-    """Handles element-level imports for walls, quads, columns, and beams."""
+    """Handles element-level imports for walls, quads, columns, braces, and beams."""
 
     def __init__(
         self,
@@ -262,6 +262,60 @@ class ElementImporter:
             return stats
         except Exception as e:
             raise ValueError(f"Error importing column axials: {e}")
+
+    def import_brace_axials(self) -> Dict[str, int]:
+        stats = {"brace_axials": 0, "braces": 0}
+        try:
+            df, load_cases, stories, braces = self.parser.get_brace_forces()
+            load_cases, df = filter_cases_and_dataframe(
+                df,
+                load_cases,
+                self.allowed_load_cases,
+                column="Output Case",
+            )
+            if not load_cases:
+                return stats
+            helper = ResultImportHelper(self.session, self.project_id, stories)
+
+            brace_elements = {
+                brace_name: self._element_repo.get_or_create(
+                    project_id=self.project_id,
+                    element_type="Brace",
+                    unique_name=brace_name,
+                    name=brace_name,
+                )
+                for brace_name in braces
+            }
+            stats["braces"] = len(brace_elements)
+
+            processed = ResultProcessor.process_brace_axials(
+                df, load_cases, stories, braces
+            )
+
+            brace_axial_objects = []
+            for _, row in processed.iterrows():
+                story = helper.get_story(row["Story"])
+                load_case = helper.get_load_case(row["LoadCase"])
+                element = brace_elements[row["Brace"]]
+
+                brace_axial_objects.append(
+                    BraceAxial(
+                        element_id=element.id,
+                        story_id=story.id,
+                        load_case_id=load_case.id,
+                        result_category_id=self.result_category_id,
+                        min_axial=row["MinAxial"],
+                        max_axial=row.get("MaxAxial"),
+                        story_sort_order=helper._story_order.get(row["Story"]),
+                    )
+                )
+
+            self.session.bulk_save_objects(brace_axial_objects)
+            self.session.commit()
+            stats["brace_axials"] += len(brace_axial_objects)
+            return stats
+        except Exception as e:
+            raise ValueError(f"Error importing brace axials: {e}")
 
     def import_column_rotations(self) -> Dict[str, int]:
         stats = {"column_rotations": 0, "columns": 0}

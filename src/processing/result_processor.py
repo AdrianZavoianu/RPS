@@ -363,6 +363,42 @@ class ResultProcessor:
         return grouped[["Story", "Column", "UniqueName", "LoadCase", "Location", "MinAxial", "MaxAxial"]]
 
     @staticmethod
+    def process_brace_axials(
+        df: pd.DataFrame, load_cases: List[str], stories: List[str], braces: List[str]
+    ) -> pd.DataFrame:
+        """Process brace axial force data (min and max P values) by story.
+
+        Args:
+            df: Raw brace force data DataFrame from 'Element Forces - Braces'
+            load_cases: List of load case names
+            stories: List of story names in source order
+            braces: List of brace labels
+
+        Returns:
+            Processed DataFrame with columns:
+            [Story, Brace, UniqueName, LoadCase, MinAxial, MaxAxial]
+        """
+        if df.empty or "P" not in df.columns:
+            return pd.DataFrame(columns=["Story", "Brace", "UniqueName", "LoadCase", "MinAxial", "MaxAxial"])
+
+        df = df.copy()
+        df["P"] = pd.to_numeric(df["P"], errors="coerce")
+        df = df.dropna(subset=["P"])
+        if df.empty:
+            return pd.DataFrame(columns=["Story", "Brace", "UniqueName", "LoadCase", "MinAxial", "MaxAxial"])
+
+        grouped = df.groupby(["Story", "Brace", "Output Case"], as_index=False).agg({
+            "Unique Name": "first",
+            "P": ["min", "max"],
+        })
+
+        grouped.columns = ["Story", "Brace", "LoadCase", "UniqueName", "MinAxial", "MaxAxial"]
+        grouped["MinAxial"] = grouped["MinAxial"].round(1)
+        grouped["MaxAxial"] = grouped["MaxAxial"].round(1)
+
+        return grouped[["Story", "Brace", "UniqueName", "LoadCase", "MinAxial", "MaxAxial"]]
+
+    @staticmethod
     def process_column_rotations(
         df: pd.DataFrame, load_cases: List[str], stories: List[str], columns: List[str], direction: str
     ) -> pd.DataFrame:

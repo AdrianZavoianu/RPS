@@ -79,7 +79,7 @@ def add_comparison_set(
             )
 
     # Elements category
-    if any(rt in comparison_set.result_types for rt in ['WallShears', 'QuadRotations', 'ColumnShears', 'ColumnAxials', 'ColumnRotations', 'BeamRotations']):
+    if any(rt in comparison_set.result_types for rt in ['WallShears', 'QuadRotations', 'ColumnShears', 'ColumnAxials', 'BraceAxials', 'ColumnRotations', 'BeamRotations']):
         elements_item = QTreeWidgetItem(comparison_item)
         elements_item.setText(0, "◇ Elements")
         elements_item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -94,6 +94,8 @@ def add_comparison_set(
             _add_walls_section(elements_item, comparison_set, elements)
         if any(rt in comparison_set.result_types for rt in ['ColumnShears', 'ColumnAxials', 'ColumnRotations']):
             _add_columns_section(elements_item, comparison_set, elements)
+        if 'BraceAxials' in comparison_set.result_types:
+            _add_braces_section(elements_item, comparison_set, elements)
         if 'BeamRotations' in comparison_set.result_types:
             _add_beams_section(elements_item, comparison_set, elements)
 
@@ -455,6 +457,46 @@ def _add_beams_section(
                 "element_id": element.id,
                 "element_name": element.name
             })
+
+
+def _add_braces_section(
+    parent_item: QTreeWidgetItem,
+    comparison_set: "ComparisonSet",
+    elements: List["Element"],
+) -> None:
+    """Add Braces section for comparison set."""
+    braces_item = QTreeWidgetItem(parent_item)
+    braces_item.setText(0, "› Braces")
+    braces_item.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "comparison_element_category",
+        "comparison_set_id": comparison_set.id,
+        "element_type": "Braces"
+    })
+    braces_item.setExpanded(False)
+
+    brace_elements = [elem for elem in elements if elem.element_type == "Brace"]
+
+    axials_item = QTreeWidgetItem(braces_item)
+    axials_item.setText(0, "  └ Axial Forces")
+    axials_item.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "comparison_element_result_parent",
+        "comparison_set_id": comparison_set.id,
+        "element_type": "Braces",
+        "result_type": "BraceAxials"
+    })
+    axials_item.setExpanded(False)
+
+    for element in brace_elements:
+        element_item = QTreeWidgetItem(axials_item)
+        element_item.setText(0, f"    › {element.name}")
+        element_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "comparison_element_result",
+            "comparison_set_id": comparison_set.id,
+            "element_type": "Braces",
+            "result_type": "BraceAxials",
+            "element_id": element.id,
+            "element_name": element.name
+        })
 
 
 def _add_joint_type(

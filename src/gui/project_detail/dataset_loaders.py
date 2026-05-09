@@ -53,9 +53,19 @@ def load_all_beam_rotations(window, result_set_id: int):
     view_loaders.load_all_beam_rotations(window, result_set_id, window.content_area)
 
 
+def load_all_brace_axials(window, result_set_id: int):
+    """Load and display all brace axial forces."""
+    view_loaders.load_all_brace_axials(window, result_set_id, window.content_area)
+
+
 def load_beam_rotations_table(window, result_set_id: int):
     """Load and display beam rotations table."""
     view_loaders.load_beam_rotations_table(window, result_set_id, window.content_area)
+
+
+def load_brace_axials_table(window, result_set_id: int):
+    """Load and display brace axial force table."""
+    view_loaders.load_brace_axials_table(window, result_set_id, window.content_area)
 
 
 def load_all_soil_pressures(window, result_set_id: int):
@@ -203,7 +213,9 @@ __all__ = [
     "load_all_rotations",
     "load_all_column_rotations",
     "load_all_beam_rotations",
+    "load_all_brace_axials",
     "load_beam_rotations_table",
+    "load_brace_axials_table",
     "load_all_soil_pressures",
     "load_soil_pressures_table",
     "load_all_vertical_displacements",

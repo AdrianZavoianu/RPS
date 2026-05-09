@@ -11,7 +11,9 @@ from .loaders.rotations import (
     load_all_rotations,
     load_all_column_rotations,
     load_all_beam_rotations,
+    load_all_brace_axials,
     load_beam_rotations_table,
+    load_brace_axials_table,
 )
 from .loaders.comparisons import (
     load_comparison_all_rotations,
@@ -40,7 +42,9 @@ __all__ = [
     "load_all_rotations",
     "load_all_column_rotations",
     "load_all_beam_rotations",
+    "load_all_brace_axials",
     "load_beam_rotations_table",
+    "load_brace_axials_table",
     "load_comparison_all_rotations",
     "load_comparison_all_column_rotations",
     "load_comparison_all_beam_rotations",

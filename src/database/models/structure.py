@@ -29,6 +29,7 @@ class Element(Base):
     wall_shears = relationship("WallShear", back_populates="element", cascade="all, delete-orphan")
     column_shears = relationship("ColumnShear", cascade="all, delete-orphan")
     column_axials = relationship("ColumnAxial", cascade="all, delete-orphan")
+    brace_axials = relationship("BraceAxial", cascade="all, delete-orphan")
     column_rotations = relationship("ColumnRotation", cascade="all, delete-orphan")
     quad_rotations = relationship("QuadRotation", back_populates="element", cascade="all, delete-orphan")
 

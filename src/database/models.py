@@ -29,6 +29,7 @@ from .models import (
     QuadRotation,
     ColumnShear,
     ColumnAxial,
+    BraceAxial,
     ColumnRotation,
     BeamRotation,
     # Joint results
@@ -63,6 +64,7 @@ __all__ = [
     "QuadRotation",
     "ColumnShear",
     "ColumnAxial",
+    "BraceAxial",
     "ColumnRotation",
     "BeamRotation",
     "SoilPressure",

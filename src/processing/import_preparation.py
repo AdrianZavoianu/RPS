@@ -197,6 +197,9 @@ class ImportPreparationService:
         if sheet_name == "Element Forces - Columns":
             _, load_cases, _, _ = parser.get_column_forces()
             return load_cases
+        if sheet_name == "Element Forces - Braces":
+            _, load_cases, _, _ = parser.get_brace_forces()
+            return load_cases
         if sheet_name == "Fiber Hinge States":
             _, load_cases, _, _ = parser.get_fiber_hinge_states()
             return load_cases
