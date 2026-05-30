@@ -32,7 +32,11 @@ def test_results_plot_widget_scaling(qt_app, sample_result_dataset):
     plot = widget._get_plot_from_container(widget.envelope_plot)
     x_range, y_range = plot.getViewBox().viewRange()
 
-    data_vals = sample_result_dataset.data[sample_result_dataset.load_case_columns].values.flatten().tolist()
+    data_vals = (
+        sample_result_dataset.data[sample_result_dataset.load_case_columns]
+        .values.flatten()
+        .tolist()
+    )
     min_val = min(data_vals)
     max_val = max(data_vals)
 
@@ -60,6 +64,17 @@ def test_all_rotations_widget_histogram(qt_app, rotations_df_max, rotations_df_m
 
     plot_item = widget.histogram_widget.getPlotItem()
     assert any(isinstance(item, pg.BarGraphItem) for item in plot_item.items)
+
+
+def test_all_rotations_widget_can_hide_average_markers(qt_app, rotations_df_max, rotations_df_min):
+    """Pushover all-rotation plots should hide average markers."""
+    widget = AllRotationsWidget()
+    widget.load_dataset(rotations_df_max, rotations_df_min, show_averages=False)
+
+    plot_item = widget.plot_widget.getPlotItem()
+    scatter_items = [item for item in plot_item.items if isinstance(item, pg.ScatterPlotItem)]
+
+    assert len(scatter_items) == 2
 
 
 def test_beam_rotations_widget_tabs(qt_app, beam_rotations_df_max, beam_rotations_df_min):

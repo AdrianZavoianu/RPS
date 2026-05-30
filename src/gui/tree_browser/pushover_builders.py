@@ -12,44 +12,52 @@ if TYPE_CHECKING:
     from gui.tree_browser import ResultsTreeBrowser
 
 
-def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set, expand_first_path: bool = True) -> None:
+def add_pushover_result_set(
+    browser: "ResultsTreeBrowser",
+    parent_item: QTreeWidgetItem,
+    result_set,
+    expand_first_path: bool = True,
+) -> None:
     """Add a pushover result set with Curves, Global Results, Elements, and Joints sections."""
     # Result set item
     result_set_item = QTreeWidgetItem(parent_item)
     result_set_item.setText(0, f"▸ {result_set.name}")
-    result_set_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_result_set",
-        "id": result_set.id
-    })
+    result_set_item.setData(
+        0, Qt.ItemDataRole.UserRole, {"type": "pushover_result_set", "id": result_set.id}
+    )
     result_set_item.setExpanded(expand_first_path)
 
     # Curves category
     curves_item = QTreeWidgetItem(result_set_item)
     curves_item.setText(0, "◆ Curves")
-    curves_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_curves_category",
-        "result_set_id": result_set.id
-    })
+    curves_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_curves_category", "result_set_id": result_set.id},
+    )
     curves_item.setExpanded(expand_first_path)
 
     # Get cases for this result set
     all_cases = browser.pushover_cases.get(result_set.id, [])
 
     # Separate by direction
-    x_cases = [c for c in all_cases if c.direction == 'X']
-    y_cases = [c for c in all_cases if c.direction == 'Y']
+    x_cases = [c for c in all_cases if c.direction == "X"]
+    y_cases = [c for c in all_cases if c.direction == "Y"]
 
     # Add X and Y direction sections (only expand first direction)
-    add_direction_section(browser, curves_item, 'X', x_cases, result_set.id, expand_first_path and len(x_cases) > 0)
-    add_direction_section(browser, curves_item, 'Y', y_cases, result_set.id, False)
+    add_direction_section(
+        browser, curves_item, "X", x_cases, result_set.id, expand_first_path and len(x_cases) > 0
+    )
+    add_direction_section(browser, curves_item, "Y", y_cases, result_set.id, False)
 
     # Global Results category
     global_item = QTreeWidgetItem(result_set_item)
     global_item.setText(0, "◆ Global Results")
-    global_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_global_category",
-        "result_set_id": result_set.id
-    })
+    global_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_global_category", "result_set_id": result_set.id},
+    )
     global_item.setExpanded(True)
 
     add_pushover_global_result_type(browser, global_item, "Story Drifts", result_set.id)
@@ -59,15 +67,17 @@ def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWid
     # Elements category
     elements_item = QTreeWidgetItem(result_set_item)
     elements_item.setText(0, "◆ Elements")
-    elements_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_elements_category",
-        "result_set_id": result_set.id
-    })
+    elements_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_elements_category", "result_set_id": result_set.id},
+    )
     elements_item.setExpanded(True)
 
     add_pushover_walls_section(browser, elements_item, result_set.id)
     add_pushover_columns_section(browser, elements_item, result_set.id)
     add_pushover_beams_section(browser, elements_item, result_set.id)
+    add_pushover_braces_section(browser, elements_item, result_set.id)
 
     if elements_item.childCount() == 0:
         result_set_item.removeChild(elements_item)
@@ -75,10 +85,11 @@ def add_pushover_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWid
     # Joints category
     joints_item = QTreeWidgetItem(result_set_item)
     joints_item.setText(0, "◆ Joints")
-    joints_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_joints_category",
-        "result_set_id": result_set.id
-    })
+    joints_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_joints_category", "result_set_id": result_set.id},
+    )
     joints_item.setExpanded(True)
 
     add_pushover_joint_displacements_section(browser, joints_item, result_set.id)
@@ -100,11 +111,11 @@ def add_direction_section(
     """Add X or Y direction section under Curves."""
     direction_item = QTreeWidgetItem(parent_item)
     direction_item.setText(0, f"▸ {direction} Direction")
-    direction_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_direction",
-        "direction": direction,
-        "result_set_id": result_set_id
-    })
+    direction_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_direction", "direction": direction, "result_set_id": result_set_id},
+    )
     direction_item.setExpanded(expand_first_path)
 
     if not cases:
@@ -115,22 +126,26 @@ def add_direction_section(
         for case in cases:
             case_item = QTreeWidgetItem(direction_item)
             case_item.setText(0, f"› {case.name}")
-            case_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "pushover_curve",
-                "case_name": case.name,
-                "pushover_case_id": case.id,
-                "result_set_id": result_set_id,
-                "direction": direction
-            })
+            case_item.setData(
+                0,
+                Qt.ItemDataRole.UserRole,
+                {
+                    "type": "pushover_curve",
+                    "case_name": case.name,
+                    "pushover_case_id": case.id,
+                    "result_set_id": result_set_id,
+                    "direction": direction,
+                },
+            )
 
         # Add "All Curves" item
         all_curves_item = QTreeWidgetItem(direction_item)
         all_curves_item.setText(0, "› All Curves")
-        all_curves_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_all_curves",
-            "direction": direction,
-            "result_set_id": result_set_id
-        })
+        all_curves_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {"type": "pushover_all_curves", "direction": direction, "result_set_id": result_set_id},
+        )
 
 
 def add_pushover_global_result_type(
@@ -142,35 +157,49 @@ def add_pushover_global_result_type(
     """Add a global result type with X and Y direction children."""
     result_type_item = QTreeWidgetItem(parent_item)
     result_type_item.setText(0, f"▸ {result_type}")
-    result_type_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_global_result_parent",
-        "result_type": result_type,
-        "result_set_id": result_set_id
-    })
+    result_type_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_global_result_parent",
+            "result_type": result_type,
+            "result_set_id": result_set_id,
+        },
+    )
     result_type_item.setExpanded(False)
 
     # X Direction
     x_item = QTreeWidgetItem(result_type_item)
     x_item.setText(0, "  ├ X")
-    x_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_global_result",
-        "result_type": result_type,
-        "direction": "X",
-        "result_set_id": result_set_id
-    })
+    x_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_global_result",
+            "result_type": result_type,
+            "direction": "X",
+            "result_set_id": result_set_id,
+        },
+    )
 
     # Y Direction
     y_item = QTreeWidgetItem(result_type_item)
     y_item.setText(0, "  └ Y")
-    y_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_global_result",
-        "result_type": result_type,
-        "direction": "Y",
-        "result_set_id": result_set_id
-    })
+    y_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_global_result",
+            "result_type": result_type,
+            "direction": "Y",
+            "result_set_id": result_set_id,
+        },
+    )
 
 
-def add_pushover_walls_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_pushover_walls_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
     """Add Walls section for pushover results."""
     has_wall_shears = browser._has_data_for(result_set_id, "WallShears")
     has_quad_rotations = browser._has_data_for(result_set_id, "QuadRotations")
@@ -180,12 +209,16 @@ def add_pushover_walls_section(browser: "ResultsTreeBrowser", parent_item: QTree
 
     walls_parent = QTreeWidgetItem(parent_item)
     walls_parent.setText(0, "› Walls")
-    walls_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "element_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "element_type": "Walls"
-    })
+    walls_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "element_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "element_type": "Walls",
+        },
+    )
     walls_parent.setExpanded(False)
 
     wall_elements = [elem for elem in browser.elements if elem.element_type == "Wall"]
@@ -207,12 +240,16 @@ def add_pushover_shears_section(
     """Add Shears subsection under Walls for pushover piers."""
     shears_parent = QTreeWidgetItem(parent_item)
     shears_parent.setText(0, "  › Shears")
-    shears_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_wall_result_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "WallShears"
-    })
+    shears_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_wall_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "WallShears",
+        },
+    )
     shears_parent.setExpanded(True)
 
     if not wall_elements:
@@ -224,35 +261,47 @@ def add_pushover_shears_section(
     for element in wall_elements:
         pier_item = QTreeWidgetItem(shears_parent)
         pier_item.setText(0, f"    › {element.name}")
-        pier_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_wall_element",
-            "result_set_id": result_set_id,
-            "element_id": element.id,
-            "element_name": element.name
-        })
+        pier_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_wall_element",
+                "result_set_id": result_set_id,
+                "element_id": element.id,
+                "element_name": element.name,
+            },
+        )
         pier_item.setExpanded(True)
 
         # V2 Direction
         v2_item = QTreeWidgetItem(pier_item)
         v2_item.setText(0, "      ├ V2")
-        v2_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_wall_result",
-            "result_set_id": result_set_id,
-            "result_type": "WallShears",
-            "direction": "V2",
-            "element_id": element.id
-        })
+        v2_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_wall_result",
+                "result_set_id": result_set_id,
+                "result_type": "WallShears",
+                "direction": "V2",
+                "element_id": element.id,
+            },
+        )
 
         # V3 Direction
         v3_item = QTreeWidgetItem(pier_item)
         v3_item.setText(0, "      └ V3")
-        v3_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_wall_result",
-            "result_set_id": result_set_id,
-            "result_type": "WallShears",
-            "direction": "V3",
-            "element_id": element.id
-        })
+        v3_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_wall_result",
+                "result_set_id": result_set_id,
+                "result_type": "WallShears",
+                "direction": "V3",
+                "element_id": element.id,
+            },
+        )
 
 
 def add_pushover_quad_rotations_section(
@@ -264,13 +313,31 @@ def add_pushover_quad_rotations_section(
     """Add Quad Rotations subsection under Walls for pushover quads."""
     quad_parent = QTreeWidgetItem(parent_item)
     quad_parent.setText(0, "  › Quad Rotations")
-    quad_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_wall_result_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "QuadRotations"
-    })
+    quad_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_wall_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "QuadRotations",
+        },
+    )
     quad_parent.setExpanded(True)
+
+    all_item = QTreeWidgetItem(quad_parent)
+    all_item.setText(0, "    › All Rotations")
+    all_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "all_rotations",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "AllQuadRotations",
+            "element_id": -1,
+        },
+    )
 
     if not quad_elements:
         placeholder = QTreeWidgetItem(quad_parent)
@@ -281,16 +348,22 @@ def add_pushover_quad_rotations_section(
     for element in quad_elements:
         quad_item = QTreeWidgetItem(quad_parent)
         quad_item.setText(0, f"    › {element.name}")
-        quad_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_quad_rotation_result",
-            "result_set_id": result_set_id,
-            "result_type": "QuadRotations",
-            "direction": "",
-            "element_id": element.id
-        })
+        quad_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_quad_rotation_result",
+                "result_set_id": result_set_id,
+                "result_type": "QuadRotations",
+                "direction": "",
+                "element_id": element.id,
+            },
+        )
 
 
-def add_pushover_columns_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_pushover_columns_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
     """Add Columns section for pushover column shears and rotations."""
     has_column_shears = browser._has_data_for(result_set_id, "ColumnShears")
     has_column_rotations = browser._has_data_for(result_set_id, "ColumnRotations")
@@ -300,12 +373,16 @@ def add_pushover_columns_section(browser: "ResultsTreeBrowser", parent_item: QTr
 
     columns_parent = QTreeWidgetItem(parent_item)
     columns_parent.setText(0, "› Columns")
-    columns_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "element_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "element_type": "Columns"
-    })
+    columns_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "element_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "element_type": "Columns",
+        },
+    )
     columns_parent.setExpanded(False)
 
     column_elements = [elem for elem in browser.elements if elem.element_type == "Column"]
@@ -314,7 +391,9 @@ def add_pushover_columns_section(browser: "ResultsTreeBrowser", parent_item: QTr
         add_pushover_column_shears_section(browser, columns_parent, result_set_id, column_elements)
 
     if has_column_rotations:
-        add_pushover_column_rotations_section(browser, columns_parent, result_set_id, column_elements)
+        add_pushover_column_rotations_section(
+            browser, columns_parent, result_set_id, column_elements
+        )
 
 
 def add_pushover_column_shears_section(
@@ -326,12 +405,16 @@ def add_pushover_column_shears_section(
     """Add Column Shears subsection with columns."""
     shears_parent = QTreeWidgetItem(parent_item)
     shears_parent.setText(0, "  › Shears")
-    shears_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_column_result_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "ColumnShears"
-    })
+    shears_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_column_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "ColumnShears",
+        },
+    )
     shears_parent.setExpanded(True)
 
     if not column_elements:
@@ -343,35 +426,47 @@ def add_pushover_column_shears_section(
     for element in column_elements:
         column_item = QTreeWidgetItem(shears_parent)
         column_item.setText(0, f"    › {element.name}")
-        column_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_column_element",
-            "result_set_id": result_set_id,
-            "element_id": element.id,
-            "element_name": element.name
-        })
+        column_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_column_element",
+                "result_set_id": result_set_id,
+                "element_id": element.id,
+                "element_name": element.name,
+            },
+        )
         column_item.setExpanded(True)
 
         # V2 Direction
         v2_item = QTreeWidgetItem(column_item)
         v2_item.setText(0, "      ├ V2")
-        v2_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_column_shear_result",
-            "result_set_id": result_set_id,
-            "result_type": "ColumnShears",
-            "direction": "V2",
-            "element_id": element.id
-        })
+        v2_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_column_shear_result",
+                "result_set_id": result_set_id,
+                "result_type": "ColumnShears",
+                "direction": "V2",
+                "element_id": element.id,
+            },
+        )
 
         # V3 Direction
         v3_item = QTreeWidgetItem(column_item)
         v3_item.setText(0, "      └ V3")
-        v3_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_column_shear_result",
-            "result_set_id": result_set_id,
-            "result_type": "ColumnShears",
-            "direction": "V3",
-            "element_id": element.id
-        })
+        v3_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_column_shear_result",
+                "result_set_id": result_set_id,
+                "result_type": "ColumnShears",
+                "direction": "V3",
+                "element_id": element.id,
+            },
+        )
 
 
 def add_pushover_column_rotations_section(
@@ -383,12 +478,16 @@ def add_pushover_column_rotations_section(
     """Add Column Rotations subsection with columns."""
     rotations_parent = QTreeWidgetItem(parent_item)
     rotations_parent.setText(0, "  › Rotations")
-    rotations_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_column_result_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "ColumnRotations"
-    })
+    rotations_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_column_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "ColumnRotations",
+        },
+    )
     rotations_parent.setExpanded(True)
 
     if not column_elements:
@@ -400,48 +499,66 @@ def add_pushover_column_rotations_section(
     # All Rotations item
     all_rotations_item = QTreeWidgetItem(rotations_parent)
     all_rotations_item.setText(0, "    ├ All Rotations")
-    all_rotations_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_all_column_rotations",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "ColumnRotations"
-    })
+    all_rotations_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_all_column_rotations",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "ColumnRotations",
+        },
+    )
 
     for element in column_elements:
         column_item = QTreeWidgetItem(rotations_parent)
         column_item.setText(0, f"    › {element.name}")
-        column_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_column_element",
-            "result_set_id": result_set_id,
-            "element_id": element.id,
-            "element_name": element.name
-        })
+        column_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_column_element",
+                "result_set_id": result_set_id,
+                "element_id": element.id,
+                "element_name": element.name,
+            },
+        )
         column_item.setExpanded(True)
 
         # R2 Direction
         r2_item = QTreeWidgetItem(column_item)
         r2_item.setText(0, "      ├ R2")
-        r2_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_column_result",
-            "result_set_id": result_set_id,
-            "result_type": "ColumnRotations_R2",
-            "direction": "R2",
-            "element_id": element.id
-        })
+        r2_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_column_result",
+                "result_set_id": result_set_id,
+                "result_type": "ColumnRotations_R2",
+                "direction": "R2",
+                "element_id": element.id,
+            },
+        )
 
         # R3 Direction
         r3_item = QTreeWidgetItem(column_item)
         r3_item.setText(0, "      └ R3")
-        r3_item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pushover_column_result",
-            "result_set_id": result_set_id,
-            "result_type": "ColumnRotations_R3",
-            "direction": "R3",
-            "element_id": element.id
-        })
+        r3_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "pushover_column_result",
+                "result_set_id": result_set_id,
+                "result_type": "ColumnRotations_R3",
+                "direction": "R3",
+                "element_id": element.id,
+            },
+        )
 
 
-def add_pushover_beams_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_pushover_beams_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
     """Add Beams section for pushover beam rotations."""
     has_beam_rotations = browser._has_data_for(result_set_id, "BeamRotations")
 
@@ -450,12 +567,16 @@ def add_pushover_beams_section(browser: "ResultsTreeBrowser", parent_item: QTree
 
     beams_parent = QTreeWidgetItem(parent_item)
     beams_parent.setText(0, "› Beams")
-    beams_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "element_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "element_type": "Beams"
-    })
+    beams_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "element_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "element_type": "Beams",
+        },
+    )
     beams_parent.setExpanded(False)
 
     beam_elements = [elem for elem in browser.elements if elem.element_type == "Beam"]
@@ -471,12 +592,16 @@ def add_pushover_beam_rotations_section(
     """Add Beam Rotations subsection with Plot and Table views."""
     rotations_parent = QTreeWidgetItem(parent_item)
     rotations_parent.setText(0, "  › Rotations (R3 Plastic)")
-    rotations_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_beam_result_type_parent",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "BeamRotations"
-    })
+    rotations_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_beam_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "BeamRotations",
+        },
+    )
     rotations_parent.setExpanded(False)
 
     if not beam_elements:
@@ -488,25 +613,179 @@ def add_pushover_beam_rotations_section(
     # Plot tab
     plot_item = QTreeWidgetItem(rotations_parent)
     plot_item.setText(0, "    ├ Plot")
-    plot_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_beam_rotations_plot",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "BeamRotations"
-    })
+    plot_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_beam_rotations_plot",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "BeamRotations",
+        },
+    )
 
     # Table tab
     table_item = QTreeWidgetItem(rotations_parent)
     table_item.setText(0, "    └ Table")
-    table_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_beam_rotations_table",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "BeamRotations"
-    })
+    table_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_beam_rotations_table",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "BeamRotations",
+        },
+    )
 
 
-def add_pushover_joint_displacements_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_pushover_braces_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
+    """Add Braces section for pushover brace axial forces."""
+    has_brace_axials = browser._has_data_for(result_set_id, "BraceAxials")
+
+    if not has_brace_axials:
+        return
+
+    braces_parent = QTreeWidgetItem(parent_item)
+    braces_parent.setText(0, "› Braces")
+    braces_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "element_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "element_type": "Braces",
+        },
+    )
+    braces_parent.setExpanded(False)
+
+    brace_elements = [elem for elem in browser.elements if elem.element_type == "Brace"]
+    add_pushover_brace_axials_section(browser, braces_parent, result_set_id, brace_elements)
+
+
+def add_pushover_brace_axials_section(
+    browser: "ResultsTreeBrowser",
+    parent_item: QTreeWidgetItem,
+    result_set_id: int,
+    brace_elements: List,
+) -> None:
+    """Add pushover brace axial force plot, table, and per-brace views."""
+    axials_parent = QTreeWidgetItem(parent_item)
+    axials_parent.setText(0, "  › Axial Forces")
+    axials_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_brace_result_type_parent",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "BraceAxials",
+        },
+    )
+    axials_parent.setExpanded(False)
+
+    plot_item = QTreeWidgetItem(axials_parent)
+    plot_item.setText(0, "    ├ Plot")
+    plot_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "brace_axials_plot",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "AllBraceAxials",
+            "element_id": -1,
+        },
+    )
+
+    table_item = QTreeWidgetItem(axials_parent)
+    table_item.setText(0, "    ├ Table")
+    table_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "brace_axials_table",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "BraceAxialsTable",
+            "element_id": -1,
+        },
+    )
+
+    if not brace_elements:
+        placeholder = QTreeWidgetItem(axials_parent)
+        placeholder.setText(0, "    └ No braces found")
+        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+        return
+
+    for idx, element in enumerate(brace_elements):
+        branch_prefix = "    └" if idx == len(brace_elements) - 1 else "    ›"
+        brace_item = QTreeWidgetItem(axials_parent)
+        brace_item.setText(0, f"{branch_prefix} {element.name}")
+        brace_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "element_parent",
+                "result_set_id": result_set_id,
+                "category": "Pushover",
+                "element_id": element.id,
+                "element_name": element.name,
+            },
+        )
+        brace_item.setExpanded(False)
+
+        min_item = QTreeWidgetItem(brace_item)
+        min_item.setText(0, "      ├ Min")
+        min_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "result_type",
+                "result_set_id": result_set_id,
+                "category": "Pushover",
+                "result_type": "BraceAxials",
+                "direction": "Min",
+                "element_id": element.id,
+            },
+        )
+
+        max_item = QTreeWidgetItem(brace_item)
+        max_item.setText(0, "      ├ Max")
+        max_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "result_type",
+                "result_set_id": result_set_id,
+                "category": "Pushover",
+                "result_type": "BraceAxials",
+                "direction": "Max",
+                "element_id": element.id,
+            },
+        )
+
+        maxmin_item = QTreeWidgetItem(brace_item)
+        maxmin_item.setText(0, "      └ Max/Min")
+        maxmin_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "type": "maxmin_results",
+                "result_set_id": result_set_id,
+                "category": "Pushover",
+                "result_type": "MaxMinBraceAxials",
+                "element_id": element.id,
+            },
+        )
+
+
+def add_pushover_joint_displacements_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
     """Add Joint Displacements section for pushover joint results."""
     has_joint_displacements = browser._has_data_for(result_set_id, "JointDisplacements")
 
@@ -515,44 +794,59 @@ def add_pushover_joint_displacements_section(browser: "ResultsTreeBrowser", pare
 
     joint_disp_parent = QTreeWidgetItem(parent_item)
     joint_disp_parent.setText(0, "› Joint Displacements")
-    joint_disp_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_joint_displacements_parent",
-        "result_set_id": result_set_id
-    })
+    joint_disp_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_joint_displacements_parent", "result_set_id": result_set_id},
+    )
     joint_disp_parent.setExpanded(True)
 
     # Ux direction
     ux_item = QTreeWidgetItem(joint_disp_parent)
     ux_item.setText(0, "  › Ux (mm)")
-    ux_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_joint_displacement_result",
-        "result_set_id": result_set_id,
-        "result_type": "JointDisplacements_Ux",
-        "direction": "Ux"
-    })
+    ux_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_joint_displacement_result",
+            "result_set_id": result_set_id,
+            "result_type": "JointDisplacements_Ux",
+            "direction": "Ux",
+        },
+    )
 
     # Uy direction
     uy_item = QTreeWidgetItem(joint_disp_parent)
     uy_item.setText(0, "  › Uy (mm)")
-    uy_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_joint_displacement_result",
-        "result_set_id": result_set_id,
-        "result_type": "JointDisplacements_Uy",
-        "direction": "Uy"
-    })
+    uy_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_joint_displacement_result",
+            "result_set_id": result_set_id,
+            "result_type": "JointDisplacements_Uy",
+            "direction": "Uy",
+        },
+    )
 
     # Uz direction
     uz_item = QTreeWidgetItem(joint_disp_parent)
     uz_item.setText(0, "  › Uz (mm)")
-    uz_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_joint_displacement_result",
-        "result_set_id": result_set_id,
-        "result_type": "JointDisplacements_Uz",
-        "direction": "Uz"
-    })
+    uz_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_joint_displacement_result",
+            "result_set_id": result_set_id,
+            "result_type": "JointDisplacements_Uz",
+            "direction": "Uz",
+        },
+    )
 
 
-def add_pushover_soil_pressures_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_pushover_soil_pressures_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
     """Add Soil Pressures section for pushover foundation results."""
     has_soil_pressures = browser._has_data_for(result_set_id, "SoilPressures_Min")
 
@@ -561,34 +855,45 @@ def add_pushover_soil_pressures_section(browser: "ResultsTreeBrowser", parent_it
 
     soil_parent = QTreeWidgetItem(parent_item)
     soil_parent.setText(0, "  › Soil Pressures (Min)")
-    soil_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_soil_pressure_parent",
-        "result_set_id": result_set_id
-    })
+    soil_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_soil_pressure_parent", "result_set_id": result_set_id},
+    )
     soil_parent.setExpanded(False)
 
     # Plot tab
     plot_item = QTreeWidgetItem(soil_parent)
     plot_item.setText(0, "    ├ Plot")
-    plot_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_soil_pressure_plot",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "AllSoilPressures"
-    })
+    plot_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_soil_pressure_plot",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "AllSoilPressures",
+        },
+    )
 
     # Table tab
     table_item = QTreeWidgetItem(soil_parent)
     table_item.setText(0, "    └ Table")
-    table_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_soil_pressure_table",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "SoilPressuresTable"
-    })
+    table_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_soil_pressure_table",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "SoilPressuresTable",
+        },
+    )
 
 
-def add_pushover_vertical_displacements_section(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int) -> None:
+def add_pushover_vertical_displacements_section(
+    browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, result_set_id: int
+) -> None:
     """Add Vertical Displacements section for pushover foundation results."""
     has_vert_displacements = browser._has_data_for(result_set_id, "VerticalDisplacements_Min")
 
@@ -597,28 +902,37 @@ def add_pushover_vertical_displacements_section(browser: "ResultsTreeBrowser", p
 
     vert_disp_parent = QTreeWidgetItem(parent_item)
     vert_disp_parent.setText(0, "  › Vertical Displacements (Min)")
-    vert_disp_parent.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_vertical_displacement_parent",
-        "result_set_id": result_set_id
-    })
+    vert_disp_parent.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {"type": "pushover_vertical_displacement_parent", "result_set_id": result_set_id},
+    )
     vert_disp_parent.setExpanded(False)
 
     # Plot tab
     plot_item = QTreeWidgetItem(vert_disp_parent)
     plot_item.setText(0, "    ├ Plot")
-    plot_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_vertical_displacement_plot",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "AllVerticalDisplacements"
-    })
+    plot_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_vertical_displacement_plot",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "AllVerticalDisplacements",
+        },
+    )
 
     # Table tab
     table_item = QTreeWidgetItem(vert_disp_parent)
     table_item.setText(0, "    └ Table")
-    table_item.setData(0, Qt.ItemDataRole.UserRole, {
-        "type": "pushover_vertical_displacement_table",
-        "result_set_id": result_set_id,
-        "category": "Pushover",
-        "result_type": "VerticalDisplacementsTable"
-    })
+    table_item.setData(
+        0,
+        Qt.ItemDataRole.UserRole,
+        {
+            "type": "pushover_vertical_displacement_table",
+            "result_set_id": result_set_id,
+            "category": "Pushover",
+            "result_type": "VerticalDisplacementsTable",
+        },
+    )

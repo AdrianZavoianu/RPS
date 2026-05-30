@@ -12,6 +12,8 @@ from .models import ResultDataset, ResultDatasetMeta
 from .story_loader import StoryProvider
 
 SUMMARY_COLUMNS = ("Avg", "Max", "Min")
+PUSHOVER_MAX_SUMMARY_COLUMN = "Max"
+PUSHOVER_MAX_SUMMARY_TYPES = {"Drifts", "Forces", "Displacements"}
 
 
 def build_standard_dataset(
@@ -61,15 +63,17 @@ def build_standard_dataset(
     numeric_df = transformed_df.apply(pd.to_numeric, errors="coerce")
 
     config = get_config(transformer_key)
-    value_columns = [
-        col for col in numeric_df.columns if col not in SUMMARY_COLUMNS
-    ]
+    value_columns = [col for col in numeric_df.columns if col not in SUMMARY_COLUMNS]
     summary_columns = [col for col in SUMMARY_COLUMNS if col in numeric_df.columns]
 
     if config.multiplier != 1.0:
         numeric_df[value_columns] = numeric_df[value_columns] * config.multiplier
         if summary_columns:
             numeric_df[summary_columns] = numeric_df[summary_columns] * config.multiplier
+
+    if is_pushover and result_type in PUSHOVER_MAX_SUMMARY_TYPES and value_columns:
+        numeric_df[PUSHOVER_MAX_SUMMARY_COLUMN] = numeric_df[value_columns].max(axis=1)
+        summary_columns = [PUSHOVER_MAX_SUMMARY_COLUMN]
 
     numeric_df.insert(0, "Story", story_labels)
 

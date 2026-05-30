@@ -88,6 +88,7 @@ class FolderImportWorker(QThread):
         selected_load_cases: Optional[Set[str]] = None,
         conflict_resolution: Optional[Dict[str, Dict[str, Optional[str]]]] = None,
         prescan_result: Optional[PrescanResult] = None,
+        existing_data_resolution: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> None:
         super().__init__()
         self.context = context
@@ -99,6 +100,7 @@ class FolderImportWorker(QThread):
         self.selected_load_cases = selected_load_cases
         self.conflict_resolution = conflict_resolution
         self.prescan_result = prescan_result
+        self.existing_data_resolution = existing_data_resolution
         self._session_factory = context.session_factory()
         self.result_set_id: Optional[int] = None
 
@@ -129,6 +131,7 @@ class FolderImportWorker(QThread):
                     selected_load_cases=self.selected_load_cases,
                     conflict_resolution=self.conflict_resolution,
                     prescan_result=self.prescan_result,
+                    existing_data_resolution=self.existing_data_resolution,
                 )
                 stats = importer.import_all()
                 if hasattr(importer, "result_set_id"):
@@ -145,7 +148,9 @@ class FolderImportWorker(QThread):
                     result_types=self.result_types,
                     session_factory=self._session_factory,
                     progress_callback=self._on_progress,
-                    file_summaries=self.prescan_result.file_summaries if self.prescan_result else None,
+                    file_summaries=(
+                        self.prescan_result.file_summaries if self.prescan_result else None
+                    ),
                 )
                 stats = importer.import_all()
                 if hasattr(importer, "result_set_id"):

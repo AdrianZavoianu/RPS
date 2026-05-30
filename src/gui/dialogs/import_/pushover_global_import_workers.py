@@ -32,6 +32,7 @@ class PushoverImportWorker(QThread):
         wall_files: List[Path],
         column_files: List[Path],
         beam_files: List[Path],
+        brace_files: List[Path],
         selected_load_cases_x: List[str],
         selected_load_cases_y: List[str],
     ):
@@ -44,6 +45,7 @@ class PushoverImportWorker(QThread):
         self.wall_files = wall_files
         self.column_files = column_files
         self.beam_files = beam_files
+        self.brace_files = brace_files
         self.selected_load_cases_x = selected_load_cases_x
         self.selected_load_cases_y = selected_load_cases_y
 
@@ -55,8 +57,11 @@ class PushoverImportWorker(QThread):
         )
         from processing.pushover.pushover_wall_importer_v2 import PushoverWallImporter
         from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporter
-        from processing.pushover.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
+        from processing.pushover.pushover_column_shear_importer_v2 import (
+            PushoverColumnShearImporter,
+        )
         from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporter
+        from processing.pushover.pushover_brace_importer import PushoverBraceImporter
 
         try:
             session = self.session_factory()
@@ -179,11 +184,33 @@ class PushoverImportWorker(QThread):
                         beam_stats = beam_importer.import_all()
                         self._merge_stats(combined_stats, beam_stats)
 
+                # Import brace results if present
+                if self.brace_files:
+                    self.progress.emit("Importing brace axial forces...", 82, 100)
+
+                    for brace_file in self.brace_files:
+                        brace_importer = PushoverBraceImporter(
+                            project_id=self.project_id,
+                            session=session,
+                            result_set_id=result_set.id,
+                            file_path=brace_file,
+                            selected_load_cases_x=self.selected_load_cases_x,
+                            selected_load_cases_y=self.selected_load_cases_y,
+                            progress_callback=lambda msg, curr, total: self._on_progress(
+                                f"Braces: {msg}",
+                                82 + curr // 20,
+                                100,
+                            ),
+                        )
+
+                        brace_stats = brace_importer.import_all()
+                        self._merge_stats(combined_stats, brace_stats)
+
                 # Import joint displacements if present (from global results files)
                 if self.global_files:
                     from processing.pushover.pushover_joint_importer import PushoverJointImporter
 
-                    self.progress.emit("Importing joint displacements...", 85, 100)
+                    self.progress.emit("Importing joint displacements...", 88, 100)
 
                     for joint_file in self.global_files:
                         joint_importer = PushoverJointImporter(
@@ -195,7 +222,7 @@ class PushoverImportWorker(QThread):
                             selected_load_cases_y=self.selected_load_cases_y,
                             progress_callback=lambda msg, curr, total: self._on_progress(
                                 f"Joints: {msg}",
-                                85 + curr // 20,
+                                88 + curr // 25,
                                 100,
                             ),
                         )
@@ -205,9 +232,11 @@ class PushoverImportWorker(QThread):
 
                 # Import soil pressures if present (from global results files)
                 if self.global_files:
-                    from processing.pushover.pushover_soil_pressure_importer import PushoverSoilPressureImporter
+                    from processing.pushover.pushover_soil_pressure_importer import (
+                        PushoverSoilPressureImporter,
+                    )
 
-                    self.progress.emit("Importing soil pressures...", 90, 100)
+                    self.progress.emit("Importing soil pressures...", 92, 100)
 
                     for soil_file in self.global_files:
                         soil_importer = PushoverSoilPressureImporter(
@@ -219,7 +248,7 @@ class PushoverImportWorker(QThread):
                             selected_load_cases_y=self.selected_load_cases_y,
                             progress_callback=lambda msg, curr, total: self._on_progress(
                                 f"Soil Pressures: {msg}",
-                                90 + curr // 20,
+                                92 + curr // 25,
                                 100,
                             ),
                         )
@@ -233,7 +262,7 @@ class PushoverImportWorker(QThread):
                         PushoverVertDisplacementImporter,
                     )
 
-                    self.progress.emit("Importing vertical displacements...", 95, 100)
+                    self.progress.emit("Importing vertical displacements...", 96, 100)
 
                     for vert_file in self.global_files:
                         vert_importer = PushoverVertDisplacementImporter(
@@ -245,7 +274,7 @@ class PushoverImportWorker(QThread):
                             selected_load_cases_y=self.selected_load_cases_y,
                             progress_callback=lambda msg, curr, total: self._on_progress(
                                 f"Vert Displ: {msg}",
-                                95 + curr // 20,
+                                96 + curr // 25,
                                 100,
                             ),
                         )
@@ -296,12 +325,15 @@ class PushoverScanWorker(QThread):
         from processing.pushover.pushover_wall_parser import PushoverWallParser
         from processing.pushover.pushover_column_parser import PushoverColumnParser
         from processing.pushover.pushover_beam_parser import PushoverBeamParser
+        from processing.pushover.pushover_brace_parser import PushoverBraceParser
 
         try:
             self.progress.emit("Scanning folder...", 0, 100)
 
             # Find Excel files
-            excel_files = list(self.folder_path.glob("*.xlsx")) + list(self.folder_path.glob("*.xls"))
+            excel_files = list(self.folder_path.glob("*.xlsx")) + list(
+                self.folder_path.glob("*.xls")
+            )
 
             if not excel_files:
                 self.error.emit("No Excel files found in folder")
@@ -311,11 +343,13 @@ class PushoverScanWorker(QThread):
             wall_files = []
             column_files = []
             beam_files = []
+            brace_files = []
             all_load_cases_x = set()
             all_load_cases_y = set()
             all_piers = set()
             all_columns = set()
             all_beams = set()
+            all_braces = set()
 
             total = len(excel_files)
             for idx, file_path in enumerate(excel_files):
@@ -413,7 +447,37 @@ class PushoverScanWorker(QThread):
                 except Exception:
                     logger.debug("Not a beam results file: %s", file_path.name)
 
-            if not global_files and not wall_files and not column_files and not beam_files:
+                # Try parsing as brace results
+                try:
+                    brace_parser = PushoverBraceParser(file_path)
+                    directions = brace_parser.get_available_directions()
+
+                    if directions:
+                        brace_files.append(file_path)
+
+                        # Extract load cases for each direction
+                        if "X" in directions:
+                            cases_x = brace_parser.get_output_cases("X")
+                            all_load_cases_x.update(cases_x)
+
+                        if "Y" in directions:
+                            cases_y = brace_parser.get_output_cases("Y")
+                            all_load_cases_y.update(cases_y)
+
+                        # Extract braces
+                        braces = brace_parser.get_braces()
+                        all_braces.update(braces)
+
+                except Exception:
+                    logger.debug("Not a brace results file: %s", file_path.name)
+
+            if (
+                not global_files
+                and not wall_files
+                and not column_files
+                and not beam_files
+                and not brace_files
+            ):
                 self.error.emit("No valid pushover results files found in folder")
                 return
 
@@ -423,11 +487,13 @@ class PushoverScanWorker(QThread):
                 "wall_files": wall_files,
                 "column_files": column_files,
                 "beam_files": beam_files,
+                "brace_files": brace_files,
                 "load_cases_x": sorted(all_load_cases_x),
                 "load_cases_y": sorted(all_load_cases_y),
                 "piers": sorted(all_piers),
                 "columns": sorted(all_columns),
                 "beams": sorted(all_beams),
+                "braces": sorted(all_braces),
             }
 
             self.finished.emit(results)

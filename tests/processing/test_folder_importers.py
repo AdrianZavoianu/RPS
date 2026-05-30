@@ -7,6 +7,7 @@ from pathlib import Path
 
 from processing.folder_importer import FolderImporter
 from processing.folder_importer import EnhancedFolderImporter
+from processing.selective_data_importer import SelectiveDataImporter
 
 
 class DummySession:
@@ -18,6 +19,22 @@ class DummySession:
 
     def close(self):
         pass
+
+    def query(self, *args, **kwargs):
+        class DummyQuery:
+            def filter(self, *args, **kwargs):
+                return self
+
+            def filter_by(self, *args, **kwargs):
+                return self
+
+            def first(self):
+                return types.SimpleNamespace(id=1)
+
+            def all(self):
+                return []
+
+        return DummyQuery()
 
 
 def _dummy_session_factory():
@@ -156,3 +173,61 @@ def test_enhanced_folder_importer_shares_aggregator(tmp_path, monkeypatch):
     assert stats["files_processed"] == 1
     assert stats["displacements"] == 4
     assert "resolved" in stats["errors"]
+
+
+def test_enhanced_folder_importer_allows_load_cases_by_result_type_task(tmp_path):
+    folder = tmp_path / "enhanced_task_scope"
+    folder.mkdir()
+
+    importer = EnhancedFolderImporter(
+        folder_path=str(folder),
+        project_name="Tower",
+        result_set_name="DES",
+        session_factory=_dummy_session_factory,
+        selected_load_cases={"LC1"},
+    )
+
+    allowed_by_task = importer._get_allowed_load_cases_by_task(
+        file_name="file1.xlsx",
+        file_sheets={
+            "Story Drifts": ["LC1"],
+            "Story Forces": ["LC1"],
+        },
+        selected_load_cases={"LC1"},
+        resolution={},
+        already_imported={"Story Drifts": {"LC1"}},
+    )
+
+    assert "Story Drifts" not in allowed_by_task
+    assert allowed_by_task["Story Forces"] == {"LC1"}
+
+
+def test_selective_importer_missing_task_scope_does_not_fall_back_to_file_scope():
+    importer = SelectiveDataImporter.__new__(SelectiveDataImporter)
+    importer.allowed_load_cases = {"LC1"}
+    importer.allowed_load_cases_by_task = {"Story Forces": {"LC1"}}
+
+    assert importer._task_load_cases("Story Drifts") == set()
+    assert importer._task_load_cases("Story Forces") == {"LC1"}
+
+
+def test_enhanced_folder_importer_reads_nested_existing_resolution(tmp_path):
+    folder = tmp_path / "enhanced_nested_resolution"
+    folder.mkdir()
+
+    importer = EnhancedFolderImporter(
+        folder_path=str(folder),
+        project_name="Tower",
+        result_set_name="DES",
+        session_factory=_dummy_session_factory,
+        selected_load_cases={"LC1"},
+        existing_data_resolution={
+            "LC1": {
+                "Story Drifts": "keep",
+                "Story Forces": "replace",
+            }
+        },
+    )
+
+    assert importer._existing_data_action("LC1", "Story Drifts") == "keep"
+    assert importer._existing_data_action("LC1", "Story Forces") == "replace"

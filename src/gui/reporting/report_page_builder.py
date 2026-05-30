@@ -115,7 +115,7 @@ class ReportPageBuilder:
 
         current_y = y + title_h + title_gap
 
-        # Check if this is an element section (Beam/Column Rotations)
+        # Check if this is an element section
         if section.category == "Element" and hasattr(section, "element_data") and section.element_data is not None:
             if section.result_type == "BeamRotations":
                 self._draw_beam_rotations_section(
@@ -125,12 +125,20 @@ class ReportPageBuilder:
                 self._draw_column_rotations_section(
                     painter, x, current_y, width, total_height - title_h - title_gap, section
                 )
+            else:
+                self._draw_generic_element_section(
+                    painter, x, current_y, width, total_height - title_h - title_gap, section
+                )
             return
 
-        # Check if this is a joint section (Soil Pressures)
+        # Check if this is a joint section
         if section.category == "Joint" and hasattr(section, "joint_data") and section.joint_data is not None:
             if section.result_type == "SoilPressures_Min":
                 self._draw_soil_pressures_section(
+                    painter, x, current_y, width, total_height - title_h - title_gap, section
+                )
+            else:
+                self._draw_generic_joint_section(
                     painter, x, current_y, width, total_height - title_h - title_gap, section
                 )
             return
@@ -231,3 +239,72 @@ class ReportPageBuilder:
         remaining = available_height - table_h - 12
         if remaining > 60:
             self._plot_renderer.draw_soil_pressures_plot(painter, x, current_y, width, remaining, plot_data, load_cases)
+
+    def _draw_generic_element_section(
+        self,
+        painter: QPainter,
+        x: int,
+        y: int,
+        width: int,
+        available_height: int,
+        section,
+    ) -> None:
+        """Draw generic element section with top 10 table and scatter plot."""
+        element_data = section.element_data
+        top_10_df = element_data["top_10"]
+        load_cases = element_data["load_cases"]
+        stories = element_data.get("stories", [])
+        plot_data_max = element_data.get("plot_data_max", [])
+        plot_data_min = element_data.get("plot_data_min", [])
+
+        table_h = self._table_renderer.draw_generic_element_table(painter, x, y, width, top_10_df, load_cases)
+        current_y = y + table_h + 8
+
+        # Try to infer label and unit from result type
+        rt = section.result_type
+        if rt == "WallShears":
+            x_label = "Wall Shear [kN]"
+        elif rt == "QuadRotations":
+            x_label = "Quad Rotation [%]"
+        elif rt == "ColumnShears":
+            x_label = "Column Shear [kN]"
+        elif rt == "ColumnAxials":
+            x_label = "Column Axial [kN]"
+        elif rt == "BraceAxials":
+            x_label = "Brace Axial [kN]"
+        else:
+            x_label = rt
+
+        remaining = available_height - table_h - 12
+        if remaining > 60:
+            self._plot_renderer.draw_generic_element_plot(
+                painter, x, current_y, width, remaining, plot_data_max, plot_data_min, stories, x_label
+            )
+
+    def _draw_generic_joint_section(
+        self,
+        painter: QPainter,
+        x: int,
+        y: int,
+        width: int,
+        available_height: int,
+        section,
+    ) -> None:
+        """Draw generic joint section with top 10 table and scatter plot."""
+        joint_data = section.joint_data
+        top_10_df = joint_data["top_10"]
+        load_cases = joint_data["load_cases"]
+        plot_data = joint_data.get("plot_data", [])
+
+        table_h = self._table_renderer.draw_generic_joint_table(painter, x, y, width, top_10_df, load_cases)
+        current_y = y + table_h + 8
+
+        rt = section.result_type
+        if rt == "VerticalDisplacements_Min":
+            y_label = "Displacement (mm)"
+        else:
+            y_label = rt
+
+        remaining = available_height - table_h - 12
+        if remaining > 60:
+            self._plot_renderer.draw_generic_joint_plot(painter, x, current_y, width, remaining, plot_data, load_cases, y_label)

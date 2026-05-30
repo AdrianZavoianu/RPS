@@ -1,8 +1,11 @@
 """Tests for PushoverElementBaseImporter and v2 importers."""
 
-import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
 
 from processing.pushover.pushover_element_base import (
     PushoverElementBaseImporter,
@@ -16,16 +19,16 @@ class TestResultTypeConfig:
     def test_config_creation(self):
         """Test creating a ResultTypeConfig."""
         config = ResultTypeConfig(
-            name='R2',
-            attr_name='rotations_r2',
-            cache_suffix='_R2',
-            model_field='rotation',
+            name="R2",
+            attr_name="rotations_r2",
+            cache_suffix="_R2",
+            model_field="rotation",
             model_class=MagicMock,
         )
-        assert config.name == 'R2'
-        assert config.attr_name == 'rotations_r2'
-        assert config.cache_suffix == '_R2'
-        assert config.model_field == 'rotation'
+        assert config.name == "R2"
+        assert config.attr_name == "rotations_r2"
+        assert config.cache_suffix == "_R2"
+        assert config.model_field == "rotation"
 
 
 class TestPushoverElementBaseImporter:
@@ -37,26 +40,35 @@ class TestPushoverElementBaseImporter:
 
         # Create a concrete subclass for testing
         class TestImporter(PushoverElementBaseImporter):
-            def _get_element_type(self): return 'Test'
-            def _create_parser(self): return MagicMock()
-            def _get_story_mapping_sheet(self): return 'Sheet1'
-            def _get_result_types(self): return []
-            def _create_result_record(self, *args): return MagicMock()
+            def _get_element_type(self):
+                return "Test"
+
+            def _create_parser(self):
+                return MagicMock()
+
+            def _get_story_mapping_sheet(self):
+                return "Sheet1"
+
+            def _get_result_types(self):
+                return []
+
+            def _create_result_record(self, *args):
+                return MagicMock()
 
         importer = TestImporter(
             project_id=1,
             session=mock_session,
             result_set_id=2,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1', 'LC2'],
-            selected_load_cases_y=['LC3'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1", "LC2"],
+            selected_load_cases_y=["LC3"],
         )
 
         assert importer.project_id == 1
         assert importer.result_set_id == 2
-        assert importer.file_path == Path('test.xlsx')
-        assert importer.selected_load_cases_x == {'LC1', 'LC2'}
-        assert importer.selected_load_cases_y == {'LC3'}
+        assert importer.file_path == Path("test.xlsx")
+        assert importer.selected_load_cases_x == {"LC1", "LC2"}
+        assert importer.selected_load_cases_y == {"LC3"}
         assert importer.unique_name_story_map == {}
 
     def test_create_stats_dict_includes_result_types(self):
@@ -64,33 +76,41 @@ class TestPushoverElementBaseImporter:
         mock_session = MagicMock()
 
         class TestImporter(PushoverElementBaseImporter):
-            def _get_element_type(self): return 'Test'
-            def _create_parser(self): return MagicMock()
-            def _get_story_mapping_sheet(self): return 'Sheet1'
+            def _get_element_type(self):
+                return "Test"
+
+            def _create_parser(self):
+                return MagicMock()
+
+            def _get_story_mapping_sheet(self):
+                return "Sheet1"
+
             def _get_result_types(self):
                 return [
-                    ResultTypeConfig('R2', 'rotations_r2', '_R2', 'rotation', MagicMock),
-                    ResultTypeConfig('R3', 'rotations_r3', '_R3', 'rotation', MagicMock),
+                    ResultTypeConfig("R2", "rotations_r2", "_R2", "rotation", MagicMock),
+                    ResultTypeConfig("R3", "rotations_r3", "_R3", "rotation", MagicMock),
                 ]
-            def _create_result_record(self, *args): return MagicMock()
+
+            def _create_result_record(self, *args):
+                return MagicMock()
 
         importer = TestImporter(
             project_id=1,
             session=mock_session,
             result_set_id=2,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
-            selected_load_cases_y=['LC2'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
+            selected_load_cases_y=["LC2"],
         )
 
         stats = importer._create_stats_dict()
 
-        assert 'errors' in stats
-        assert 'result_set_id' in stats
-        assert 'x_r2' in stats
-        assert 'y_r2' in stats
-        assert 'x_r3' in stats
-        assert 'y_r3' in stats
+        assert "errors" in stats
+        assert "result_set_id" in stats
+        assert "x_r2" in stats
+        assert "y_r2" in stats
+        assert "x_r3" in stats
+        assert "y_r3" in stats
 
 
 class TestPushoverBeamImporterV2:
@@ -99,6 +119,7 @@ class TestPushoverBeamImporterV2:
     def test_import(self):
         """Test that beam importer can be imported."""
         from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
+
         assert PushoverBeamImporterV2 is not None
 
     def test_get_element_type(self):
@@ -110,12 +131,12 @@ class TestPushoverBeamImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
-        assert importer._get_element_type() == 'Beam'
+        assert importer._get_element_type() == "Beam"
 
     def test_get_cache_base_name(self):
         """Test cache base name is 'BeamRotations'."""
@@ -126,12 +147,12 @@ class TestPushoverBeamImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
-        assert importer._get_cache_base_name() == 'BeamRotations'
+        assert importer._get_cache_base_name() == "BeamRotations"
 
     def test_result_types_config(self):
         """Test that result types are configured correctly."""
@@ -143,8 +164,8 @@ class TestPushoverBeamImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
@@ -152,11 +173,52 @@ class TestPushoverBeamImporterV2:
         assert len(result_types) == 1
 
         config = result_types[0]
-        assert config.name == 'rotations'
-        assert config.attr_name == 'rotations'
-        assert config.cache_suffix == ''
-        assert config.model_field == 'r3_plastic'
+        assert config.name == "rotations"
+        assert config.attr_name == "rotations"
+        assert config.cache_suffix == ""
+        assert config.model_field == "r3_plastic"
         assert config.model_class == BeamRotation
+
+
+class TestPushoverWallImporterV2:
+    """Tests for pushover wall and quad rotation importer behavior."""
+
+    def test_ensure_entities_uses_quad_rotation_stories_from_both_directions(self):
+        """Quad stories can differ by direction and must not depend on pier shears."""
+        from processing.pushover.pushover_wall_importer_v2 import PushoverWallImporterV2
+
+        importer = PushoverWallImporterV2(
+            project_id=1,
+            session=MagicMock(),
+            result_set_id=1,
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LCX"],
+            selected_load_cases_y=["LCY"],
+        )
+        parser = MagicMock()
+        parser.parse.side_effect = [
+            SimpleNamespace(
+                shears_v2=None,
+                shears_v3=None,
+                rotations=pd.DataFrame({"Name": [101.0], "Story": ["Level 1"], "LCX": [0.001]}),
+            ),
+            SimpleNamespace(
+                shears_v2=None,
+                shears_v3=None,
+                rotations=pd.DataFrame({"Name": [101.0], "Story": ["Level 2"], "LCY": [0.002]}),
+            ),
+        ]
+        importer._parser = parser
+        importer._get_or_create_element = MagicMock(return_value=MagicMock())
+        importer._get_or_create_story = MagicMock()
+        importer._get_or_create_result_category_id = MagicMock(return_value=10)
+
+        importer._ensure_entities()
+
+        parser.parse.assert_any_call("X")
+        parser.parse.assert_any_call("Y")
+        story_names = [call.args[0] for call in importer._get_or_create_story.call_args_list]
+        assert story_names == ["Level 1", "Level 2"]
 
 
 class TestPushoverColumnImporterV2:
@@ -165,6 +227,7 @@ class TestPushoverColumnImporterV2:
     def test_import(self):
         """Test that column importer can be imported."""
         from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
+
         assert PushoverColumnImporterV2 is not None
 
     def test_get_element_type(self):
@@ -176,12 +239,12 @@ class TestPushoverColumnImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
-        assert importer._get_element_type() == 'Column'
+        assert importer._get_element_type() == "Column"
 
     def test_get_cache_base_name(self):
         """Test cache base name is 'ColumnRotations'."""
@@ -192,12 +255,12 @@ class TestPushoverColumnImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
-        assert importer._get_cache_base_name() == 'ColumnRotations'
+        assert importer._get_cache_base_name() == "ColumnRotations"
 
     def test_result_types_config(self):
         """Test that result types are configured correctly for R2 and R3."""
@@ -209,8 +272,8 @@ class TestPushoverColumnImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
@@ -218,15 +281,15 @@ class TestPushoverColumnImporterV2:
         assert len(result_types) == 2
 
         r2_config = result_types[0]
-        assert r2_config.name == 'R2'
-        assert r2_config.attr_name == 'rotations_r2'
-        assert r2_config.cache_suffix == '_R2'
+        assert r2_config.name == "R2"
+        assert r2_config.attr_name == "rotations_r2"
+        assert r2_config.cache_suffix == "_R2"
         assert r2_config.model_class == ColumnRotation
 
         r3_config = result_types[1]
-        assert r3_config.name == 'R3'
-        assert r3_config.attr_name == 'rotations_r3'
-        assert r3_config.cache_suffix == '_R3'
+        assert r3_config.name == "R3"
+        assert r3_config.attr_name == "rotations_r3"
+        assert r3_config.cache_suffix == "_R3"
         assert r3_config.model_class == ColumnRotation
 
     def test_cache_query_filters(self):
@@ -239,8 +302,8 @@ class TestPushoverColumnImporterV2:
             project_id=1,
             session=mock_session,
             result_set_id=1,
-            file_path=Path('test.xlsx'),
-            selected_load_cases_x=['LC1'],
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
             selected_load_cases_y=[],
         )
 
@@ -251,6 +314,34 @@ class TestPushoverColumnImporterV2:
         assert len(filters) == 1
 
 
+class TestPushoverBraceImporter:
+    """Tests for pushover brace axial importer configuration."""
+
+    def test_import(self):
+        """Test that brace importer can be imported."""
+        from processing.pushover.pushover_brace_importer import PushoverBraceImporter
+
+        assert PushoverBraceImporter is not None
+
+    def test_create_stats_dict(self):
+        """Test brace axial stat keys."""
+        from processing.pushover.pushover_brace_importer import PushoverBraceImporter
+
+        importer = PushoverBraceImporter(
+            project_id=1,
+            session=MagicMock(),
+            result_set_id=1,
+            file_path=Path("test.xlsx"),
+            selected_load_cases_x=["LC1"],
+            selected_load_cases_y=[],
+        )
+
+        stats = importer._create_stats_dict()
+        assert stats["x_axials"] == 0
+        assert stats["y_axials"] == 0
+        assert stats["result_set_id"] == 1
+
+
 class TestBackwardCompatibility:
     """Tests for backward compatibility between v1 and v2 importers."""
 
@@ -258,12 +349,14 @@ class TestBackwardCompatibility:
         """Test that v2 module exports PushoverBeamImporter alias."""
         from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporter
         from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporterV2
+
         assert PushoverBeamImporter is PushoverBeamImporterV2
 
     def test_column_importer_alias_exists(self):
         """Test that v2 module exports PushoverColumnImporter alias."""
         from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporter
         from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporterV2
+
         assert PushoverColumnImporter is PushoverColumnImporterV2
 
     def test_v2_importers_have_backward_compat_aliases(self):
@@ -271,7 +364,9 @@ class TestBackwardCompatibility:
         # V2 modules export non-V2 names for backward compatibility
         from processing.pushover.pushover_beam_importer_v2 import PushoverBeamImporter
         from processing.pushover.pushover_column_importer_v2 import PushoverColumnImporter
-        from processing.pushover.pushover_column_shear_importer_v2 import PushoverColumnShearImporter
+        from processing.pushover.pushover_column_shear_importer_v2 import (
+            PushoverColumnShearImporter,
+        )
         from processing.pushover.pushover_wall_importer_v2 import PushoverWallImporter
 
         # All should be importable (aliased to V2 classes)

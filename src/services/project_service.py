@@ -225,6 +225,21 @@ def result_set_exists(context: ProjectContext, result_set_name: str) -> bool:
         session.close()
 
 
+def get_result_sets_for_project(context: ProjectContext) -> List[tuple]:
+    """Return (id, name) pairs for all result sets in the project."""
+    session = context.session()
+    try:
+        project_repo = ProjectRepository(session)
+        project = project_repo.get_by_name(context.name)
+        if not project:
+            return []
+        result_repo = ResultSetRepository(session)
+        result_sets = result_repo.get_by_project(project.id)
+        return [(rs.id, rs.name) for rs in result_sets]
+    finally:
+        session.close()
+
+
 def delete_project_context(name: str) -> bool:
     """Delete a project from catalog and remove its database and folder.
 

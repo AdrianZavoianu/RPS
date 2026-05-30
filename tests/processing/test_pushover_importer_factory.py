@@ -25,6 +25,7 @@ class TestImporterRegistry:
         assert "column_rotation" in IMPORTER_REGISTRY
         assert "column_shear" in IMPORTER_REGISTRY
         assert "beam_rotation" in IMPORTER_REGISTRY
+        assert "brace_axial" in IMPORTER_REGISTRY
 
     def test_registry_contains_joint_importers(self):
         """Test that registry contains joint importers."""
@@ -45,7 +46,9 @@ class TestImporterRegistry:
             module_path, class_name = value
             assert isinstance(module_path, str), f"Module path for {key} is not a string"
             assert isinstance(class_name, str), f"Class name for {key} is not a string"
-            assert module_path.startswith("processing."), f"Module path for {key} doesn't start with 'processing.'"
+            assert module_path.startswith(
+                "processing."
+            ), f"Module path for {key} doesn't start with 'processing.'"
 
 
 class TestGetImporterClass:
@@ -106,7 +109,9 @@ class TestCreateImporter:
         mock_session = MagicMock()
 
         # Use curve importer as it's simpler
-        with patch("processing.pushover.pushover_importer_factory.get_importer_class") as mock_get_class:
+        with patch(
+            "processing.pushover.pushover_importer_factory.get_importer_class"
+        ) as mock_get_class:
             mock_importer_class = MagicMock()
             mock_instance = MagicMock()
             mock_importer_class.return_value = mock_instance
@@ -131,7 +136,9 @@ class TestCreateImporter:
         mock_callback = MagicMock()
         file_path = Path("test.xlsx")
 
-        with patch("processing.pushover.pushover_importer_factory.get_importer_class") as mock_get_class:
+        with patch(
+            "processing.pushover.pushover_importer_factory.get_importer_class"
+        ) as mock_get_class:
             mock_importer_class = MagicMock()
             mock_get_class.return_value = mock_importer_class
 
@@ -174,7 +181,8 @@ class TestHelperFunctions:
         assert "column_rotation" in result
         assert "column_shear" in result
         assert "beam_rotation" in result
-        assert len(result) == 4
+        assert "brace_axial" in result
+        assert len(result) == 5
 
     def test_get_joint_importers(self):
         """Test get_joint_importers returns correct list."""

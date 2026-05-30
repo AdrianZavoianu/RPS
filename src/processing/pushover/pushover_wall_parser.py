@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PushoverWallResults:
     """Container for pushover wall results data."""
+
     shears_v2: Optional[pd.DataFrame] = None  # V2 shear forces
     shears_v3: Optional[pd.DataFrame] = None  # V3 shear forces
     rotations: Optional[pd.DataFrame] = None  # Quad rotations
@@ -49,7 +50,9 @@ class PushoverWallParser:
         self._sheet_cache = {}
         self._results_cache = {}
 
-    def _read_sheet(self, sheet_name: str, header: int = 1, drop_units: bool = True) -> pd.DataFrame:
+    def _read_sheet(
+        self, sheet_name: str, header: int = 1, drop_units: bool = True
+    ) -> pd.DataFrame:
         """Read and cache a sheet from the Excel file."""
         cache_key = (sheet_name, header, drop_units)
         if cache_key in self._sheet_cache:
@@ -74,7 +77,7 @@ class PushoverWallParser:
         Raises:
             ValueError: If invalid direction specified
         """
-        if direction.upper() not in ['X', 'Y', 'XY']:
+        if direction.upper() not in ["X", "Y", "XY"]:
             raise ValueError(f"Invalid direction '{direction}'. Must be 'X', 'Y', or 'XY'.")
 
         direction = direction.upper()
@@ -87,13 +90,13 @@ class PushoverWallParser:
 
         # Extract each force type with error handling
         try:
-            results.shears_v2 = self._extract_pier_forces(direction, 'V2')
+            results.shears_v2 = self._extract_pier_forces(direction, "V2")
         except Exception as e:
             logger.warning(f"Failed to extract V2 shears for {direction}: {e}")
             results.shears_v2 = None
 
         try:
-            results.shears_v3 = self._extract_pier_forces(direction, 'V3')
+            results.shears_v3 = self._extract_pier_forces(direction, "V3")
         except Exception as e:
             logger.warning(f"Failed to extract V3 shears for {direction}: {e}")
             results.shears_v3 = None
@@ -121,39 +124,71 @@ class PushoverWallParser:
             DataFrame with columns: Pier, Story, [Output Cases...]
         """
         # Read Pier Forces sheet
-        df = self._read_sheet('Pier Forces')
+        df = self._read_sheet("Pier Forces")
 
         # Filter columns
-        df = df[['Story', 'Pier', 'Output Case', 'Step Type', 'Location', force_column]]
+        df = df[["Story", "Pier", "Output Case", "Step Type", "Location", force_column]]
 
         # Filter by pushover direction
-        if direction == 'XY':
-            df = df[df['Output Case'].apply(lambda x: 'X' in str(x).upper() and 'Y' in str(x).upper())]
+        if direction == "XY":
+            df = df[
+                df["Output Case"].apply(lambda x: "X" in str(x).upper() and "Y" in str(x).upper())
+            ]
         else:
-            df = df[df['Output Case'].apply(lambda x: direction in str(x).upper())]
+            df = df[df["Output Case"].apply(lambda x: direction in str(x).upper())]
 
         # Filter to Bottom location only (per ETPS pattern)
-        df = df[df['Location'] == 'Bottom']
+        df = df[df["Location"] == "Bottom"]
 
         # Preserve pier and story order from Excel
-        pier_order = df['Pier'].unique().tolist()
-        story_order = df['Story'].unique().tolist()
+        pier_order = df["Pier"].unique().tolist()
+        story_order = df["Story"].unique().tolist()
 
         # Calculate maximum force per pier, story, output case
         # Group by Pier, Story, Output Case and take max across step types (Max/Min)
-        max_forces = df.groupby(['Pier', 'Story', 'Output Case'], sort=False)[force_column].apply(
-            lambda x: x.abs().max()  # Take absolute max (handles both Max and Min step types)
-        ).unstack().reset_index()
+        max_forces = (
+            df.groupby(["Pier", "Story", "Output Case"], sort=False)[force_column]
+            .apply(
+                lambda x: x.abs().max()  # Take absolute max (handles both Max and Min step types)
+            )
+            .unstack()
+            .reset_index()
+        )
 
         # Restore original order
-        max_forces['Pier'] = pd.Categorical(max_forces['Pier'], categories=pier_order, ordered=True)
-        max_forces['Story'] = pd.Categorical(max_forces['Story'], categories=story_order, ordered=True)
-        max_forces = max_forces.sort_values(['Pier', 'Story']).reset_index(drop=True)
+        max_forces["Pier"] = pd.Categorical(max_forces["Pier"], categories=pier_order, ordered=True)
+        max_forces["Story"] = pd.Categorical(
+            max_forces["Story"], categories=story_order, ordered=True
+        )
+        max_forces = max_forces.sort_values(["Pier", "Story"]).reset_index(drop=True)
 
         # Remove column index name
         max_forces.columns.name = None
 
         return max_forces
+
+    @staticmethod
+    def _format_quad_label(value) -> str:
+        """Normalize ETABS numeric ids while preserving named quad labels."""
+        if pd.isna(value):
+            return ""
+        text = str(value).strip()
+        try:
+            numeric = float(text)
+            if numeric.is_integer():
+                return str(int(numeric))
+        except (TypeError, ValueError):
+            pass
+        return text
+
+    def _quad_label_series(self, df: pd.DataFrame) -> pd.Series:
+        """Return per-row quad labels with a numeric id fallback for blank names."""
+        name_labels = df["Name"].apply(self._format_quad_label)
+        if "PropertyName" not in df.columns:
+            return name_labels
+
+        property_labels = df["PropertyName"].apply(self._format_quad_label)
+        return property_labels.where(property_labels != "", name_labels)
 
     def _extract_quad_rotations(self, direction: str) -> pd.DataFrame:
         """Extract quad rotations for specified direction.
@@ -165,34 +200,49 @@ class PushoverWallParser:
             direction: 'X', 'Y', or 'XY'
 
         Returns:
-            DataFrame with columns: Name, Story, [Output Cases...]
+            DataFrame with columns: Quad, Story, [Output Cases...]
         """
         # Read Quad Strain Gauge - Rotation sheet
-        df = self._read_sheet('Quad Strain Gauge - Rotation')
+        df = self._read_sheet("Quad Strain Gauge - Rotation")
 
         # Filter columns
-        df = df[['Story', 'Name', 'Output Case', 'StepType', 'Rotation']]
+        required_cols = ["Story", "Name", "Output Case", "StepType", "Rotation"]
+        if "PropertyName" in df.columns:
+            required_cols.append("PropertyName")
+        df = df[required_cols].copy()
+        df["Quad"] = self._quad_label_series(df)
 
         # Filter by pushover direction
-        if direction == 'XY':
-            df = df[df['Output Case'].apply(lambda x: 'X' in str(x).upper() and 'Y' in str(x).upper())]
+        if direction == "XY":
+            df = df[
+                df["Output Case"].apply(lambda x: "X" in str(x).upper() and "Y" in str(x).upper())
+            ]
         else:
-            df = df[df['Output Case'].apply(lambda x: direction in str(x).upper())]
+            df = df[df["Output Case"].apply(lambda x: direction in str(x).upper())]
 
         # Preserve element and story order from Excel
-        element_order = df['Name'].unique().tolist()
-        story_order = df['Story'].unique().tolist()
+        element_order = df["Quad"].unique().tolist()
+        story_order = df["Story"].unique().tolist()
 
         # Calculate maximum rotation per element, story, output case
         # Group by Name, Story, Output Case and take absolute max across step types (Max/Min)
-        max_rotations = df.groupby(['Name', 'Story', 'Output Case'], sort=False)['Rotation'].apply(
-            lambda x: x.abs().max()  # Take absolute max (handles both Max and Min step types)
-        ).unstack().reset_index()
+        max_rotations = (
+            df.groupby(["Quad", "Story", "Output Case"], sort=False)["Rotation"]
+            .apply(
+                lambda x: x.abs().max()  # Take absolute max (handles both Max and Min step types)
+            )
+            .unstack()
+            .reset_index()
+        )
 
         # Restore original order
-        max_rotations['Name'] = pd.Categorical(max_rotations['Name'], categories=element_order, ordered=True)
-        max_rotations['Story'] = pd.Categorical(max_rotations['Story'], categories=story_order, ordered=True)
-        max_rotations = max_rotations.sort_values(['Name', 'Story']).reset_index(drop=True)
+        max_rotations["Quad"] = pd.Categorical(
+            max_rotations["Quad"], categories=element_order, ordered=True
+        )
+        max_rotations["Story"] = pd.Categorical(
+            max_rotations["Story"], categories=story_order, ordered=True
+        )
+        max_rotations = max_rotations.sort_values(["Quad", "Story"]).reset_index(drop=True)
 
         # Remove column index name
         max_rotations.columns.name = None
@@ -206,21 +256,21 @@ class PushoverWallParser:
             List of detected directions (e.g., ['X', 'Y', 'XY'])
         """
         # Read Pier Forces sheet to detect directions
-        df = self._read_sheet('Pier Forces')
+        df = self._read_sheet("Pier Forces")
 
-        output_cases = df['Output Case'].unique()
+        output_cases = df["Output Case"].unique()
 
         directions = []
 
         # Check for bi-directional first (both X and Y in name)
-        if any('X' in str(case).upper() and 'Y' in str(case).upper() for case in output_cases):
-            directions.append('XY')
+        if any("X" in str(case).upper() and "Y" in str(case).upper() for case in output_cases):
+            directions.append("XY")
 
         # Check for uni-directional
-        if any('X' in str(case).upper() for case in output_cases):
-            directions.append('X')
-        if any('Y' in str(case).upper() for case in output_cases):
-            directions.append('Y')
+        if any("X" in str(case).upper() for case in output_cases):
+            directions.append("X")
+        if any("Y" in str(case).upper() for case in output_cases):
+            directions.append("Y")
 
         return directions
 
@@ -233,17 +283,21 @@ class PushoverWallParser:
         Returns:
             List of output case names
         """
-        df = self._read_sheet('Pier Forces')
+        df = self._read_sheet("Pier Forces")
 
         direction = direction.upper()
 
         # Filter based on direction
-        if direction == 'XY':
+        if direction == "XY":
             # Both X and Y in name
-            cases = df[df['Output Case'].apply(lambda x: 'X' in str(x).upper() and 'Y' in str(x).upper())]['Output Case'].unique()
+            cases = df[
+                df["Output Case"].apply(lambda x: "X" in str(x).upper() and "Y" in str(x).upper())
+            ]["Output Case"].unique()
         else:
             # X or Y in name
-            cases = df[df['Output Case'].apply(lambda x: direction in str(x).upper())]['Output Case'].unique()
+            cases = df[df["Output Case"].apply(lambda x: direction in str(x).upper())][
+                "Output Case"
+            ].unique()
 
         return sorted(cases.tolist())
 
@@ -253,9 +307,9 @@ class PushoverWallParser:
         Returns:
             List of pier names
         """
-        df = self._read_sheet('Pier Forces')
+        df = self._read_sheet("Pier Forces")
 
-        return sorted(df['Pier'].unique().tolist())
+        return sorted(df["Pier"].unique().tolist())
 
     def get_quads(self) -> List[str]:
         """Get list of all quad elements in the file.
@@ -264,9 +318,8 @@ class PushoverWallParser:
             List of quad element names
         """
         try:
-            df = self._read_sheet('Quad Strain Gauge - Rotation')
+            df = self._read_sheet("Quad Strain Gauge - Rotation")
 
-            # Convert Name column to strings (they're stored as floats)
-            return sorted([str(int(name)) for name in df['Name'].unique().tolist()])
+            return sorted(self._quad_label_series(df).dropna().unique().tolist())
         except Exception:
             return []

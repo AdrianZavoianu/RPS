@@ -23,6 +23,8 @@ from .data_importer import DataImporter
 from .selective_data_importer import SelectiveDataImporter
 from .base_importer import BaseFolderImporter
 from .import_stats import ImportStatsAggregator
+from .import_tasks import DEFAULT_IMPORT_TASKS, ImportTask
+from .import_runner import task_sheets_available
 from . import import_logging
 
 logger = logging.getLogger(__name__)
@@ -38,9 +40,13 @@ ConflictResolver = Callable[
 
 TARGET_SHEETS: Dict[str, List[str]] = {
     "Story Drifts": ["Story Drifts"],
-    "Diaphragm Accelerations": ["Story Accelerations"],  # Using Diaphragm Accelerations sheet (newer ETABS format)
+    "Diaphragm Accelerations": [
+        "Story Accelerations"
+    ],  # Using Diaphragm Accelerations sheet (newer ETABS format)
     "Story Forces": ["Story Forces"],
-    "Joint Displacements": ["Floors Displacements"],  # Floor displacements from Joint Displacements sheet
+    "Joint Displacements": [
+        "Floors Displacements"
+    ],  # Floor displacements from Joint Displacements sheet
     "Pier Forces": ["Pier Forces"],
     # Columns sheet supplies both shears and axial compression envelopes.
     "Element Forces - Columns": ["Column Forces", "Column Axials"],
@@ -129,7 +135,7 @@ class FolderImporter(BaseFolderImporter):
 
                 # Special case: If both Joint Displacements and Fou sheets exist, also enable Vertical Displacements
                 # This is separate from Floor Displacements which also uses Joint Displacements
-                if ("Joint Displacements" in available and "Fou" in available):
+                if "Joint Displacements" in available and "Fou" in available:
                     if "Vertical Displacements" not in matched_labels:
                         matched_labels.append("Vertical Displacements")
 
@@ -240,6 +246,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         prescan_result: Optional[PrescanResult] = None,
         selection_provider: Optional[SelectionProvider] = None,
         conflict_resolver: Optional[ConflictResolver] = None,
+        existing_data_resolution: Optional[Dict[str, Dict[str, str]] | Dict[str, str]] = None,
     ):
         """
         Initialize enhanced folder importer.
@@ -254,6 +261,8 @@ class EnhancedFolderImporter(BaseFolderImporter):
             parent_widget: Parent widget for dialogs
             selected_load_cases: Pre-selected load cases (if None, all will be imported)
             conflict_resolution: Sheet-based conflict resolution {sheet: {load_case: file}}
+            existing_data_resolution: Resolution for existing DB data
+                {load_case: {result_type: "keep" | "replace"}}
         """
         super().__init__(
             folder_path=folder_path,
@@ -271,6 +280,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         self.prescan_result = prescan_result
         self.selection_provider = selection_provider
         self.conflict_resolver = conflict_resolver
+        self.existing_data_resolution = existing_data_resolution or {}
         self._file_summaries: Dict[str, FilePrescanSummary] = (
             prescan_result.file_summaries if prescan_result else {}
         )
@@ -280,7 +290,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
     def prescan_folder_for_load_cases(
         folder_path: Path,
         result_types: Optional[Set[str]] = None,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> Tuple[Dict[str, Dict[str, List[str]]], List[str]]:
         """
         Static method to pre-scan a folder for load cases.
@@ -380,7 +390,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
         if self.conflict_resolution is None:
             resolution = {}
             if self.conflict_resolver:
-                conflicts = self._detect_conflicts_in_selection(file_load_cases, selected_load_cases)
+                conflicts = self._detect_conflicts_in_selection(
+                    file_load_cases, selected_load_cases
+                )
                 if conflicts:
                     resolution = self.conflict_resolver(conflicts)
                     if resolution is None:
@@ -443,7 +455,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
         if not self._cache_builder:
             return
 
-        self._report_progress("Building result caches...", len(self.excel_files), len(self.excel_files))
+        self._report_progress(
+            "Building result caches...", len(self.excel_files), len(self.excel_files)
+        )
         start = perf_counter()
         self._cache_builder.generate_cache_if_needed()
         duration = perf_counter() - start
@@ -455,6 +469,106 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 "source": "finalize",
             }
         )
+
+    @staticmethod
+    def _load_cases_for_task(
+        task: ImportTask,
+        file_sheets: Dict[str, List[str]],
+    ) -> Set[str]:
+        """Return load cases present for a task in a prescanned file."""
+        load_cases: Set[str] = set()
+        for sheet_name in task.sheets:
+            load_cases.update(file_sheets.get(sheet_name, []))
+
+        if task.label == "Vertical Displacements":
+            load_cases.update(file_sheets.get("Vertical Displacements", []))
+
+        return load_cases
+
+    @staticmethod
+    def _task_sheet_available(task: ImportTask, file_sheets: Dict[str, List[str]]) -> bool:
+        available_sheets = set(file_sheets)
+        if task.label == "Vertical Displacements" and "Vertical Displacements" in available_sheets:
+            return True
+        return task_sheets_available(task, lambda sheet_name: sheet_name in available_sheets)
+
+    def _get_allowed_load_cases_by_task(
+        self,
+        file_name: str,
+        file_sheets: Dict[str, List[str]],
+        selected_load_cases: Set[str],
+        resolution: Dict[str, Dict[str, Optional[str]]],
+        already_imported: Dict[str, Set[str]],
+    ) -> Dict[str, Set[str]]:
+        """Determine importable load cases for each result type task."""
+        allowed_by_task: Dict[str, Set[str]] = {}
+
+        for task in DEFAULT_IMPORT_TASKS:
+            if not self._should_import(task.label):
+                continue
+            if not self._task_sheet_available(task, file_sheets):
+                continue
+
+            task_allowed: Set[str] = set()
+            for load_case in self._load_cases_for_task(task, file_sheets):
+                if load_case not in selected_load_cases:
+                    continue
+
+                use_case = True
+                for sheet_name in task.sheets:
+                    sheet_resolution = resolution.get(sheet_name, {})
+                    if load_case not in sheet_resolution:
+                        continue
+                    winner = sheet_resolution[load_case]
+                    if winner is None or winner != file_name:
+                        use_case = False
+                        break
+
+                if load_case in already_imported.get(task.label, set()):
+                    use_case = False
+
+                if use_case:
+                    task_allowed.add(load_case)
+
+            if task_allowed:
+                allowed_by_task[task.label] = task_allowed
+
+        return allowed_by_task
+
+    def _collect_incoming_load_cases_by_task(
+        self,
+        file_load_cases: Dict[str, Dict[str, List[str]]],
+        selected_load_cases: Set[str],
+        resolution: Dict[str, Dict[str, Optional[str]]],
+    ) -> Dict[str, Set[str]]:
+        """Collect the result types/load cases that will actually be imported."""
+        incoming_by_task: Dict[str, Set[str]] = {}
+        already_imported: Dict[str, Set[str]] = {}
+
+        for file_name, file_sheets in file_load_cases.items():
+            allowed_by_task = self._get_allowed_load_cases_by_task(
+                file_name,
+                file_sheets,
+                selected_load_cases,
+                resolution,
+                already_imported,
+            )
+            for task_label, load_cases in allowed_by_task.items():
+                incoming_by_task.setdefault(task_label, set()).update(load_cases)
+                already_imported.setdefault(task_label, set()).update(load_cases)
+
+        return incoming_by_task
+
+    def _existing_data_action(self, load_case: str, task_label: str) -> Optional[str]:
+        """Return keep/replace for a load case and result type.
+
+        The old dialog returned {load_case: action}; support that shape so
+        tests or saved callers do not break.
+        """
+        action_or_mapping = self.existing_data_resolution.get(load_case)
+        if isinstance(action_or_mapping, dict):
+            return action_or_mapping.get(task_label)
+        return action_or_mapping
 
     def _collect_load_case_sources(
         self,
@@ -474,8 +588,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
 
     @staticmethod
     def detect_conflicts_in_selection(
-        file_load_cases: Dict[str, Dict[str, List[str]]],
-        selected_load_cases: Set[str]
+        file_load_cases: Dict[str, Dict[str, List[str]]], selected_load_cases: Set[str]
     ) -> Dict[str, Dict[str, List[str]]]:
         """
         Detect conflicts only among selected load cases.
@@ -492,9 +605,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         return detect_conflicts(file_load_cases, selected_load_cases)
 
     def _detect_conflicts_in_selection(
-        self,
-        file_load_cases: Dict[str, Dict[str, List[str]]],
-        selected_load_cases: Set[str]
+        self, file_load_cases: Dict[str, Dict[str, List[str]]], selected_load_cases: Set[str]
     ) -> Dict[str, Dict[str, List[str]]]:
         """
         Detect conflicts only among selected load cases.
@@ -515,7 +626,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         self,
         file_load_cases: Dict[str, Dict[str, List[str]]],
         selected_load_cases: Set[str],
-        resolution: Dict[str, Dict[str, Optional[str]]]
+        resolution: Dict[str, Dict[str, Optional[str]]],
     ) -> Dict[str, Any]:
         """
         Import files with load case selection and conflict resolution applied (sheet-aware).
@@ -533,40 +644,117 @@ class EnhancedFolderImporter(BaseFolderImporter):
         aggregator = ImportStatsAggregator()
         result_set_id: Optional[int] = None
 
-        # Track which load cases have been imported per sheet
-        imported_load_cases_by_sheet = {}  # {sheet: {load_cases}}
+        incoming_by_task = self._collect_incoming_load_cases_by_task(
+            file_load_cases,
+            selected_load_cases,
+            resolution,
+        )
+        load_cases_to_skip_by_task: Dict[str, Set[str]] = {}
+
+        # Handle existing data resolution (deletions and skips)
+        session = self._session_factory()
+        try:
+            from processing.data_deleter import LoadCaseDataDeleter
+            from processing.import_preparation import get_existing_load_cases_by_task_for_result_set
+            from database.repositories import (
+                ProjectRepository,
+                ResultSetRepository,
+                ResultCategoryRepository,
+            )
+            from database.models import LoadCase
+
+            project_repo = ProjectRepository(session)
+            project = project_repo.get_by_name(self.project_name)
+
+            if project and self.existing_data_resolution:
+                result_repo = ResultSetRepository(session)
+                result_set = result_repo.get_or_create(project.id, self.result_set_name)
+                category_repo = ResultCategoryRepository(session)
+                result_category = category_repo.get_or_create(result_set.id, "Envelopes", "Global")
+
+                existing_by_task = get_existing_load_cases_by_task_for_result_set(
+                    session,
+                    project.id,
+                    result_set.id,
+                )
+
+                replace_by_task: Dict[str, Set[str]] = {}
+                for task_label, incoming_cases in incoming_by_task.items():
+                    existing_cases = existing_by_task.get(task_label, set())
+                    conflicting_cases = incoming_cases & existing_cases
+                    for load_case in conflicting_cases:
+                        action = self._existing_data_action(load_case, task_label)
+                        if action == "keep":
+                            load_cases_to_skip_by_task.setdefault(task_label, set()).add(load_case)
+                        elif action == "replace":
+                            replace_by_task.setdefault(task_label, set()).add(load_case)
+
+                for task_label, load_cases_to_replace in replace_by_task.items():
+                    load_cases = (
+                        session.query(LoadCase)
+                        .filter(
+                            LoadCase.project_id == project.id,
+                            LoadCase.name.in_(load_cases_to_replace),
+                        )
+                        .all()
+                    )
+                    lc_ids = [lc.id for lc in load_cases]
+
+                    if lc_ids:
+                        self._report_progress(
+                            "Cleaning up existing data for replacement...", 0, len(self.excel_files)
+                        )
+                        LoadCaseDataDeleter.delete_load_case_data(
+                            session,
+                            project.id,
+                            result_set.id,
+                            result_category.id,
+                            lc_ids,
+                            task_labels=[task_label],
+                        )
+        except Exception as e:
+            stats["errors"].append(f"Failed handling existing data resolution: {e}")
+            logger.exception("Failed handling existing data resolution")
+        finally:
+            session.close()
+
+        # Track which load cases have been imported per result type task
+        # Initialize with skipped load cases so they are ignored
+        imported_load_cases_by_task: Dict[str, Set[str]] = {
+            task.label: set(load_cases_to_skip_by_task.get(task.label, set()))
+            for task in DEFAULT_IMPORT_TASKS
+        }
 
         for idx, file_path in enumerate(self.excel_files):
             file_name = file_path.name
             if file_name not in file_load_cases:
                 continue
 
-            self._report_progress(
-                f"Importing {file_name}...",
-                idx,
-                len(self.excel_files)
-            )
+            self._report_progress(f"Importing {file_name}...", idx, len(self.excel_files))
 
-            allowed_load_cases = self._get_allowed_load_cases(
+            allowed_load_cases_by_task = self._get_allowed_load_cases_by_task(
                 file_name,
                 file_load_cases[file_name],
                 selected_load_cases,
                 resolution,
-                imported_load_cases_by_sheet
+                imported_load_cases_by_task,
+            )
+            allowed_load_cases = (
+                set().union(*allowed_load_cases_by_task.values())
+                if allowed_load_cases_by_task
+                else set()
             )
 
             if not allowed_load_cases:
                 self._report_progress(
-                    f"  Skipping {file_name} (no allowed load cases)",
-                    idx,
-                    len(self.excel_files)
+                    f"  Skipping {file_name} (no allowed load cases)", idx, len(self.excel_files)
                 )
                 continue
 
             self._report_progress(
                 f"  Importing {len(allowed_load_cases)} load case(s): {', '.join(sorted(allowed_load_cases)[:3])}{'...' if len(allowed_load_cases) > 3 else ''}",
                 idx,
-                len(self.excel_files)
+                len(self.excel_files),
             )
 
             try:
@@ -581,6 +769,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
                     foundation_joints=self.foundation_joints,
                     file_summary=self._file_summaries.get(file_name),
                     generate_cache=False,
+                    allowed_load_cases_by_task=allowed_load_cases_by_task,
                 )
                 if self._cache_builder is None:
                     self._cache_builder = importer
@@ -594,11 +783,9 @@ class EnhancedFolderImporter(BaseFolderImporter):
                 aggregator.extend_errors(file_stats.get("errors") or [])
                 stats["phase_timings"].extend(file_stats.get("phase_timings") or [])
 
-                for sheet_name in file_load_cases[file_name].keys():
-                    imported_load_cases_by_sheet.setdefault(sheet_name, set())
-                    sheet_load_cases = set(file_load_cases[file_name][sheet_name])
-                    imported_load_cases_by_sheet[sheet_name].update(
-                        allowed_load_cases & sheet_load_cases
+                for task_label, task_load_cases in allowed_load_cases_by_task.items():
+                    imported_load_cases_by_task.setdefault(task_label, set()).update(
+                        task_load_cases
                     )
 
             except Exception as e:
@@ -643,7 +830,7 @@ class EnhancedFolderImporter(BaseFolderImporter):
         file_sheets: Dict[str, List[str]],
         selected_load_cases: Set[str],
         resolution: Dict[str, Dict[str, Optional[str]]],
-        already_imported: Dict[str, Set[str]]
+        already_imported: Dict[str, Set[str]],
     ) -> Set[str]:
         """
         Determine which load cases to import from this file (sheet-aware).

@@ -23,6 +23,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QCheckBox,
+    QComboBox,
+    QRadioButton,
+    QButtonGroup,
 )
 
 from gui.styles import COLORS
@@ -34,6 +37,7 @@ from services.project_service import (
     ensure_project_context,
     get_project_context,
     result_set_exists,
+    get_result_sets_for_project,
 )
 from .folder_import_workers import LoadCaseScanWorker, FolderImportWorker
 
@@ -133,15 +137,42 @@ class FolderImportDialog(QDialog):
         result_group = QGroupBox("Result Set")
         result_group.setStyleSheet(self._groupbox_style())
         result_layout = QVBoxLayout(result_group)
-        result_layout.setContentsMargins(8, 8, 8, 8)  # Reduced from 12 to 8
+        result_layout.setContentsMargins(8, 4, 8, 8)  # Reduced from 12 to 8
 
+        # Mode Toggle
+        mode_layout = QHBoxLayout()
+        self.mode_group = QButtonGroup(self)
+
+        self.rb_new = QRadioButton("Create New")
+        self.rb_new.setChecked(True)
+        self.mode_group.addButton(self.rb_new)
+        mode_layout.addWidget(self.rb_new)
+
+        self.rb_existing = QRadioButton("Add to Existing")
+        self.mode_group.addButton(self.rb_existing)
+        mode_layout.addWidget(self.rb_existing)
+
+        mode_layout.addStretch()
+        result_layout.addLayout(mode_layout)
+
+        # Input stack (Line edit for new, Combo box for existing)
         self.result_set_input = QLineEdit()
         self.result_set_input.setPlaceholderText("e.g., DES, MCE, SLE...")
         self.result_set_input.setStyleSheet(self._entry_style(required=True))
         self.result_set_input.setProperty("empty", "true")  # Initially empty
         self.result_set_input.textChanged.connect(self.update_import_button)
-        self.result_set_input.textChanged.connect(lambda: self._update_empty_state(self.result_set_input))
+        self.result_set_input.textChanged.connect(
+            lambda: self._update_empty_state(self.result_set_input)
+        )
         result_layout.addWidget(self.result_set_input)
+
+        self.result_set_combo = QComboBox()
+        self.result_set_combo.setStyleSheet(self._entry_style(required=True))
+        self.result_set_combo.hide()
+        self.result_set_combo.currentTextChanged.connect(self.update_import_button)
+        result_layout.addWidget(self.result_set_combo)
+
+        self.mode_group.buttonClicked.connect(self._on_mode_changed)
 
         config_row.addWidget(result_group, stretch=1)
 
@@ -193,13 +224,15 @@ class FolderImportDialog(QDialog):
         self.load_case_scroll = QScrollArea()
         self.load_case_scroll.setWidgetResizable(True)
         self.load_case_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.load_case_scroll.setStyleSheet(f"""
+        self.load_case_scroll.setStyleSheet(
+            f"""
             QScrollArea {{
                 border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 background-color: {COLORS['background']};
             }}
-        """)
+        """
+        )
 
         # Container for load case checkboxes
         self.load_case_container = QWidget()
@@ -273,7 +306,44 @@ class FolderImportDialog(QDialog):
             self.project_input.setText(self.context.name)
             self.project_input.setEnabled(False)
             self.project_name = self.context.name
+            self._populate_result_sets_combo()
         self.update_import_button()
+
+    def _on_mode_changed(self) -> None:
+        """Handle toggling between Create New and Add to Existing."""
+        is_new = self.rb_new.isChecked()
+        self.result_set_input.setVisible(is_new)
+        self.result_set_combo.setVisible(not is_new)
+
+        if not is_new and self.project_input.text().strip():
+            self._populate_result_sets_combo()
+
+        self.update_import_button()
+
+    def _populate_result_sets_combo(self) -> None:
+        """Populate the combo box with existing result sets for the project."""
+        project_name = self.project_input.text().strip()
+        if not project_name:
+            self.result_set_combo.clear()
+            return
+
+        context = self._get_validation_context(project_name)
+        if not context:
+            self.result_set_combo.clear()
+            return
+
+        result_sets = get_result_sets_for_project(context)
+
+        current_text = self.result_set_combo.currentText()
+        self.result_set_combo.clear()
+
+        for _, name in result_sets:
+            self.result_set_combo.addItem(name)
+
+        if current_text:
+            idx = self.result_set_combo.findText(current_text)
+            if idx >= 0:
+                self.result_set_combo.setCurrentIndex(idx)
 
     # ------------------------------------------------------------------ #
     # Styling helpers
@@ -338,7 +408,6 @@ class FolderImportDialog(QDialog):
                 background-color: {COLORS['card']};
             }}
         """
-
 
     @staticmethod
     def _log_style() -> str:
@@ -485,11 +554,13 @@ class FolderImportDialog(QDialog):
         self.load_case_sources = load_case_sources
 
         # Debug: Log load cases with multiple sources
-        multi_source_lcs = [(lc, sources) for lc, sources in load_case_sources.items() if len(sources) > 1]
+        multi_source_lcs = [
+            (lc, sources) for lc, sources in load_case_sources.items() if len(sources) > 1
+        ]
         if multi_source_lcs:
             self.log_output.append(f"- Load cases in multiple files ({len(multi_source_lcs)}):")
             for lc, sources in sorted(multi_source_lcs)[:5]:  # Show first 5
-                file_list = ', '.join(set(f for f, s in sources))
+                file_list = ", ".join(set(f for f, s in sources))
                 self.log_output.append(f"  {lc}: {len(sources)} occurrences in {file_list}")
             if len(multi_source_lcs) > 5:
                 self.log_output.append(f"  ... and {len(multi_source_lcs) - 5} more")
@@ -575,7 +646,8 @@ class FolderImportDialog(QDialog):
             checkbox.setChecked(True)  # Default: all selected
 
             # Classic checkbox styling with visible checkmark
-            checkbox.setStyleSheet(f"""
+            checkbox.setStyleSheet(
+                f"""
                 QCheckBox {{
                     color: {COLORS['text']};
                     font-size: 13px;
@@ -607,7 +679,8 @@ class FolderImportDialog(QDialog):
                     background-color: rgba(255, 255, 255, 0.03);
                     border-radius: 4px;
                 }}
-            """)
+            """
+            )
 
             self.load_case_layout.addWidget(checkbox)
             self.load_case_checkboxes[lc] = checkbox
@@ -639,7 +712,12 @@ class FolderImportDialog(QDialog):
     def update_import_button(self) -> None:
         """Enable/disable the import button based on current inputs."""
         project_name = self.project_input.text().strip()
-        result_set_name = self.result_set_input.text().strip()
+
+        is_new_mode = self.rb_new.isChecked()
+        if is_new_mode:
+            result_set_name = self.result_set_input.text().strip()
+        else:
+            result_set_name = self.result_set_combo.currentText().strip()
 
         has_folder = self.folder_path is not None
         has_files = bool(self._excel_files)
@@ -650,14 +728,19 @@ class FolderImportDialog(QDialog):
         validation_message = ""
         is_valid = True
 
-        # Check for duplicate result set
-        if has_project and has_result_set:
+        # Check for duplicate result set if creating new
+        if has_project and has_result_set and is_new_mode:
             context = self._get_validation_context(project_name)
             if context and result_set_exists(context, result_set_name):
                 is_valid = False
 
         self.import_btn.setEnabled(
-            has_folder and has_files and has_project and has_result_set and is_valid and scan_complete
+            has_folder
+            and has_files
+            and has_project
+            and has_result_set
+            and is_valid
+            and scan_complete
         )
 
     def _get_validation_context(self, project_name: str) -> Optional[ProjectContext]:
@@ -683,7 +766,11 @@ class FolderImportDialog(QDialog):
             return
 
         project_name = self.project_input.text().strip()
-        result_set_name = self.result_set_input.text().strip()
+        is_new_mode = self.rb_new.isChecked()
+        if is_new_mode:
+            result_set_name = self.result_set_input.text().strip()
+        else:
+            result_set_name = self.result_set_combo.currentText().strip()
 
         if not project_name:
             self.log_output.append("- Enter a project name before importing.")
@@ -706,7 +793,7 @@ class FolderImportDialog(QDialog):
             self.progress_label.setText("Ready to import")
             return
 
-        if result_set_exists(context, result_set_name):
+        if is_new_mode and result_set_exists(context, result_set_name):
             self.log_output.append(
                 f"- Result set '{result_set_name}' already exists for this project."
             )
@@ -724,7 +811,9 @@ class FolderImportDialog(QDialog):
         self.progress_label.setText("Preparing import...")
         self.log_output.append("")
         self.log_output.append(f"- Importing into project: {context.name}")
-        self.log_output.append(f"- Result set: {result_set_name}")
+        self.log_output.append(
+            f"- Result set: {result_set_name} ({'New' if is_new_mode else 'Existing'})"
+        )
         if self.result_types:
             joined = ", ".join(self.result_types)
             self.log_output.append(f"- Result types: {joined}")
@@ -736,8 +825,11 @@ class FolderImportDialog(QDialog):
         selected_load_cases = self._get_selected_load_cases()
         use_enhanced = len(selected_load_cases) > 0  # Use enhanced if load cases are selected
 
+        existing_data_resolution = None
         if use_enhanced:
-            self.log_output.append(f"- Enhanced import: {len(selected_load_cases)} load case(s) selected")
+            self.log_output.append(
+                f"- Enhanced import: {len(selected_load_cases)} load case(s) selected"
+            )
 
             # Check for conflicts and resolve if needed
             conflict_resolution = self._handle_conflicts(selected_load_cases)
@@ -746,6 +838,16 @@ class FolderImportDialog(QDialog):
                 self.log_output.append("- Import cancelled by user")
                 self._set_controls_enabled(True)
                 return
+
+            if not is_new_mode:
+                existing_data_resolution = self._handle_existing_data_conflicts(
+                    context, result_set_name, selected_load_cases
+                )
+                if existing_data_resolution is None:
+                    # User cancelled conflict resolution
+                    self.log_output.append("- Import cancelled by user")
+                    self._set_controls_enabled(True)
+                    return
         else:
             self.log_output.append("- Standard import: all load cases will be imported")
             selected_load_cases = None
@@ -753,7 +855,9 @@ class FolderImportDialog(QDialog):
 
         prescan_result = self._prescan_result
         if use_enhanced and prescan_result is None:
-            self.log_output.append("- Load case scan missing; importer will perform a fresh prescan.")
+            self.log_output.append(
+                "- Load case scan missing; importer will perform a fresh prescan."
+            )
 
         self.import_worker = FolderImportWorker(
             context=context,
@@ -765,6 +869,7 @@ class FolderImportDialog(QDialog):
             selected_load_cases=selected_load_cases,
             conflict_resolution=conflict_resolution,
             prescan_result=prescan_result,
+            existing_data_resolution=existing_data_resolution,
         )
         self.import_worker.progress.connect(self.on_progress)
         self.import_worker.finished.connect(self.on_finished)
@@ -830,6 +935,114 @@ class FolderImportDialog(QDialog):
         self.progress_label.setText("Starting import...")
         return sheet_resolution
 
+    def _handle_existing_data_conflicts(
+        self, context: ProjectContext, result_set_name: str, selected_load_cases: Set[str]
+    ) -> Optional[Dict[str, Dict[str, str]]]:
+        """
+        Check for load cases that already exist in the database for the selected result set.
+
+        Returns:
+            Dict mapping load_case_name -> result type -> "keep" or "replace", or None if cancelled.
+        """
+        from processing.import_preparation import get_existing_load_cases_by_task_for_result_set
+        from processing.import_tasks import DEFAULT_IMPORT_TASKS
+        from processing.import_runner import task_sheets_available
+        from database.repositories import ProjectRepository, ResultSetRepository
+        from gui.dialogs.load_case.existing_data_conflict_dialog import ExistingDataConflictDialog
+
+        self.progress_label.setText("Checking existing database records...")
+        QApplication.processEvents()
+
+        session = context.session_factory()()
+        try:
+            project_repo = ProjectRepository(session)
+            project = project_repo.get_by_name(context.name)
+            if not project:
+                return {}
+
+            result_repo = ResultSetRepository(session)
+            # Find the result set ID (without creating it if it somehow doesn't exist)
+            result_set = (
+                session.query(result_repo.model)
+                .filter_by(project_id=project.id, name=result_set_name)
+                .first()
+            )
+
+            if not result_set:
+                return {}
+
+            existing_by_task = get_existing_load_cases_by_task_for_result_set(
+                session, project.id, result_set.id
+            )
+
+            result_type_filter = (
+                {label.strip().lower() for label in self.result_types if label.strip()}
+                if self.result_types
+                else None
+            )
+            incoming_conflicts: Dict[str, Set[str]] = {}
+
+            if self._prescan_result:
+                for file_sheets in self._prescan_result.file_load_cases.values():
+                    available_sheets = set(file_sheets)
+                    for task in DEFAULT_IMPORT_TASKS:
+                        if (
+                            result_type_filter
+                            and task.label.strip().lower() not in result_type_filter
+                        ):
+                            continue
+                        task_available = task_sheets_available(
+                            task, lambda sheet_name: sheet_name in available_sheets
+                        )
+                        if (
+                            task.label == "Vertical Displacements"
+                            and "Vertical Displacements" in available_sheets
+                        ):
+                            task_available = True
+                        if not task_available:
+                            continue
+
+                        task_cases: Set[str] = set()
+                        for sheet_name in task.sheets:
+                            task_cases.update(file_sheets.get(sheet_name, []))
+                        if task.label == "Vertical Displacements":
+                            task_cases.update(file_sheets.get("Vertical Displacements", []))
+
+                        for load_case in (
+                            selected_load_cases
+                            & task_cases
+                            & existing_by_task.get(task.label, set())
+                        ):
+                            incoming_conflicts.setdefault(load_case, set()).add(task.label)
+            else:
+                for task_label, existing_cases in existing_by_task.items():
+                    for load_case in selected_load_cases & existing_cases:
+                        incoming_conflicts.setdefault(load_case, set()).add(task_label)
+
+            conflicts = incoming_conflicts
+
+            if not conflicts:
+                self.log_output.append("- No existing database conflicts detected")
+                return {}
+
+            # Show conflict resolution dialog
+            self.log_output.append(
+                f"- Detected {len(conflicts)} load case(s) already in the database"
+            )
+            self.progress_label.setText("Waiting for user input...")
+            conflict_dialog = ExistingDataConflictDialog(conflicts, self)
+
+            if not conflict_dialog.exec():
+                return None  # User cancelled
+
+            resolution = conflict_dialog.get_resolution()
+            self.log_output.append("- Database conflicts resolved")
+            self.progress_label.setText("Starting import...")
+            return resolution
+
+        finally:
+            session.close()
+
     def _set_controls_enabled(self, enabled: bool) -> None:
         self.import_btn.setEnabled(enabled)
         self.browse_btn.setEnabled(enabled)
@@ -854,7 +1067,9 @@ class FolderImportDialog(QDialog):
         self.progress_bar.setValue(100)
         self.progress_label.setText("Import completed!")
         self.log_output.append("- Import completed successfully.")
-        self.log_output.append(f"  Files processed: {stats.get('files_processed', 0)}/{stats.get('files_total', 0)}")
+        self.log_output.append(
+            f"  Files processed: {stats.get('files_processed', 0)}/{stats.get('files_total', 0)}"
+        )
         self.log_output.append(f"  Load cases: {stats.get('load_cases', 0)}")
         self.log_output.append(f"  Stories: {stats.get('stories', 0)}")
         self.log_output.append(f"  Drifts: {stats.get('drifts', 0)}")

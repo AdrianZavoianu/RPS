@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import MethodType
 from typing import Optional
 
 import numpy as np
@@ -57,13 +58,15 @@ class ResultsPlotWidget(QWidget):
     def setup_ui(self):
         """Setup the plot UI - single plot view (no tabs)."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 8, 0)  # Reduced right margin for spacing at the right of the plot
+        layout.setContentsMargins(
+            0, 0, 8, 0
+        )  # Reduced right margin for spacing at the right of the plot
         layout.setSpacing(0)
 
         # Configure PyQtGraph to match GMP dark theme
         pg.setConfigOptions(antialias=True)
-        pg.setConfigOption('background', '#0a0c10')
-        pg.setConfigOption('foreground', '#d1d5db')
+        pg.setConfigOption("background", "#0a0c10")
+        pg.setConfigOption("foreground", "#d1d5db")
 
         # Single plot container (no tabs)
         self.main_plot = self._create_plot_widget("Building Profile")
@@ -92,25 +95,29 @@ class ResultsPlotWidget(QWidget):
 
         # Create legend as a separate widget below the plot - minimalistic, no border/fill
         legend_widget = QFrame()
-        legend_widget.setStyleSheet("""
+        legend_widget.setStyleSheet(
+            """
             QFrame {
                 background-color: transparent;
                 border: none;
                 border-radius: 0px;
             }
-        """)
+        """
+        )
         legend_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Maximum  # Fit content height, don't expand
+            QSizePolicy.Policy.Maximum,  # Fit content height, don't expand
         )
 
         # Use vertical layout for rows, each row uses horizontal layout to distribute items
         # No fixed margins - items will be spaced to fill available width
         legend_layout = QVBoxLayout(legend_widget)
-        legend_layout.setContentsMargins(0, 4, 0, 4)  # No left/right margins - items control spacing
+        legend_layout.setContentsMargins(
+            0, 4, 0, 4
+        )  # No left/right margins - items control spacing
         legend_layout.setSpacing(2)  # Minimal vertical space between rows
         legend_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        
+
         # Store plot widget reference for potential width calculation
         container._plot_widget_ref = plot_widget
 
@@ -132,7 +139,9 @@ class ResultsPlotWidget(QWidget):
         """Extract the PlotWidget from container."""
         return container._plot_widget
 
-    def _add_legend_item(self, container, color: str, label: str, pen_style: Qt.PenStyle = Qt.PenStyle.SolidLine):
+    def _add_legend_item(
+        self, container, color: str, label: str, pen_style: Qt.PenStyle = Qt.PenStyle.SolidLine
+    ):
         """Add a legend item to the external legend (horizontal rows, items distributed across width)."""
         # For pushover results with shorthand mapping, show "Px1 = Full Name"
         if label in self._shorthand_mapping:
@@ -142,9 +151,15 @@ class ResultsPlotWidget(QWidget):
         else:
             display_label = label
             if self._shorthand_mapping:
-                logger.debug("[!!] Legend not matched: '%s' (mapping has %s entries)", label, len(self._shorthand_mapping))
+                logger.debug(
+                    "[!!] Legend not matched: '%s' (mapping has %s entries)",
+                    label,
+                    len(self._shorthand_mapping),
+                )
                 if len(self._shorthand_mapping) > 0:
-                    logger.debug("Available mapping keys: %s", list(self._shorthand_mapping.keys())[:3])
+                    logger.debug(
+                        "Available mapping keys: %s", list(self._shorthand_mapping.keys())[:3]
+                    )
             else:
                 logger.debug("Legend item (no mapping active): '%s'", label)
 
@@ -193,7 +208,9 @@ class ResultsPlotWidget(QWidget):
             if self.current_dataset:
                 self.load_dataset(self.current_dataset, self._shorthand_mapping)
 
-    def _add_envelope_fill(self, plot, numeric_df, story_positions, base_index, include_base_anchor):
+    def _add_envelope_fill(
+        self, plot, numeric_df, story_positions, base_index, include_base_anchor
+    ):
         """Add a subtle filled area between min and max envelope of all load cases.
 
         Args:
@@ -224,13 +241,12 @@ class ResultsPlotWidget(QWidget):
         curve_max = pg.PlotDataItem(x_max, y)
 
         # Use theme accent color with low opacity for subtle shading
-        accent_color = QColor(COLORS['accent'])
+        accent_color = QColor(COLORS["accent"])
         accent_color.setAlphaF(settings.plot_shading_opacity)
 
         # Create fill between the two curves
         self._envelope_fill_item = pg.FillBetweenItem(
-            curve_min, curve_max,
-            brush=pg.mkBrush(accent_color)
+            curve_min, curve_max, brush=pg.mkBrush(accent_color)
         )
         plot.addItem(self._envelope_fill_item)
 
@@ -252,7 +268,11 @@ class ResultsPlotWidget(QWidget):
         self.current_dataset = dataset
         self._shorthand_mapping = shorthand_mapping if shorthand_mapping is not None else {}
 
-        logger.debug("Plot received shorthand_mapping: %s, length: %s", shorthand_mapping is not None, len(self._shorthand_mapping))
+        logger.debug(
+            "Plot received shorthand_mapping: %s, length: %s",
+            shorthand_mapping is not None,
+            len(self._shorthand_mapping),
+        )
         if self._shorthand_mapping:
             logger.debug("Sample mapping: %s", list(self._shorthand_mapping.items())[:2])
         else:
@@ -265,7 +285,7 @@ class ResultsPlotWidget(QWidget):
         config = dataset.config
 
         # Check if this is joint-level data (no Story column)
-        has_story_column = 'Story' in df.columns
+        has_story_column = "Story" in df.columns
 
         if config.plot_mode == "building_profile":
             self._plot_building_profile(dataset)
@@ -288,7 +308,7 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(container)
 
         df = dataset.data
-        stories = df['Story'].tolist()
+        stories = df["Story"].tolist()
         story_indices = list(range(len(stories)))
         result_type = dataset.meta.result_type or ""
 
@@ -306,19 +326,19 @@ class ResultsPlotWidget(QWidget):
             x=story_indices,
             height=max_values,
             width=0.8,
-            brush='#4a7d89',
-            pen=pg.mkPen('#2c313a', width=1)
+            brush="#4a7d89",
+            pen=pg.mkPen("#2c313a", width=1),
         )
         plot.addItem(bargraph)
 
         # Add to external legend
-        self._add_legend_item(container, '#4a7d89', f"Max {result_type}")
+        self._add_legend_item(container, "#4a7d89", f"Max {result_type}")
 
         # Configure axes
-        axis = plot.getAxis('bottom')
+        axis = plot.getAxis("bottom")
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
-        plot.setLabel('bottom', 'Story')
-        plot.setLabel('left', dataset.config.y_label)
+        plot.setLabel("bottom", "Story")
+        plot.setLabel("left", dataset.config.y_label)
 
         # No title - maximizes plot area
 
@@ -329,7 +349,7 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(container)
 
         df = dataset.data
-        stories = df['Story'].tolist()
+        stories = df["Story"].tolist()
         story_indices = list(range(len(stories)))
 
         # Get numeric columns
@@ -347,17 +367,17 @@ class ResultsPlotWidget(QWidget):
                 story_indices,
                 values,
                 pen=pg.mkPen(color, width=2),
-                symbol='o',
+                symbol="o",
                 symbolSize=6,
-                symbolBrush=color
+                symbolBrush=color,
             )
             self._add_legend_item(container, color, col)
 
         # Configure axes
-        axis = plot.getAxis('bottom')
+        axis = plot.getAxis("bottom")
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
-        plot.setLabel('bottom', 'Story')
-        plot.setLabel('left', dataset.config.y_label)
+        plot.setLabel("bottom", "Story")
+        plot.setLabel("left", dataset.config.y_label)
 
         # No title - maximizes plot area
 
@@ -368,7 +388,7 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(container)
 
         df = dataset.data
-        stories = df['Story'].tolist()
+        stories = df["Story"].tolist()
         story_indices = list(range(len(stories)))
 
         # Get numeric columns
@@ -386,29 +406,29 @@ class ResultsPlotWidget(QWidget):
         plot.plot(
             max_values,
             story_indices,
-            pen=pg.mkPen('#e74c3c', width=2),
-            symbol='o',
+            pen=pg.mkPen("#e74c3c", width=2),
+            symbol="o",
             symbolSize=6,
-            symbolBrush='#e74c3c'
+            symbolBrush="#e74c3c",
         )
-        self._add_legend_item(container, '#e74c3c', 'Maximum')
+        self._add_legend_item(container, "#e74c3c", "Maximum")
 
         # Average
         plot.plot(
             avg_values,
             story_indices,
-            pen=pg.mkPen('#4a7d89', width=2, style=Qt.PenStyle.DashLine),
-            symbol='s',
+            pen=pg.mkPen("#4a7d89", width=2, style=Qt.PenStyle.DashLine),
+            symbol="s",
             symbolSize=5,
-            symbolBrush='#4a7d89'
+            symbolBrush="#4a7d89",
         )
-        self._add_legend_item(container, '#4a7d89', 'Avg')
+        self._add_legend_item(container, "#4a7d89", "Avg")
 
         # Configure axes
-        axis = plot.getAxis('left')
+        axis = plot.getAxis("left")
         axis.setTicks([[(i, name) for i, name in enumerate(stories)]])
-        plot.setLabel('left', 'Story')
-        plot.setLabel('bottom', dataset.config.y_label)
+        plot.setLabel("left", "Story")
+        plot.setLabel("bottom", dataset.config.y_label)
 
         # No title - maximizes plot area
 
@@ -420,7 +440,7 @@ class ResultsPlotWidget(QWidget):
         self._reset_plot(container)
 
         df = dataset.data
-        stories = df['Story'].tolist()
+        stories = df["Story"].tolist()
 
         include_base_anchor = dataset.meta.result_type == "Displacements"
         if include_base_anchor:
@@ -444,17 +464,22 @@ class ResultsPlotWidget(QWidget):
         self._envelope_fill_item = None
 
         # Use dataset order for plotting (already aligned bottom-to-top)
-        numeric_df = df[load_case_columns].apply(pd.to_numeric, errors='coerce')
+        numeric_df = df[load_case_columns].apply(pd.to_numeric, errors="coerce")
 
         # Check for duplicate column names
         if len(load_case_columns) != len(set(load_case_columns)):
             from collections import Counter
+
             duplicates = [col for col, count in Counter(load_case_columns).items() if count > 1]
-            raise ValueError(f"Duplicate column names found: {duplicates}. This usually means the cache needs to be rebuilt. Please re-import the result set.")
+            raise ValueError(
+                f"Duplicate column names found: {duplicates}. This usually means the cache needs to be rebuilt. Please re-import the result set."
+            )
 
         # Add envelope fill FIRST (so it's behind the lines) if shading is enabled
         if settings.plot_shading_enabled and len(load_case_columns) > 1:
-            self._add_envelope_fill(plot, numeric_df, story_positions, base_index, include_base_anchor)
+            self._add_envelope_fill(
+                plot, numeric_df, story_positions, base_index, include_base_anchor
+            )
 
         # Plot each load case as a line
         # When shading is enabled, make lines thinner and more transparent
@@ -481,18 +506,16 @@ class ResultsPlotWidget(QWidget):
 
             # Plot horizontal (drift on x-axis, story on y-axis)
             plot_item = plot.plot(
-                numeric_values,
-                y_positions,
-                pen=pg.mkPen(pen_color, width=line_width)
+                numeric_values, y_positions, pen=pg.mkPen(pen_color, width=line_width)
             )
             # Store the plot item for later highlighting (store original color for hover/selection)
-            self._plot_items[load_case] = {'item': plot_item, 'color': color, 'width': line_width}
+            self._plot_items[load_case] = {"item": plot_item, "color": color, "width": line_width}
 
             self._add_legend_item(container, color, load_case)
 
-        # Calculate and plot average line (bold, dashed)
-        # Skip for pushover results (indicated by empty summary_columns)
-        show_average = len(load_case_columns) > 1 and len(dataset.summary_columns) > 0
+        # Calculate and plot average line (bold, dashed) only when the dataset
+        # explicitly includes an Avg summary. Pushover drifts may include Max only.
+        show_average = len(load_case_columns) > 1 and "Avg" in dataset.summary_columns
         if show_average:
             avg_series = numeric_df.mean(axis=1, skipna=True).fillna(0.0)
             avg_values = avg_series.tolist()
@@ -505,9 +528,11 @@ class ResultsPlotWidget(QWidget):
             self._average_plot_item = plot.plot(
                 avg_values,
                 y_positions,
-                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine)
+                pen=pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine),
             )
-            self._add_legend_item(container, AVERAGE_SERIES_COLOR, 'Avg', pen_style=Qt.PenStyle.DashLine)
+            self._add_legend_item(
+                container, AVERAGE_SERIES_COLOR, "Avg", pen_style=Qt.PenStyle.DashLine
+            )
 
         # Use PlotBuilder for common configuration
         builder = PlotBuilder(plot, dataset.config)
@@ -520,9 +545,7 @@ class ResultsPlotWidget(QWidget):
 
         # Calculate x-axis range from all values
         all_values = [
-            float(value)
-            for value in numeric_df.to_numpy().flatten()
-            if not pd.isna(value)
+            float(value) for value in numeric_df.to_numpy().flatten() if not pd.isna(value)
         ]
         if include_base_anchor:
             all_values.append(0.0)
@@ -539,13 +562,33 @@ class ResultsPlotWidget(QWidget):
             builder.set_value_range(min_val, max_val, left_padding=0.03, right_padding=0.05)
 
             # Set dynamic tick spacing (6 intervals based on data range)
-            builder.set_dynamic_tick_spacing('bottom', min_val, max_val, num_intervals=6)
+            builder.set_dynamic_tick_spacing("bottom", min_val, max_val, num_intervals=6)
+
+        self._configure_bottom_axis_labels(plot, dataset)
 
         # Enable grid with increased visibility
         plot.showGrid(x=True, y=True, alpha=0.5)
 
         # Finalize legend (add stretch to incomplete last row)
         self._finalize_legend(container)
+
+    def _configure_bottom_axis_labels(self, plot: pg.PlotWidget, dataset: ResultDataset) -> None:
+        """Keep drift tick labels in table units instead of PyQtGraph SI-scaled units."""
+        axis = plot.getAxis("bottom")
+        if not hasattr(axis, "_rps_default_tick_strings"):
+            axis._rps_default_tick_strings = axis.tickStrings
+
+        if dataset.meta.result_type == "Drifts":
+            axis.enableAutoSIPrefix(False)
+            decimal_places = dataset.config.decimal_places
+
+            def drift_tick_strings(axis_self, values, scale, spacing):
+                return [f"{float(value):.{decimal_places}f}" for value in values]
+
+            axis.tickStrings = MethodType(drift_tick_strings, axis)
+        else:
+            axis.tickStrings = axis._rps_default_tick_strings
+            axis.enableAutoSIPrefix(True)
 
     def highlight_load_cases(self, selected_cases: list):
         """Highlight multiple selected load cases, dim others, always show average at full opacity."""
@@ -555,18 +598,18 @@ class ResultsPlotWidget(QWidget):
         if not selected_cases:
             # No selection - restore all to full opacity
             for case_name, case_data in self._plot_items.items():
-                item = case_data['item']
-                color = case_data['color']
-                width = case_data['width']
+                item = case_data["item"]
+                color = case_data["color"]
+                width = case_data["width"]
                 item.setPen(pg.mkPen(color, width=width))
         else:
             # Highlight selected cases, dim others
             selected_set = set(selected_cases)
 
             for case_name, case_data in self._plot_items.items():
-                item = case_data['item']
-                color = case_data['color']
-                width = case_data['width']
+                item = case_data["item"]
+                color = case_data["color"]
+                width = case_data["width"]
 
                 if case_name in selected_set:
                     # Selected case - full opacity, slightly thicker
@@ -574,12 +617,13 @@ class ResultsPlotWidget(QWidget):
                 else:
                     # Non-selected case - reduce opacity significantly
                     from PyQt6.QtGui import QColor
+
                     qcolor = QColor(color)
                     qcolor.setAlpha(40)  # Much lower opacity (0-255 scale, 40 is ~15%)
                     item.setPen(pg.mkPen(qcolor, width=width))
 
         # Always keep average line at full opacity and bold
-        if hasattr(self, '_average_plot_item') and self._average_plot_item:
+        if hasattr(self, "_average_plot_item") and self._average_plot_item:
             self._average_plot_item.setPen(
                 pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine)
             )
@@ -592,12 +636,12 @@ class ResultsPlotWidget(QWidget):
         from PyQt6.QtGui import QColor
 
         # Get current selection state
-        current_selection = getattr(self, '_current_selection', set())
+        current_selection = getattr(self, "_current_selection", set())
 
         for case_name, case_data in self._plot_items.items():
-            item = case_data['item']
-            color = case_data['color']
-            width = case_data['width']
+            item = case_data["item"]
+            color = case_data["color"]
+            width = case_data["width"]
 
             if case_name == load_case:
                 # Hovered case - make it prominent with thicker line
@@ -614,7 +658,7 @@ class ResultsPlotWidget(QWidget):
                 item.setPen(pg.mkPen(qcolor, width=width))
 
         # Keep average at full opacity
-        if hasattr(self, '_average_plot_item') and self._average_plot_item:
+        if hasattr(self, "_average_plot_item") and self._average_plot_item:
             self._average_plot_item.setPen(
                 pg.mkPen(AVERAGE_SERIES_COLOR, width=5, style=Qt.PenStyle.DashLine)
             )
@@ -622,7 +666,7 @@ class ResultsPlotWidget(QWidget):
     def clear_hover(self):
         """Clear hover effect and restore to selected state."""
         # Restore to the current selection state
-        if hasattr(self, '_current_selection'):
+        if hasattr(self, "_current_selection"):
             self.highlight_load_cases(list(self._current_selection))
         else:
             self.highlight_load_cases([])

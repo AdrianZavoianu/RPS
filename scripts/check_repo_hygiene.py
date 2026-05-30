@@ -20,6 +20,7 @@ DEFAULT_ALLOWED_DIRS: Set[str] = {
     ".cursor",
     ".git",
     ".pytest_cache",
+    ".vscode",
     "Old_scripts",
     "alembic",
     "build",

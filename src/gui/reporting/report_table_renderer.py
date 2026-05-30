@@ -470,3 +470,97 @@ class ReportTableRenderer:
             painter.drawLine(x, ly, x + actual_table_w, ly)
 
         return total_h
+
+    def draw_generic_element_table(self, painter: QPainter, x: int, y: int, width: int, df, load_cases: list) -> int:
+        """Draw generic element table showing top 10 elements."""
+        row_h = 14
+        header_h = 16
+        max_rows = min(len(df), 10)
+
+        if max_rows == 0:
+            return 0
+
+        displayed_load_cases = load_cases
+        num_load_cases = len(displayed_load_cases)
+
+        summary_cols = [c for c in ["Avg", "Max", "Min"] if c in df.columns]
+        num_summary = len(summary_cols)
+
+        meta_cols = [c for c in df.columns if c not in load_cases and c not in ["Avg", "Max", "Min", "StoryOrder", "_abs_avg"]]
+        meta_cols = meta_cols[:4]
+        
+        meta_w = 36
+        summary_w = 30
+        
+        fixed_cols_w = (meta_w * len(meta_cols)) + (summary_w * num_summary)
+        remaining_w = width - fixed_cols_w
+        lc_w = max(24, remaining_w // num_load_cases) if num_load_cases > 0 else 24
+        actual_table_w = fixed_cols_w + (lc_w * num_load_cases)
+
+        painter.fillRect(x, y, width, header_h, QColor(PRINT_COLORS["header_bg"]))
+        painter.setPen(QColor(PRINT_COLORS["text"]))
+        painter.setFont(QFont("Segoe UI", 5, QFont.Weight.DemiBold))
+
+        cx = x
+        for col in meta_cols:
+            painter.drawText(cx, y, meta_w, header_h, Qt.AlignmentFlag.AlignCenter, str(col)[:6])
+            cx += meta_w
+            
+        for lc in displayed_load_cases:
+            painter.drawText(cx, y, lc_w, header_h, Qt.AlignmentFlag.AlignCenter, str(lc)[:4])
+            cx += lc_w
+
+        for col in summary_cols:
+            painter.drawText(cx, y, summary_w, header_h, Qt.AlignmentFlag.AlignCenter, col)
+            cx += summary_w
+
+        painter.setFont(QFont("Segoe UI", 5))
+        for row_i in range(max_rows):
+            ry = y + header_h + row_i * row_h
+            if row_i % 2 == 1:
+                painter.fillRect(x, ry, width, row_h, QColor(PRINT_COLORS["row_alt"]))
+
+            painter.setPen(QColor(PRINT_COLORS["text"]))
+            cx = x
+            
+            for col in meta_cols:
+                val = str(df[col].iloc[row_i])[:6]
+                painter.drawText(cx, ry, meta_w, row_h, Qt.AlignmentFlag.AlignCenter, val)
+                cx += meta_w
+                
+            for lc in displayed_load_cases:
+                val = df[lc].iloc[row_i] if lc in df.columns else 0
+                txt = "-" if pd.isna(val) else f"{val:.2f}"
+                painter.drawText(cx, ry, lc_w, row_h, Qt.AlignmentFlag.AlignCenter, txt)
+                cx += lc_w
+
+            for col in summary_cols:
+                val = df[col].iloc[row_i] if col in df.columns else 0
+                txt = "-" if pd.isna(val) else f"{val:.2f}"
+                painter.drawText(cx, ry, summary_w, row_h, Qt.AlignmentFlag.AlignCenter, txt)
+                cx += summary_w
+
+        total_h = header_h + max_rows * row_h
+        painter.setPen(QPen(QColor(PRINT_COLORS["border"]), 1))
+        painter.drawRect(x, y, actual_table_w, total_h)
+
+        cx = x
+        for _ in meta_cols:
+            cx += meta_w
+            painter.drawLine(cx, y, cx, y + total_h)
+        for _ in displayed_load_cases:
+            cx += lc_w
+            painter.drawLine(cx, y, cx, y + total_h)
+        for _ in range(num_summary - 1):
+            cx += summary_w
+            painter.drawLine(cx, y, cx, y + total_h)
+
+        for i in range(max_rows + 1):
+            ly = y + header_h + i * row_h
+            painter.drawLine(x, ly, x + actual_table_w, ly)
+
+        return total_h
+
+    def draw_generic_joint_table(self, painter: QPainter, x: int, y: int, width: int, df, load_cases: list) -> int:
+        """Draw generic joint table showing top 10 joints."""
+        return self.draw_generic_element_table(painter, x, y, width, df, load_cases)

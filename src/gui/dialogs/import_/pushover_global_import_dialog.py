@@ -54,7 +54,7 @@ class PushoverGlobalImportDialog(QDialog):
         project_name: str,
         folder_path: str,
         session_factory: Callable[[], object],
-        parent=None
+        parent=None,
     ):
         super().__init__(parent)
         self.project_id = project_id
@@ -68,9 +68,10 @@ class PushoverGlobalImportDialog(QDialog):
 
         # State
         self.global_files = []  # Global results files
-        self.wall_files = []    # Wall results files
+        self.wall_files = []  # Wall results files
         self.column_files = []  # Column results files
-        self.beam_files = []    # Beam results files
+        self.beam_files = []  # Beam results files
+        self.brace_files = []  # Brace results files
         self.load_case_checkboxes_x = {}  # load_case → QCheckBox
         self.load_case_checkboxes_y = {}
         self.scan_worker = None
@@ -83,7 +84,7 @@ class PushoverGlobalImportDialog(QDialog):
                 self,
                 "No Pushover Result Sets",
                 "You must import pushover curves first before importing global results.\n\n"
-                "Please use 'Import Pushover Curves' to create a result set, then import global results."
+                "Please use 'Import Pushover Curves' to create a result set, then import global results.",
             )
             self.reject()
             return
@@ -168,13 +169,15 @@ class PushoverGlobalImportDialog(QDialog):
         # Scroll area for checkboxes
         self.load_case_scroll_x = QScrollArea()
         self.load_case_scroll_x.setWidgetResizable(True)
-        self.load_case_scroll_x.setStyleSheet(f"""
+        self.load_case_scroll_x.setStyleSheet(
+            f"""
             QScrollArea {{
                 border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 background-color: {COLORS['background']};
             }}
-        """)
+        """
+        )
 
         self.load_case_container_x = QWidget()
         self.load_case_layout_x = QVBoxLayout(self.load_case_container_x)
@@ -216,13 +219,15 @@ class PushoverGlobalImportDialog(QDialog):
         # Scroll area for checkboxes
         self.load_case_scroll_y = QScrollArea()
         self.load_case_scroll_y.setWidgetResizable(True)
-        self.load_case_scroll_y.setStyleSheet(f"""
+        self.load_case_scroll_y.setStyleSheet(
+            f"""
             QScrollArea {{
                 border: 1px solid {COLORS['border']};
                 border-radius: 4px;
                 background-color: {COLORS['background']};
             }}
-        """)
+        """
+        )
 
         self.load_case_container_y = QWidget()
         self.load_case_layout_y = QVBoxLayout(self.load_case_container_y)
@@ -338,7 +343,6 @@ class PushoverGlobalImportDialog(QDialog):
             }}
         """
 
-
     @staticmethod
     def _log_style() -> str:
         return f"""
@@ -404,6 +408,7 @@ class PushoverGlobalImportDialog(QDialog):
             True if at least one pushover result set exists, False otherwise
         """
         from services.data_access import DataAccessService
+
         data_service = DataAccessService(self.session_factory)
         pushover_sets = data_service.get_pushover_result_sets(self.project_id)
 
@@ -431,15 +436,17 @@ class PushoverGlobalImportDialog(QDialog):
 
     def on_scan_finished(self, results: dict):
         """Handle scan completion."""
-        self.global_files = results['global_files']
-        self.wall_files = results['wall_files']
-        self.column_files = results.get('column_files', [])
-        self.beam_files = results.get('beam_files', [])
-        load_cases_x = results['load_cases_x']
-        load_cases_y = results['load_cases_y']
-        piers = results.get('piers', [])
-        columns = results.get('columns', [])
-        beams = results.get('beams', [])
+        self.global_files = results["global_files"]
+        self.wall_files = results["wall_files"]
+        self.column_files = results.get("column_files", [])
+        self.beam_files = results.get("beam_files", [])
+        self.brace_files = results.get("brace_files", [])
+        load_cases_x = results["load_cases_x"]
+        load_cases_y = results["load_cases_y"]
+        piers = results.get("piers", [])
+        columns = results.get("columns", [])
+        beams = results.get("beams", [])
+        braces = results.get("braces", [])
 
         # Populate files list
         for file_path in self.global_files:
@@ -450,34 +457,62 @@ class PushoverGlobalImportDialog(QDialog):
             self.files_list.addItem(f"🔧 {file_path.name} (Columns)")
         for file_path in self.beam_files:
             self.files_list.addItem(f"📏 {file_path.name} (Beams)")
+        for file_path in self.brace_files:
+            self.files_list.addItem(f"🔩 {file_path.name} (Braces)")
 
         # Populate load case checkboxes
         if load_cases_x:
-            self._populate_load_case_list(load_cases_x, 'X')
+            self._populate_load_case_list(load_cases_x, "X")
         if load_cases_y:
-            self._populate_load_case_list(load_cases_y, 'Y')
+            self._populate_load_case_list(load_cases_y, "Y")
 
         # Update status
-        total_files = len(self.global_files) + len(self.wall_files) + len(self.column_files) + len(self.beam_files)
+        total_files = (
+            len(self.global_files)
+            + len(self.wall_files)
+            + len(self.column_files)
+            + len(self.beam_files)
+            + len(self.brace_files)
+        )
         self.progress_label.setText(
             f"Found {total_files} files "
             f"({len(self.global_files)} global, {len(self.wall_files)} walls, "
-            f"{len(self.column_files)} columns, {len(self.beam_files)} beams)"
+            f"{len(self.column_files)} columns, {len(self.beam_files)} beams, "
+            f"{len(self.brace_files)} braces)"
         )
         self.progress_bar.setValue(0)
 
-        self.log(f"Scan complete: {len(self.global_files)} global, {len(self.wall_files)} walls, "
-                 f"{len(self.column_files)} columns, {len(self.beam_files)} beams")
+        self.log(
+            f"Scan complete: {len(self.global_files)} global, {len(self.wall_files)} walls, "
+            f"{len(self.column_files)} columns, {len(self.beam_files)} beams, "
+            f"{len(self.brace_files)} braces"
+        )
         self.log(f"  - {len(load_cases_x)} X load cases, {len(load_cases_y)} Y load cases")
         if piers:
-            self.log(f"  - {len(piers)} piers: {', '.join(piers[:5])}{', ...' if len(piers) > 5 else ''}")
+            self.log(
+                f"  - {len(piers)} piers: {', '.join(piers[:5])}{', ...' if len(piers) > 5 else ''}"
+            )
         if columns:
-            self.log(f"  - {len(columns)} columns: {', '.join(columns[:5])}{', ...' if len(columns) > 5 else ''}")
+            self.log(
+                f"  - {len(columns)} columns: {', '.join(columns[:5])}{', ...' if len(columns) > 5 else ''}"
+            )
         if beams:
-            self.log(f"  - {len(beams)} beams: {', '.join(beams[:5])}{', ...' if len(beams) > 5 else ''}")
+            self.log(
+                f"  - {len(beams)} beams: {', '.join(beams[:5])}{', ...' if len(beams) > 5 else ''}"
+            )
+        if braces:
+            self.log(
+                f"  - {len(braces)} braces: {', '.join(braces[:5])}{', ...' if len(braces) > 5 else ''}"
+            )
 
         # Enable import if we have data
-        has_files = self.global_files or self.wall_files or self.column_files or self.beam_files
+        has_files = (
+            self.global_files
+            or self.wall_files
+            or self.column_files
+            or self.beam_files
+            or self.brace_files
+        )
         has_load_cases = load_cases_x or load_cases_y
         if has_files and has_load_cases:
             self.import_btn.setEnabled(True)
@@ -491,7 +526,7 @@ class PushoverGlobalImportDialog(QDialog):
 
     def _populate_load_case_list(self, load_cases: List[str], direction: str):
         """Populate load case checkboxes for a direction."""
-        if direction == 'X':
+        if direction == "X":
             layout = self.load_case_layout_x
             checkboxes_dict = self.load_case_checkboxes_x
             select_all_btn = self.select_all_x_btn
@@ -531,7 +566,8 @@ class PushoverGlobalImportDialog(QDialog):
             checkbox = QCheckBox(lc)
             checkbox.setChecked(True)  # All selected by default
 
-            checkbox.setStyleSheet(f"""
+            checkbox.setStyleSheet(
+                f"""
                 QCheckBox {{
                     color: {COLORS['text']};
                     font-size: 13px;
@@ -563,7 +599,8 @@ class PushoverGlobalImportDialog(QDialog):
                     background-color: rgba(255, 255, 255, 0.03);
                     border-radius: 4px;
                 }}
-            """)
+            """
+            )
 
             layout.addWidget(checkbox)
             checkboxes_dict[lc] = checkbox
@@ -601,7 +638,7 @@ class PushoverGlobalImportDialog(QDialog):
         elif warning:
             color = "#f59e0b"
         else:
-            color = COLORS['muted']
+            color = COLORS["muted"]
 
         self.log_output.append(f'<span style="color: {color};">{message}</span>')
 
@@ -622,7 +659,9 @@ class PushoverGlobalImportDialog(QDialog):
         selected_y = [lc for lc, cb in self.load_case_checkboxes_y.items() if cb.isChecked()]
 
         if not selected_x and not selected_y:
-            QMessageBox.warning(self, "No Load Cases Selected", "Please select at least one load case to import.")
+            QMessageBox.warning(
+                self, "No Load Cases Selected", "Please select at least one load case to import."
+            )
             return
 
         # Disable UI during import
@@ -636,8 +675,11 @@ class PushoverGlobalImportDialog(QDialog):
             cb.setEnabled(False)
 
         self.log(f"Starting import: {result_set_name}")
-        self.log(f"  - Files: {len(self.global_files)} global, {len(self.wall_files)} walls, "
-                 f"{len(self.column_files)} columns, {len(self.beam_files)} beams")
+        self.log(
+            f"  - Files: {len(self.global_files)} global, {len(self.wall_files)} walls, "
+            f"{len(self.column_files)} columns, {len(self.beam_files)} beams, "
+            f"{len(self.brace_files)} braces"
+        )
         self.log(f"  - X direction: {len(selected_x)} load cases")
         self.log(f"  - Y direction: {len(selected_y)} load cases")
 
@@ -651,6 +693,7 @@ class PushoverGlobalImportDialog(QDialog):
             wall_files=self.wall_files,
             column_files=self.column_files,
             beam_files=self.beam_files,
+            brace_files=self.brace_files,
             selected_load_cases_x=selected_x,
             selected_load_cases_y=selected_y,
         )
@@ -678,40 +721,61 @@ class PushoverGlobalImportDialog(QDialog):
         self.log(f"Files processed: {stats.get('files_processed', 0)}")
 
         # Global results
-        if stats.get('x_drifts') or stats.get('y_drifts'):
+        if stats.get("x_drifts") or stats.get("y_drifts"):
             self.log(f"Global Results:")
-            self.log(f"  X: {stats.get('x_drifts', 0)} drifts, {stats.get('x_displacements', 0)} displ, {stats.get('x_forces', 0)} forces")
-            self.log(f"  Y: {stats.get('y_drifts', 0)} drifts, {stats.get('y_displacements', 0)} displ, {stats.get('y_forces', 0)} forces")
+            self.log(
+                f"  X: {stats.get('x_drifts', 0)} drifts, {stats.get('x_displacements', 0)} displ, {stats.get('x_forces', 0)} forces"
+            )
+            self.log(
+                f"  Y: {stats.get('y_drifts', 0)} drifts, {stats.get('y_displacements', 0)} displ, {stats.get('y_forces', 0)} forces"
+            )
 
         # Wall results
-        if stats.get('x_v2_shears') or stats.get('x_rotations'):
+        if stats.get("x_v2_shears") or stats.get("x_rotations"):
             self.log(f"Wall Results:")
-            self.log(f"  X: {stats.get('x_v2_shears', 0)} V2 shears, {stats.get('x_v3_shears', 0)} V3 shears, {stats.get('x_rotations', 0)} rotations")
-            self.log(f"  Y: {stats.get('y_v2_shears', 0)} V2 shears, {stats.get('y_v3_shears', 0)} V3 shears, {stats.get('y_rotations', 0)} rotations")
+            self.log(
+                f"  X: {stats.get('x_v2_shears', 0)} V2 shears, {stats.get('x_v3_shears', 0)} V3 shears, {stats.get('x_rotations', 0)} rotations"
+            )
+            self.log(
+                f"  Y: {stats.get('y_v2_shears', 0)} V2 shears, {stats.get('y_v3_shears', 0)} V3 shears, {stats.get('y_rotations', 0)} rotations"
+            )
 
         # Column results
-        if stats.get('x_r2_rotations') or stats.get('y_r2_rotations'):
+        if stats.get("x_r2_rotations") or stats.get("y_r2_rotations"):
             self.log(f"Column Results:")
-            self.log(f"  X: {stats.get('x_r2_rotations', 0)} R2 rotations, {stats.get('x_r3_rotations', 0)} R3 rotations")
-            self.log(f"  Y: {stats.get('y_r2_rotations', 0)} R2 rotations, {stats.get('y_r3_rotations', 0)} R3 rotations")
+            self.log(
+                f"  X: {stats.get('x_r2_rotations', 0)} R2 rotations, {stats.get('x_r3_rotations', 0)} R3 rotations"
+            )
+            self.log(
+                f"  Y: {stats.get('y_r2_rotations', 0)} R2 rotations, {stats.get('y_r3_rotations', 0)} R3 rotations"
+            )
 
         # Beam results (beam stats use 'x_rotations' and 'y_rotations', but these may conflict with wall rotations)
         # Wall importer also uses x_rotations/y_rotations, so we check if it's beam-specific
         # For now, we'll include them in a separate section if files were processed
-        if self.beam_files and (stats.get('x_rotations') or stats.get('y_rotations')):
+        if self.beam_files and (stats.get("x_rotations") or stats.get("y_rotations")):
             # Note: This may double-count if wall_files also present
             # Beam rotations are already counted in x_rotations from walls
             pass
 
-        # Joint results
-        if stats.get('x_ux_displacements') or stats.get('y_ux_displacements'):
-            self.log(f"Joint Displacements:")
-            self.log(f"  X: {stats.get('x_ux_displacements', 0)} Ux, {stats.get('x_uy_displacements', 0)} Uy, {stats.get('x_uz_displacements', 0)} Uz")
-            self.log(f"  Y: {stats.get('y_ux_displacements', 0)} Ux, {stats.get('y_uy_displacements', 0)} Uy, {stats.get('y_uz_displacements', 0)} Uz")
+        if stats.get("x_axials") or stats.get("y_axials"):
+            self.log(f"Brace Results:")
+            self.log(f"  X: {stats.get('x_axials', 0)} axial force records")
+            self.log(f"  Y: {stats.get('y_axials', 0)} axial force records")
 
-        if stats.get('errors'):
+        # Joint results
+        if stats.get("x_ux_displacements") or stats.get("y_ux_displacements"):
+            self.log(f"Joint Displacements:")
+            self.log(
+                f"  X: {stats.get('x_ux_displacements', 0)} Ux, {stats.get('x_uy_displacements', 0)} Uy, {stats.get('x_uz_displacements', 0)} Uz"
+            )
+            self.log(
+                f"  Y: {stats.get('y_ux_displacements', 0)} Ux, {stats.get('y_uy_displacements', 0)} Uy, {stats.get('y_uz_displacements', 0)} Uz"
+            )
+
+        if stats.get("errors"):
             self.log(f"Errors: {len(stats['errors'])}", error=True)
-            for error in stats['errors']:
+            for error in stats["errors"]:
                 self.log(f"  - {error}", error=True)
 
         # Emit completion signal
@@ -719,13 +783,22 @@ class PushoverGlobalImportDialog(QDialog):
 
         # Show success message
         total_records = (
-            stats.get('x_drifts', 0) + stats.get('y_drifts', 0) +
-            stats.get('x_displacements', 0) + stats.get('y_displacements', 0) +
-            stats.get('x_forces', 0) + stats.get('y_forces', 0) +
-            stats.get('x_v2_shears', 0) + stats.get('y_v2_shears', 0) +
-            stats.get('x_v3_shears', 0) + stats.get('y_v3_shears', 0) +
-            stats.get('x_r2_rotations', 0) + stats.get('y_r2_rotations', 0) +
-            stats.get('x_r3_rotations', 0) + stats.get('y_r3_rotations', 0)
+            stats.get("x_drifts", 0)
+            + stats.get("y_drifts", 0)
+            + stats.get("x_displacements", 0)
+            + stats.get("y_displacements", 0)
+            + stats.get("x_forces", 0)
+            + stats.get("y_forces", 0)
+            + stats.get("x_v2_shears", 0)
+            + stats.get("y_v2_shears", 0)
+            + stats.get("x_v3_shears", 0)
+            + stats.get("y_v3_shears", 0)
+            + stats.get("x_r2_rotations", 0)
+            + stats.get("y_r2_rotations", 0)
+            + stats.get("x_r3_rotations", 0)
+            + stats.get("y_r3_rotations", 0)
+            + stats.get("x_axials", 0)
+            + stats.get("y_axials", 0)
         )
 
         QMessageBox.information(
@@ -733,7 +806,7 @@ class PushoverGlobalImportDialog(QDialog):
             "Import Complete",
             f"Successfully imported pushover results!\n\n"
             f"Files: {stats.get('files_processed', 0)}\n"
-            f"Total records: {total_records}"
+            f"Total records: {total_records}",
         )
 
         self.accept()
@@ -753,7 +826,5 @@ class PushoverGlobalImportDialog(QDialog):
             cb.setEnabled(True)
 
         QMessageBox.critical(
-            self,
-            "Import Failed",
-            f"Failed to import pushover global results:\n\n{error}"
+            self, "Import Failed", f"Failed to import pushover global results:\n\n{error}"
         )

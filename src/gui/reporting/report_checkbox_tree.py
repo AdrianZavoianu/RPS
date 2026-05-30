@@ -49,22 +49,34 @@ class ReportCheckboxTree(QTreeWidget):
     ELEMENT_TYPE_LABELS = {
         "BeamRotations": "Beam Plastic Rotations",
         "ColumnRotations": "Column Plastic Rotations",
+        "WallShears": "Wall Shears",
+        "QuadRotations": "Quad Rotations",
+        "ColumnShears": "Column Shears",
+        "ColumnAxials": "Column Axials",
+        "BraceAxials": "Brace Axials",
     }
 
     # Element result type units
     ELEMENT_TYPE_UNITS = {
         "BeamRotations": "%",
         "ColumnRotations": "%",
+        "WallShears": "kN",
+        "QuadRotations": "%",
+        "ColumnShears": "kN",
+        "ColumnAxials": "kN",
+        "BraceAxials": "kN",
     }
 
     # Joint result type labels
     JOINT_TYPE_LABELS = {
         "SoilPressures_Min": "Soil Pressures (Min)",
+        "VerticalDisplacements_Min": "Vertical Displacements (Min)",
     }
 
     # Joint result type units
     JOINT_TYPE_UNITS = {
         "SoilPressures_Min": "kN/m²",
+        "VerticalDisplacements_Min": "mm",
     }
 
     def __init__(self, parent=None):
@@ -296,6 +308,21 @@ class ReportCheckboxTree(QTreeWidget):
             elif result_type.startswith("ColumnRotations"):
                 if "ColumnRotations" not in available:
                     available.append("ColumnRotations")
+            elif result_type.startswith("WallShears"):
+                if "WallShears" not in available:
+                    available.append("WallShears")
+            elif result_type.startswith("QuadRotations"):
+                if "QuadRotations" not in available:
+                    available.append("QuadRotations")
+            elif result_type.startswith("ColumnShears"):
+                if "ColumnShears" not in available:
+                    available.append("ColumnShears")
+            elif result_type.startswith("ColumnAxials"):
+                if "ColumnAxials" not in available:
+                    available.append("ColumnAxials")
+            elif result_type.startswith("BraceAxials"):
+                if "BraceAxials" not in available:
+                    available.append("BraceAxials")
 
         return available
 
@@ -308,8 +335,7 @@ class ReportCheckboxTree(QTreeWidget):
 
         available = []
         for result_type in types:
-            # Only include soil pressures for now
-            if result_type == "SoilPressures_Min":
+            if result_type in ["SoilPressures_Min", "VerticalDisplacements_Min"]:
                 if result_type not in available:
                     available.append(result_type)
 

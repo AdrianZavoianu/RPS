@@ -210,11 +210,6 @@ class ComparisonAllRotationsWidget(QWidget):
             '#ec4899',  # Pink
         ]
 
-        # Collect all average markers across datasets so we add them on top
-        all_avg_x: list = []
-        all_avg_y: list = []
-        all_avg_colors: list = []
-
         # Plot data for each result set
         for idx, (result_set_name, df_data) in enumerate(datasets):
             if df_data is None or df_data.empty:
@@ -242,30 +237,6 @@ class ComparisonAllRotationsWidget(QWidget):
 
                 # Add legend item for this result set
                 self._add_legend_item(color, result_set_name)
-
-            # Compute per-hinge averages for this result set
-            avg_x, avg_y = self._compute_hinge_averages(df_data, story_to_index)
-            all_avg_x.extend(avg_x)
-            all_avg_y.extend(avg_y)
-            # Use a slightly muted/solid version of the same color for averages
-            qc = QColor(color)
-            darker = qc.darker(130)
-            all_avg_colors.extend([darker] * len(avg_x))
-            all_x_values.extend(avg_x)
-
-        # Overlay all average diamonds on top
-        if all_avg_x:
-            spots = [
-                {'pos': (ax, ay), 'size': 10, 'symbol': 'd',
-                 'pen': pg.mkPen(QColor('#000000'), width=1),
-                 'brush': pg.mkBrush(ac)}
-                for ax, ay, ac in zip(all_avg_x, all_avg_y, all_avg_colors)
-            ]
-            avg_scatter = pg.ScatterPlotItem(spots=spots)
-            self.plot_widget.addItem(avg_scatter)
-
-            # Add a single legend entry for the averages
-            self._add_legend_item('#2563eb', 'Avg per hinge (◆)')
 
         # Add vertical line at x=0 to show center
         zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
@@ -297,35 +268,6 @@ class ComparisonAllRotationsWidget(QWidget):
             # Set symmetric range around 0
             self.plot_widget.setXRange(-(max_abs + padding_x), max_abs + padding_x, padding=0)
 
-    def _compute_hinge_averages(self, df: pd.DataFrame, story_to_index: dict):
-        """Compute mean rotation per individual hinge across all ground motions.
-
-        A hinge is identified by (Element, Story) — or (Element, Story, Direction)
-        when the Direction column is present.
-
-        Returns:
-            Tuple of (x_values, y_values) for the average markers.
-        """
-        avg_x: list = []
-        avg_y: list = []
-
-        if df is None or df.empty:
-            return avg_x, avg_y
-
-        group_keys = ['Element', 'Story']
-        if 'Direction' in df.columns:
-            group_keys.append('Direction')
-
-        grouped = df.groupby(group_keys)['Rotation'].mean()
-
-        for key_vals, mean_rot in grouped.items():
-            story_name = key_vals[1] if isinstance(key_vals, tuple) else key_vals
-            if story_name not in story_to_index:
-                continue
-            avg_x.append(mean_rot)
-            avg_y.append(float(story_to_index[story_name]))
-
-        return avg_x, avg_y
 
     def _prepare_scatter_data(self, df: pd.DataFrame, story_to_index: dict, seed_offset: int):
         """Prepare scatter data with jitter for a dataset.

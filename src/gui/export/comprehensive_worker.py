@@ -103,7 +103,7 @@ class ComprehensiveExportWorker(QThread):
                             continue  # Move to next result type
 
                         # Determine if this is a global, element, or joint result
-                        is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
+                        is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam', 'Brace'])
                         is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
                         is_pushover = self.analysis_context == 'Pushover'
 
@@ -268,7 +268,7 @@ class ComprehensiveExportWorker(QThread):
                                 continue  # Move to next result type
 
                             # Determine if this is a global, element, or joint result
-                            is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
+                            is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam', 'Brace'])
                             is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
                             is_pushover = self.analysis_context == 'Pushover'
 
@@ -387,7 +387,7 @@ class ComprehensiveExportWorker(QThread):
                         continue
 
                     # Determine if this is a global, element, or joint result
-                    is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam'])
+                    is_element = any(x in result_type for x in ['Wall', 'Quad', 'Column', 'Beam', 'Brace'])
                     is_joint = any(x in result_type for x in ['SoilPressures', 'VerticalDisplacements', 'JointDisplacements'])
 
                     # Build output path with single timestamp

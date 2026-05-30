@@ -30,6 +30,7 @@ class AllRotationsWidget(QWidget):
         self.setup_ui()
         self.current_data_max = None
         self.current_data_min = None
+        self._show_averages = True
 
     def setup_ui(self):
         """Setup the UI with tabs for scatter plot and histogram."""
@@ -47,7 +48,8 @@ class AllRotationsWidget(QWidget):
         self._crosshair_cb.setToolTip(
             "Show a vertical crosshair with the exact rotation value when hovering over the scatter plot"
         )
-        self._crosshair_cb.setStyleSheet("""
+        self._crosshair_cb.setStyleSheet(
+            """
             QCheckBox {
                 color: #94a3b8;
                 font-size: 11px;
@@ -63,33 +65,36 @@ class AllRotationsWidget(QWidget):
                 background: #06b6d4;
                 border-color: #06b6d4;
             }
-        """)
+        """
+        )
         self._crosshair_cb.toggled.connect(self._on_crosshair_toggled)
         toolbar.addWidget(self._crosshair_cb)
         layout.addLayout(toolbar)
 
         # ── Tab widget ────────────────────────────────────────────────
         from gui.design_tokens import FormStyles
+
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(FormStyles.tab_widget_minimal())
 
         # Create scatter plot widget using factory
         from gui.components.plot_factory import create_plot_widget
+
         self.plot_widget = create_plot_widget(show_border=False, grid_alpha=0.35)
-        self.plot_widget.getAxis('bottom').enableAutoSIPrefix(False)
+        self.plot_widget.getAxis("bottom").enableAutoSIPrefix(False)
 
         # ── Crosshair: cyan vertical line with built-in bottom label ──
-        _CYAN = '#06b6d4'
+        _CYAN = "#06b6d4"
         self._vline = pg.InfiniteLine(
             angle=90,
             movable=False,
             pen=pg.mkPen(QColor(_CYAN), width=1, style=Qt.PenStyle.DashLine),
-            label='{value:.4f}',
+            label="{value:.4f}",
             labelOpts={
-                'position': 0.04,           # 0 = bottom of line, 1 = top
-                'color': QColor(_CYAN),
-                'fill': pg.mkBrush(QColor(15, 23, 42, 200)),  # dark semi-transparent bg
-                'movable': False,
+                "position": 0.04,  # 0 = bottom of line, 1 = top
+                "color": QColor(_CYAN),
+                "fill": pg.mkBrush(QColor(15, 23, 42, 200)),  # dark semi-transparent bg
+                "movable": False,
             },
         )
         self._vline.setVisible(False)
@@ -107,9 +112,9 @@ class AllRotationsWidget(QWidget):
 
         # Create histogram widget using factory
         self.histogram_widget = create_plot_widget(
-            plot_type='histogram', show_border=False, grid_alpha=0.35
+            plot_type="histogram", show_border=False, grid_alpha=0.35
         )
-        self.histogram_widget.getAxis('bottom').enableAutoSIPrefix(False)
+        self.histogram_widget.getAxis("bottom").enableAutoSIPrefix(False)
 
         # Add tabs
         self.tabs.addTab(self.plot_widget, "Scatter")
@@ -146,7 +151,6 @@ class AllRotationsWidget(QWidget):
         if ev.isExit():
             self._vline.setVisible(False)
 
-
     def set_x_label(self, label: str):
         """Update the X-axis label for both plots.
 
@@ -154,8 +158,8 @@ class AllRotationsWidget(QWidget):
             label: New X-axis label text
         """
         self._x_label = label
-        self.plot_widget.setLabel('bottom', label)
-        self.histogram_widget.setLabel('bottom', label)
+        self.plot_widget.setLabel("bottom", label)
+        self.histogram_widget.setLabel("bottom", label)
         self._set_crosshair_label_unit(label)
 
     def _set_crosshair_label_unit(self, label: str):
@@ -175,12 +179,13 @@ class AllRotationsWidget(QWidget):
         else:
             line_label.format = label_format
 
-    def load_dataset(self, df_max: pd.DataFrame, df_min: pd.DataFrame):
+    def load_dataset(self, df_max: pd.DataFrame, df_min: pd.DataFrame, show_averages: bool = True):
         """Load and display all rotation data points (both Max and Min).
 
         Args:
             df_max: DataFrame with Max rotation data (Element, Story, LoadCase, Rotation, StoryOrder, StoryIndex)
             df_min: DataFrame with Min rotation data (Element, Story, LoadCase, Rotation, StoryOrder, StoryIndex)
+            show_averages: Whether to plot per-element average markers.
         """
         if (df_max is None or df_max.empty) and (df_min is None or df_min.empty):
             self.clear_data()
@@ -188,6 +193,7 @@ class AllRotationsWidget(QWidget):
 
         self.current_data_max = df_max
         self.current_data_min = df_min
+        self._show_averages = show_averages
 
         # Update scatter plot
         self._plot_combined_scatter(df_max, df_min)
@@ -207,8 +213,8 @@ class AllRotationsWidget(QWidget):
             return
 
         # Get unique stories in order
-        stories_df = df_ref[['Story', 'StoryOrder']].drop_duplicates().sort_values('StoryOrder')
-        story_names_excel_order = stories_df['Story'].tolist()
+        stories_df = df_ref[["Story", "StoryOrder"]].drop_duplicates().sort_values("StoryOrder")
+        story_names_excel_order = stories_df["Story"].tolist()
 
         # REVERSE story order for plotting: bottom floors at bottom (y=0), top floors at top (y=max)
         # Excel typically has top-to-bottom, but we want bottom-to-top for plots
@@ -222,13 +228,11 @@ class AllRotationsWidget(QWidget):
         all_x_values = []
 
         # Define single orange color for all markers
-        orange_color = QColor('#f97316')
+        orange_color = QColor("#f97316")
 
         # Plot Max data points (small orange circles)
         if df_max is not None and not df_max.empty:
-            x_max, y_max, _ = self._prepare_scatter_data(
-                df_max, story_to_index, "Max"
-            )
+            x_max, y_max, _ = self._prepare_scatter_data(df_max, story_to_index, "Max")
             if x_max:
                 scatter_max = pg.ScatterPlotItem(
                     x=x_max,
@@ -236,16 +240,14 @@ class AllRotationsWidget(QWidget):
                     size=4,  # Smaller markers
                     pen=pg.mkPen(None),
                     brush=pg.mkBrush(orange_color),  # All orange
-                    symbol='o',
+                    symbol="o",
                 )
                 self.plot_widget.addItem(scatter_max)
                 all_x_values.extend(x_max)
 
         # Plot Min data points (small orange circles)
         if df_min is not None and not df_min.empty:
-            x_min, y_min, _ = self._prepare_scatter_data(
-                df_min, story_to_index, "Min"
-            )
+            x_min, y_min, _ = self._prepare_scatter_data(df_min, story_to_index, "Min")
             if x_min:
                 scatter_min = pg.ScatterPlotItem(
                     x=x_min,
@@ -253,35 +255,45 @@ class AllRotationsWidget(QWidget):
                     size=4,  # Smaller markers
                     pen=pg.mkPen(None),
                     brush=pg.mkBrush(orange_color),  # All orange
-                    symbol='o',
+                    symbol="o",
                 )
                 self.plot_widget.addItem(scatter_min)
                 all_x_values.extend(x_min)
 
         # --- Average per-hinge markers (blue diamonds) ---
         # Hinge identity: Element + Story (+ Direction if present for column data)
-        avg_x, avg_y = self._compute_hinge_averages(df_max, df_min, story_to_index)
-        logger.debug("Hinge averages computed: %d points", len(avg_x))
-        if avg_x:
-            avg_x_arr = np.array(avg_x, dtype=float)
-            avg_y_arr = np.array(avg_y, dtype=float)
-            blue_pen = pg.mkPen(QColor('#1e3a8a'), width=1)
-            blue_brush = pg.mkBrush(QColor('#2563eb'))
-            spots = [
-                {'pos': (float(ax), float(ay)), 'size': 11,
-                 'symbol': 'd', 'pen': blue_pen, 'brush': blue_brush}
-                for ax, ay in zip(avg_x_arr, avg_y_arr)
-            ]
-            scatter_avg = pg.ScatterPlotItem(spots=spots)
-            self.plot_widget.addItem(scatter_avg)
-            all_x_values.extend(avg_x)
+        if self._show_averages:
+            avg_x, avg_y = self._compute_hinge_averages(df_max, df_min, story_to_index)
+            logger.debug("Hinge averages computed: %d points", len(avg_x))
+            if avg_x:
+                avg_x_arr = np.array(avg_x, dtype=float)
+                avg_y_arr = np.array(avg_y, dtype=float)
+                blue_pen = pg.mkPen(QColor("#1e3a8a"), width=1)
+                blue_brush = pg.mkBrush(QColor("#2563eb"))
+                spots = [
+                    {
+                        "pos": (float(ax), float(ay)),
+                        "size": 11,
+                        "symbol": "d",
+                        "pen": blue_pen,
+                        "brush": blue_brush,
+                    }
+                    for ax, ay in zip(avg_x_arr, avg_y_arr)
+                ]
+                scatter_avg = pg.ScatterPlotItem(spots=spots)
+                self.plot_widget.addItem(scatter_avg)
+                all_x_values.extend(avg_x)
 
         # Add vertical line at x=0 to show center
-        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
+        zero_line = pg.InfiniteLine(
+            pos=0,
+            angle=90,
+            pen=pg.mkPen(PALETTE["accent_primary"], width=1, style=Qt.PenStyle.DashLine),
+        )
         self.plot_widget.addItem(zero_line)
 
         # Configure Y-axis with story labels
-        y_axis = self.plot_widget.getAxis('left')
+        y_axis = self.plot_widget.getAxis("left")
         y_ticks = [(idx, name) for idx, name in enumerate(story_names)]
         y_axis.setTicks([y_ticks])
 
@@ -289,8 +301,8 @@ class AllRotationsWidget(QWidget):
         self.plot_widget.setYRange(-0.5, num_stories - 0.5, padding=0)
 
         # Set X-axis label
-        self.plot_widget.setLabel('bottom', self._x_label)
-        self.plot_widget.setLabel('left', 'Story')
+        self.plot_widget.setLabel("bottom", self._x_label)
+        self.plot_widget.setLabel("left", "Story")
 
         # Set X-axis range centered at 0 for symmetry
         if all_x_values:
@@ -327,9 +339,9 @@ class AllRotationsWidget(QWidget):
 
         # Determine groupby keys — include Direction when present
         def _group_keys(df: pd.DataFrame) -> list:
-            keys = ['Element', 'Story']
-            if 'Direction' in df.columns:
-                keys.append('Direction')
+            keys = ["Element", "Story"]
+            if "Direction" in df.columns:
+                keys.append("Direction")
             return keys
 
         for df in (df_max, df_min):
@@ -337,7 +349,7 @@ class AllRotationsWidget(QWidget):
                 continue
 
             group_keys = _group_keys(df)
-            grouped = df.groupby(group_keys)['Rotation'].mean()
+            grouped = df.groupby(group_keys)["Rotation"].mean()
 
             for key_vals, mean_rot in grouped.items():
                 # key_vals is a scalar when one group key, tuple otherwise
@@ -365,7 +377,7 @@ class AllRotationsWidget(QWidget):
         colors = []
 
         # Get unique stories in the dataframe
-        story_names = df['Story'].unique()
+        story_names = df["Story"].unique()
 
         # Use consistent random seed for reproducible jitter
         np.random.seed(42 if label == "Max" else 43)
@@ -374,11 +386,11 @@ class AllRotationsWidget(QWidget):
             if story_name not in story_to_index:
                 continue
 
-            story_data = df[df['Story'] == story_name]
+            story_data = df[df["Story"] == story_name]
             story_idx = story_to_index[story_name]
 
             # Get rotation values for this story
-            rotations = story_data['Rotation'].values
+            rotations = story_data["Rotation"].values
 
             # Apply vertical jitter within ±0.3 of story index
             jitter_range = 0.3
@@ -438,9 +450,9 @@ class AllRotationsWidget(QWidget):
         # Collect all rotation values
         all_rotations = []
         if df_max is not None and not df_max.empty:
-            all_rotations.extend(df_max['Rotation'].values)
+            all_rotations.extend(df_max["Rotation"].values)
         if df_min is not None and not df_min.empty:
-            all_rotations.extend(df_min['Rotation'].values)
+            all_rotations.extend(df_min["Rotation"].values)
 
         if not all_rotations:
             return
@@ -459,17 +471,21 @@ class AllRotationsWidget(QWidget):
             height=counts,
             width=bin_width,
             brush=pg.mkBrush(251, 146, 60, 180),  # Orange with alpha
-            pen=pg.mkPen('#fb923c', width=1)
+            pen=pg.mkPen("#fb923c", width=1),
         )
         self.histogram_widget.addItem(bar_item)
 
         # Add vertical line at x=0 to show center
-        zero_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen(PALETTE['accent_primary'], width=1, style=Qt.PenStyle.DashLine))
+        zero_line = pg.InfiniteLine(
+            pos=0,
+            angle=90,
+            pen=pg.mkPen(PALETTE["accent_primary"], width=1, style=Qt.PenStyle.DashLine),
+        )
         self.histogram_widget.addItem(zero_line)
 
         # Set axis labels
-        self.histogram_widget.setLabel('bottom', self._x_label)
-        self.histogram_widget.setLabel('left', 'Count')
+        self.histogram_widget.setLabel("bottom", self._x_label)
+        self.histogram_widget.setLabel("left", "Count")
 
         # Set Y-axis to start at 0
         max_count = max(counts) if len(counts) > 0 else 1

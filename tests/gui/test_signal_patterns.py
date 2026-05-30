@@ -10,8 +10,14 @@ import pytest
 from gui.components.import_dialog_base import BaseImportWorker
 from gui.dialogs.import_.folder_import_dialog import LoadCaseScanWorker, FolderImportWorker
 from gui.dialogs.import_.import_project_dialog import ImportProjectWorker
-from gui.dialogs.import_.pushover_global_import_dialog import PushoverImportWorker, PushoverScanWorker
-from gui.dialogs.import_.time_history_import_dialog import TimeHistoryImportWorker, TimeHistoryPrescanWorker
+from gui.dialogs.import_.pushover_global_import_dialog import (
+    PushoverImportWorker,
+    PushoverScanWorker,
+)
+from gui.dialogs.import_.time_history_import_dialog import (
+    TimeHistoryImportWorker,
+    TimeHistoryPrescanWorker,
+)
 
 
 class _DummyContext:
@@ -48,6 +54,7 @@ def _build_workers():
             wall_files=[],
             column_files=[],
             beam_files=[],
+            brace_files=[],
             selected_load_cases_x=[],
             selected_load_cases_y=[],
         ),

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QDialog
 
 from gui.components.import_dialog_base import BaseImportWorker, ImportDialogBase
 from gui.dialogs.import_.folder_import_dialog import FolderImportDialog
+from gui.dialogs.load_case.existing_data_conflict_dialog import ExistingDataConflictDialog
 from gui.dialogs.import_.pushover_import_dialog import PushoverImportDialog
 from gui.dialogs.import_.time_history_import_dialog import TimeHistoryImportDialog
 from services.import_preparation import PrescanResult
@@ -45,6 +46,38 @@ def test_folder_import_dialog_prescan(qt_app):
     assert set(dialog.load_case_checkboxes.keys()) == {"DES_X", "DES_Y", "MCE_X"}
     assert dialog.select_all_lc_btn.isEnabled() is True
     assert dialog.select_none_lc_btn.isEnabled() is True
+
+
+def test_existing_data_conflict_dialog_returns_result_type_resolution(qt_app):
+    """Existing data conflicts can be resolved per load case and result type."""
+    dialog = ExistingDataConflictDialog({"LC1": {"Story Drifts", "Story Forces"}})
+
+    for button in dialog.button_groups[("LC1", "Story Forces")].buttons():
+        if button.property("action") == "replace":
+            button.setChecked(True)
+
+    resolution = dialog.get_resolution()
+
+    assert resolution["LC1"]["Story Drifts"] == "keep"
+    assert resolution["LC1"]["Story Forces"] == "replace"
+
+
+def test_existing_data_conflict_dialog_applies_action_by_result_type(qt_app):
+    """Bulk result-type actions apply across all conflicting load cases."""
+    dialog = ExistingDataConflictDialog(
+        {
+            "LC1": {"Story Drifts", "Story Forces"},
+            "LC2": {"Story Drifts", "Story Forces"},
+        }
+    )
+
+    dialog._set_result_type_options("Story Forces", "replace")
+    resolution = dialog.get_resolution()
+
+    assert resolution["LC1"]["Story Drifts"] == "keep"
+    assert resolution["LC2"]["Story Drifts"] == "keep"
+    assert resolution["LC1"]["Story Forces"] == "replace"
+    assert resolution["LC2"]["Story Forces"] == "replace"
 
 
 def test_worker_signal_emission_format(qt_app):

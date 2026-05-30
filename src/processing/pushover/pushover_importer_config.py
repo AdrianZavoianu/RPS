@@ -32,36 +32,36 @@ from typing import Dict, List, Optional, Type, Any
 @dataclass
 class PushoverImporterConfig:
     """Configuration for a pushover importer type."""
-    
+
     # Identity
     name: str
     description: str
-    
+
     # Parser configuration
     parser_module: str  # e.g., "processing.pushover.pushover_wall_parser"
-    parser_class: str   # e.g., "PushoverWallParser"
-    
+    parser_class: str  # e.g., "PushoverWallParser"
+
     # Model configuration
-    model_module: str   # e.g., "database.models"
-    model_class: str    # e.g., "WallShear"
-    
+    model_module: str  # e.g., "database.models"
+    model_class: str  # e.g., "WallShear"
+
     # Element configuration (for element-based importers)
     element_type: Optional[str] = None  # "Wall", "Column", "Beam", "Quad", None
-    
+
     # Field mappings: parser field -> model field
     field_mapping: Dict[str, str] = field(default_factory=dict)
-    
+
     # Statistics keys to track
     stats_keys: List[str] = field(default_factory=list)
-    
+
     # Cache configuration
     cache_table: Optional[str] = None  # e.g., "element_results_cache"
     cache_result_type: Optional[str] = None  # e.g., "Wall Shear V2"
-    
+
     # Whether this importer uses story-level or element-level data
     is_story_based: bool = False
     is_element_based: bool = True
-    
+
     # Directions supported
     directions: List[str] = field(default_factory=lambda: ["X", "Y"])
 
@@ -71,7 +71,6 @@ class PushoverImporterConfig:
 # =============================================================================
 
 PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
-    
     # ----- Wall Importers -----
     "wall_shear_v2": PushoverImporterConfig(
         name="wall_shear_v2",
@@ -92,7 +91,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Wall Shear V2",
     ),
-    
     "wall_shear_v3": PushoverImporterConfig(
         name="wall_shear_v3",
         description="Wall (Pier) V3 Shear Forces",
@@ -112,7 +110,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Wall Shear V3",
     ),
-    
     "wall_rotation": PushoverImporterConfig(
         name="wall_rotation",
         description="Wall (Quad) Rotations",
@@ -132,7 +129,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Wall Rotation",
     ),
-    
     # ----- Column Importers -----
     "column_rotation_r2": PushoverImporterConfig(
         name="column_rotation_r2",
@@ -154,7 +150,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Column Rotation R2",
     ),
-    
     "column_rotation_r3": PushoverImporterConfig(
         name="column_rotation_r3",
         description="Column R3 Plastic Rotations",
@@ -175,7 +170,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Column Rotation R3",
     ),
-    
     "column_shear_v2": PushoverImporterConfig(
         name="column_shear_v2",
         description="Column V2 Shear Forces",
@@ -196,7 +190,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Column Shear V2",
     ),
-    
     # ----- Beam Importers -----
     "beam_rotation": PushoverImporterConfig(
         name="beam_rotation",
@@ -218,7 +211,25 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="element_results_cache",
         cache_result_type="Beam Rotation",
     ),
-    
+    "brace_axial": PushoverImporterConfig(
+        name="brace_axial",
+        description="Brace Axial Forces",
+        parser_module="processing.pushover.pushover_brace_parser",
+        parser_class="PushoverBraceParser",
+        model_module="database.models",
+        model_class="BraceAxial",
+        element_type="Brace",
+        field_mapping={
+            "brace": "element_name",
+            "story": "story_name",
+            "output_case": "load_case_name",
+            "min_axial": "min_axial",
+            "max_axial": "max_axial",
+        },
+        stats_keys=["axials"],
+        cache_table="element_results_cache",
+        cache_result_type="Brace Axial",
+    ),
     # ----- Joint Importers -----
     "joint_displacement": PushoverImporterConfig(
         name="joint_displacement",
@@ -241,7 +252,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="joint_results_cache",
         is_element_based=False,
     ),
-    
     # ----- Other Importers -----
     "soil_pressure": PushoverImporterConfig(
         name="soil_pressure",
@@ -260,7 +270,6 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
         cache_table="joint_results_cache",
         is_element_based=False,
     ),
-    
     "vertical_displacement": PushoverImporterConfig(
         name="vertical_displacement",
         description="Vertical Displacements",
@@ -284,15 +293,16 @@ PUSHOVER_IMPORTER_CONFIGS: Dict[str, PushoverImporterConfig] = {
 # Helper Functions
 # =============================================================================
 
+
 def get_importer_config(importer_type: str) -> PushoverImporterConfig:
     """Get configuration for a pushover importer type.
-    
+
     Args:
         importer_type: Type key (e.g., "wall_shear_v2", "column_rotation_r2")
-        
+
     Returns:
         PushoverImporterConfig for the type
-        
+
     Raises:
         KeyError: If importer_type not found
     """
@@ -306,30 +316,25 @@ def get_importer_config(importer_type: str) -> PushoverImporterConfig:
 
 def get_element_importer_types() -> List[str]:
     """Get list of element-based importer types."""
-    return [
-        key for key, config in PUSHOVER_IMPORTER_CONFIGS.items()
-        if config.is_element_based
-    ]
+    return [key for key, config in PUSHOVER_IMPORTER_CONFIGS.items() if config.is_element_based]
 
 
 def get_story_importer_types() -> List[str]:
     """Get list of story-based importer types."""
-    return [
-        key for key, config in PUSHOVER_IMPORTER_CONFIGS.items()
-        if config.is_story_based
-    ]
+    return [key for key, config in PUSHOVER_IMPORTER_CONFIGS.items() if config.is_story_based]
 
 
 def get_importers_by_element_type(element_type: str) -> List[str]:
     """Get importer types for a specific element type.
-    
+
     Args:
         element_type: "Wall", "Column", "Beam", "Quad"
-        
+
     Returns:
         List of importer type keys
     """
     return [
-        key for key, config in PUSHOVER_IMPORTER_CONFIGS.items()
+        key
+        for key, config in PUSHOVER_IMPORTER_CONFIGS.items()
         if config.element_type == element_type
     ]

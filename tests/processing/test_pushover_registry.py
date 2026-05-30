@@ -26,7 +26,7 @@ class TestPushoverRegistryTypes:
         assert "global" in PushoverRegistry.GLOBAL_TYPES
 
     def test_element_types_contains_expected(self):
-        expected = {"wall", "beam", "column", "column_shear"}
+        expected = {"wall", "beam", "column", "column_shear", "brace"}
         assert PushoverRegistry.ELEMENT_TYPES == expected
 
     def test_joint_types_contains_expected(self):
@@ -69,10 +69,21 @@ class TestGetImporter:
         assert first is second
         assert "curve" in PushoverRegistry._importer_cache
 
-    @pytest.mark.parametrize("result_type", [
-        "global", "wall", "beam", "column", "column_shear",
-        "soil_pressure", "vert_displacement", "joint", "curve"
-    ])
+    @pytest.mark.parametrize(
+        "result_type",
+        [
+            "global",
+            "wall",
+            "beam",
+            "column",
+            "column_shear",
+            "brace",
+            "soil_pressure",
+            "vert_displacement",
+            "joint",
+            "curve",
+        ],
+    )
     def test_get_importer_all_types_loadable(self, result_type):
         """All registered types should be loadable."""
         importer_class = PushoverRegistry.get_importer(result_type)
@@ -110,10 +121,21 @@ class TestGetParser:
         assert first is second
         assert "global" in PushoverRegistry._parser_cache
 
-    @pytest.mark.parametrize("result_type", [
-        "global", "wall", "beam", "column", "column_shear",
-        "soil_pressure", "vert_displacement", "joint", "curve"
-    ])
+    @pytest.mark.parametrize(
+        "result_type",
+        [
+            "global",
+            "wall",
+            "beam",
+            "column",
+            "column_shear",
+            "brace",
+            "soil_pressure",
+            "vert_displacement",
+            "joint",
+            "curve",
+        ],
+    )
     def test_get_parser_all_types_loadable(self, result_type):
         """All registered types should be loadable."""
         parser_class = PushoverRegistry.get_parser(result_type)

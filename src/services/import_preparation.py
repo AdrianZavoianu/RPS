@@ -6,6 +6,8 @@ from processing.import_preparation import (
     PrescanResult,
     detect_conflicts,
     determine_allowed_load_cases,
+    get_existing_load_cases_by_task_for_result_set,
+    get_existing_load_cases_for_result_set,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "PrescanResult",
     "detect_conflicts",
     "determine_allowed_load_cases",
+    "get_existing_load_cases_by_task_for_result_set",
+    "get_existing_load_cases_for_result_set",
 ]

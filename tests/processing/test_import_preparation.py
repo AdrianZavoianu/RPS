@@ -11,6 +11,7 @@ from services.import_preparation import (
     ImportPreparationService,
     detect_conflicts,
     determine_allowed_load_cases,
+    get_existing_load_cases_by_task_for_result_set,
 )
 
 
@@ -143,7 +144,7 @@ def test_determine_allowed_load_cases_honors_resolution() -> None:
             "MCE_X": None,
         }
     }
-    already_imported = {"Story Drifts": {"DES_X"}}
+    already_imported = {"Story Drifts": {"SOME_OTHER_LC"}}
 
     allowed, skipped = determine_allowed_load_cases(
         file_name="file1.xlsx",
@@ -155,3 +156,43 @@ def test_determine_allowed_load_cases_honors_resolution() -> None:
 
     assert allowed == {"DES_X"}
     assert "MCE_X (user skipped)" in skipped["Story Drifts"]
+
+
+def test_get_existing_load_cases_by_task_groups_cache_result_types(
+    db_session, sample_project, sample_result_set, sample_stories
+) -> None:
+    from database.models import GlobalResultsCache, ElementResultsCache, Element
+
+    story = sample_stories[0]
+    quad = Element(project_id=sample_project.id, name="Q1", element_type="Quad")
+    db_session.add(quad)
+    db_session.flush()
+    db_session.add_all(
+        [
+            GlobalResultsCache(
+                project_id=sample_project.id,
+                result_set_id=sample_result_set.id,
+                result_type="Drifts",
+                story_id=story.id,
+                results_matrix={"LC1_X": 0.1},
+                story_sort_order=story.sort_order,
+            ),
+            ElementResultsCache(
+                project_id=sample_project.id,
+                result_set_id=sample_result_set.id,
+                result_type="QuadRotations_Pier",
+                element_id=quad.id,
+                story_id=story.id,
+                results_matrix={"LC2": 0.002},
+                story_sort_order=story.sort_order,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    existing = get_existing_load_cases_by_task_for_result_set(
+        db_session, sample_project.id, sample_result_set.id
+    )
+
+    assert existing["Story Drifts"] == {"LC1_X"}
+    assert existing["Quad Rotations"] == {"LC2"}

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .excel_parser import ExcelParser
+from .data_deleter import TASK_CACHE_RESULT_TYPES
 
 
 @dataclass
@@ -118,7 +119,10 @@ class ImportPreparationService:
             )
 
         with ThreadPoolExecutor(max_workers=min(6, len(excel_files) or 1)) as executor:
-            futures = {executor.submit(_scan_file, path): (idx, path) for idx, path in enumerate(excel_files)}
+            futures = {
+                executor.submit(_scan_file, path): (idx, path)
+                for idx, path in enumerate(excel_files)
+            }
             for future in as_completed(futures):
                 idx, file_path = futures[future]
                 if progress_callback:
@@ -248,28 +252,118 @@ def determine_allowed_load_cases(
     allowed: Set[str] = set()
     skipped_by_sheet: Dict[str, List[str]] = defaultdict(list)
 
-    for sheet_name, load_cases_in_sheet in file_sheets.items():
-        imported_for_sheet = already_imported.get(sheet_name, set())
-        resolution_for_sheet = resolution.get(sheet_name, {})
-
-        for load_case in load_cases_in_sheet:
+    for sheet_name, load_cases in file_sheets.items():
+        sheet_resolution = resolution.get(sheet_name, {})
+        for load_case in load_cases:
             if load_case not in selected_load_cases:
                 continue
 
-            if load_case in resolution_for_sheet:
-                chosen_file = resolution_for_sheet[load_case]
-                if chosen_file is None:
+            if load_case in sheet_resolution:
+                winner = sheet_resolution[load_case]
+                if winner is None:
                     skipped_by_sheet[sheet_name].append(f"{load_case} (user skipped)")
-                elif chosen_file == file_name:
-                    allowed.add(load_case)
-                else:
-                    skipped_by_sheet[sheet_name].append(f"{load_case} (using {chosen_file})")
-                continue
+                    continue
+                elif winner != file_name:
+                    skipped_by_sheet[sheet_name].append(f"{load_case} (using {winner})")
+                    continue
 
-            if load_case in imported_for_sheet:
+            if load_case in already_imported.get(sheet_name, set()):
                 skipped_by_sheet[sheet_name].append(f"{load_case} (already imported)")
                 continue
 
             allowed.add(load_case)
 
-    return allowed, skipped_by_sheet
+    return allowed, dict(skipped_by_sheet)
+
+
+def get_existing_load_cases_for_result_set(
+    session,
+    project_id: int,
+    result_set_id: int,
+) -> Set[str]:
+    """Query distinct load case names that already have data in any cache table for the given result set.
+
+    We query the cache tables since they denormalize data and represent the fully built
+    result set state.
+    """
+    from database.models.cache import GlobalResultsCache, ElementResultsCache, JointResultsCache
+
+    existing_load_cases = set()
+
+    # Check global cache (Drifts, Accelerations, Forces, Displacements)
+    global_entries = (
+        session.query(GlobalResultsCache.results_matrix)
+        .filter(GlobalResultsCache.project_id == project_id)
+        .filter(GlobalResultsCache.result_set_id == result_set_id)
+        .all()
+    )
+    for (matrix,) in global_entries:
+        if isinstance(matrix, dict):
+            existing_load_cases.update(matrix.keys())
+
+    # Check element cache (WallShears, ColumnShears, ColumnAxials, BraceAxials, Rotations)
+    element_entries = (
+        session.query(ElementResultsCache.results_matrix)
+        .filter(ElementResultsCache.project_id == project_id)
+        .filter(ElementResultsCache.result_set_id == result_set_id)
+        .all()
+    )
+    for (matrix,) in element_entries:
+        if isinstance(matrix, dict):
+            existing_load_cases.update(matrix.keys())
+
+    # Check joint cache (SoilPressures)
+    joint_entries = (
+        session.query(JointResultsCache.results_matrix)
+        .filter(JointResultsCache.project_id == project_id)
+        .filter(JointResultsCache.result_set_id == result_set_id)
+        .all()
+    )
+    for (matrix,) in joint_entries:
+        if isinstance(matrix, dict):
+            existing_load_cases.update(matrix.keys())
+
+    return existing_load_cases
+
+
+def get_existing_load_cases_by_task_for_result_set(
+    session,
+    project_id: int,
+    result_set_id: int,
+) -> Dict[str, Set[str]]:
+    """Return existing load cases grouped by import task/result type.
+
+    This uses the display cache tables because they represent the current
+    imported state for each result type.
+    """
+    from database.models.cache import GlobalResultsCache, ElementResultsCache, JointResultsCache
+
+    result_type_to_task = {
+        result_type: task_label
+        for task_label, result_types in TASK_CACHE_RESULT_TYPES.items()
+        for result_type in result_types
+    }
+    existing_by_task: Dict[str, Set[str]] = {
+        task_label: set() for task_label in TASK_CACHE_RESULT_TYPES
+    }
+
+    cache_queries = [
+        session.query(GlobalResultsCache.result_type, GlobalResultsCache.results_matrix)
+        .filter(GlobalResultsCache.project_id == project_id)
+        .filter(GlobalResultsCache.result_set_id == result_set_id),
+        session.query(ElementResultsCache.result_type, ElementResultsCache.results_matrix)
+        .filter(ElementResultsCache.project_id == project_id)
+        .filter(ElementResultsCache.result_set_id == result_set_id),
+        session.query(JointResultsCache.result_type, JointResultsCache.results_matrix)
+        .filter(JointResultsCache.project_id == project_id)
+        .filter(JointResultsCache.result_set_id == result_set_id),
+    ]
+
+    for query in cache_queries:
+        for result_type, matrix in query.all():
+            task_label = result_type_to_task.get(result_type)
+            if not task_label or not isinstance(matrix, dict):
+                continue
+            existing_by_task[task_label].update(matrix.keys())
+
+    return existing_by_task

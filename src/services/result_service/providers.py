@@ -61,17 +61,34 @@ class ResultCategory(str, Enum):
 class StandardDatasetProvider:
     """Builds cached datasets for story-based (global) results."""
 
-    def __init__(self, project_id: int, cache_repo, story_provider: StoryProvider, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
+    def __init__(
+        self,
+        project_id: int,
+        cache_repo,
+        story_provider: StoryProvider,
+        max_cache_size: int = DEFAULT_MAX_CACHE_SIZE,
+    ) -> None:
         self.project_id = project_id
         self.cache_repo = cache_repo
         self.story_provider = story_provider
-        self._cache: LRUCache[Tuple[str, str, int, bool], Optional[ResultDataset]] = LRUCache(max_cache_size)
+        self._cache: LRUCache[Tuple[str, str, int, bool], Optional[ResultDataset]] = LRUCache(
+            max_cache_size
+        )
 
-    def get(self, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False) -> Optional[ResultDataset]:
+    def get(
+        self, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False
+    ) -> Optional[ResultDataset]:
         cache_key = (result_type, direction, result_set_id, is_pushover)
         if cache_key in self._cache:
             if CACHE_DEBUG:
-                logger.debug("cache_hit.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
+                logger.debug(
+                    "cache_hit.standard",
+                    extra={
+                        "result_type": result_type,
+                        "direction": direction,
+                        "result_set_id": result_set_id,
+                    },
+                )
             return self._cache.get_item(cache_key)
 
         cache_entries = self.cache_repo.get_cache_for_display(
@@ -82,7 +99,14 @@ class StandardDatasetProvider:
 
         if not cache_entries:
             if CACHE_DEBUG:
-                logger.debug("cache_miss.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
+                logger.debug(
+                    "cache_miss.standard",
+                    extra={
+                        "result_type": result_type,
+                        "direction": direction,
+                        "result_set_id": result_set_id,
+                    },
+                )
             self._cache[cache_key] = None
             return None
 
@@ -97,7 +121,14 @@ class StandardDatasetProvider:
         )
 
         if CACHE_DEBUG:
-            logger.debug("cache_store.standard", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id})
+            logger.debug(
+                "cache_store.standard",
+                extra={
+                    "result_type": result_type,
+                    "direction": direction,
+                    "result_set_id": result_set_id,
+                },
+            )
         self._cache.set_item(cache_key, dataset)
         return dataset
 
@@ -121,11 +152,19 @@ class StandardDatasetProvider:
 class ElementDatasetProvider:
     """Builds cached datasets for element-based results."""
 
-    def __init__(self, project_id: int, element_cache_repo, story_provider: StoryProvider, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
+    def __init__(
+        self,
+        project_id: int,
+        element_cache_repo,
+        story_provider: StoryProvider,
+        max_cache_size: int = DEFAULT_MAX_CACHE_SIZE,
+    ) -> None:
         self.project_id = project_id
         self.element_cache_repo = element_cache_repo
         self.story_provider = story_provider
-        self._cache: LRUCache[Tuple[int, str, str, int, bool], Optional[ResultDataset]] = LRUCache(max_cache_size)
+        self._cache: LRUCache[Tuple[int, str, str, int, bool], Optional[ResultDataset]] = LRUCache(
+            max_cache_size
+        )
 
     def get(
         self,
@@ -141,11 +180,21 @@ class ElementDatasetProvider:
         cache_key = (element_id, result_type, direction, result_set_id, is_pushover)
         if cache_key in self._cache:
             if CACHE_DEBUG:
-                logger.debug("cache_hit.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
+                logger.debug(
+                    "cache_hit.element",
+                    extra={
+                        "result_type": result_type,
+                        "direction": direction,
+                        "result_set_id": result_set_id,
+                        "element_id": element_id,
+                    },
+                )
             return self._cache.get_item(cache_key)
 
         # Resolve cache key (element cache stores more specific result_type names)
         fallback_types = [f"{result_type}_{direction}" if direction else result_type]
+        if result_type == "QuadRotations":
+            fallback_types.append("QuadRotations_Pier")
         if not direction:
             if result_type == "BeamRotations":
                 fallback_types.append("BeamRotations_R3Plastic")
@@ -177,7 +226,15 @@ class ElementDatasetProvider:
 
         if not cache_entries:
             if CACHE_DEBUG:
-                logger.debug("cache_miss.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
+                logger.debug(
+                    "cache_miss.element",
+                    extra={
+                        "result_type": result_type,
+                        "direction": direction,
+                        "result_set_id": result_set_id,
+                        "element_id": element_id,
+                    },
+                )
             self._cache[cache_key] = None
             return None
 
@@ -193,11 +250,21 @@ class ElementDatasetProvider:
         )
 
         if CACHE_DEBUG:
-            logger.debug("cache_store.element", extra={"result_type": result_type, "direction": direction, "result_set_id": result_set_id, "element_id": element_id})
+            logger.debug(
+                "cache_store.element",
+                extra={
+                    "result_type": result_type,
+                    "direction": direction,
+                    "result_set_id": result_set_id,
+                    "element_id": element_id,
+                },
+            )
         self._cache.set_item(cache_key, dataset)
         return dataset
 
-    def invalidate(self, element_id: int, result_type: str, direction: str, result_set_id: int) -> None:
+    def invalidate(
+        self, element_id: int, result_type: str, direction: str, result_set_id: int
+    ) -> None:
         # Remove both pushover and non-pushover versions from cache
         for is_pushover in [True, False]:
             cache_key = (element_id, result_type, direction, result_set_id, is_pushover)
@@ -217,19 +284,28 @@ class ElementDatasetProvider:
 class JointDatasetProvider:
     """Builds cached datasets for joint/foundation results."""
 
-    def __init__(self, project_id: int, joint_cache_repo, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE) -> None:
+    def __init__(
+        self, project_id: int, joint_cache_repo, max_cache_size: int = DEFAULT_MAX_CACHE_SIZE
+    ) -> None:
         self.project_id = project_id
         self.joint_cache_repo = joint_cache_repo
-        self._cache: LRUCache[Tuple[str, int, bool], Optional[ResultDataset]] = LRUCache(max_cache_size)
+        self._cache: LRUCache[Tuple[str, int, bool], Optional[ResultDataset]] = LRUCache(
+            max_cache_size
+        )
 
-    def get(self, result_type: str, result_set_id: int, is_pushover: bool = False) -> Optional[ResultDataset]:
+    def get(
+        self, result_type: str, result_set_id: int, is_pushover: bool = False
+    ) -> Optional[ResultDataset]:
         if not self.joint_cache_repo:
             return None
 
         cache_key = (result_type, result_set_id, is_pushover)
         if cache_key in self._cache:
             if CACHE_DEBUG:
-                logger.debug("cache_hit.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
+                logger.debug(
+                    "cache_hit.joint",
+                    extra={"result_type": result_type, "result_set_id": result_set_id},
+                )
             return self._cache.get_item(cache_key)
 
         cache_entries = self.joint_cache_repo.get_all_for_type(
@@ -240,7 +316,10 @@ class JointDatasetProvider:
 
         if not cache_entries:
             if CACHE_DEBUG:
-                logger.debug("cache_miss.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
+                logger.debug(
+                    "cache_miss.joint",
+                    extra={"result_type": result_type, "result_set_id": result_set_id},
+                )
             self._cache[cache_key] = None
             return None
 
@@ -287,7 +366,10 @@ class JointDatasetProvider:
         )
 
         if CACHE_DEBUG:
-            logger.debug("cache_store.joint", extra={"result_type": result_type, "result_set_id": result_set_id})
+            logger.debug(
+                "cache_store.joint",
+                extra={"result_type": result_type, "result_set_id": result_set_id},
+            )
         self._cache.set_item(cache_key, dataset)
         return dataset
 

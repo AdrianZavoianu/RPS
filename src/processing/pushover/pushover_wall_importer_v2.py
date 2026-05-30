@@ -21,6 +21,7 @@ from database.models import (
     WallShear,
     QuadRotation,
     ElementResultsCache,
+    ResultCategory,
 )
 from processing.pushover.pushover_base_importer import BasePushoverImporter
 from processing.pushover.pushover_wall_parser import PushoverWallParser
@@ -43,6 +44,7 @@ class PushoverWallImporterV2(BasePushoverImporter):
         self._parser = None
         # Separate cache for quad elements
         self.quads_cache: Dict[str, Element] = {}
+        self._result_category_id = None
 
     def _get_parser(self) -> PushoverWallParser:
         """Get or create parser instance (cached)."""
@@ -53,35 +55,42 @@ class PushoverWallImporterV2(BasePushoverImporter):
     def _create_stats_dict(self) -> Dict[str, Any]:
         """Create statistics dictionary for wall results."""
         return {
-            'x_v2_shears': 0,
-            'x_v3_shears': 0,
-            'y_v2_shears': 0,
-            'y_v3_shears': 0,
-            'x_rotations': 0,
-            'y_rotations': 0,
-            'errors': [],
-            'result_set_id': self.result_set_id,
+            "x_v2_shears": 0,
+            "x_v3_shears": 0,
+            "y_v2_shears": 0,
+            "y_v3_shears": 0,
+            "x_rotations": 0,
+            "y_rotations": 0,
+            "errors": [],
+            "result_set_id": self.result_set_id,
         }
 
     def _ensure_entities(self):
         """Ensure all stories, pier elements, and quad elements exist."""
         parser = self._get_parser()
 
-        # Get data from first available direction
+        # Build entities from every selected direction. Quad rotations can have
+        # story coverage that differs from pier shears or the opposite direction.
+        parsed_results = []
         if self.selected_load_cases_x:
-            results = parser.parse('X')
-        elif self.selected_load_cases_y:
-            results = parser.parse('Y')
-        else:
+            parsed_results.append(parser.parse("X"))
+        if self.selected_load_cases_y:
+            parsed_results.append(parser.parse("Y"))
+        if not parsed_results:
             return
 
-        # Process pier elements and stories from shears
-        if results.shears_v2 is not None:
-            self._ensure_piers_and_stories(results.shears_v2)
+        for results in parsed_results:
+            # Process pier elements and stories from shears
+            if results.shears_v2 is not None:
+                self._ensure_piers_and_stories(results.shears_v2)
+            if results.shears_v3 is not None:
+                self._ensure_piers_and_stories(results.shears_v3)
 
-        # Process quad elements from rotations
-        if results.rotations is not None:
-            self._ensure_quads(results.rotations)
+            # Process quad elements and stories from rotations
+            if results.rotations is not None:
+                self._ensure_quads(results.rotations)
+
+        self._get_or_create_result_category_id()
 
     def _ensure_piers_and_stories(self, df: pd.DataFrame):
         """Create pier elements and stories from shear DataFrame."""
@@ -92,7 +101,7 @@ class PushoverWallImporterV2(BasePushoverImporter):
         pier_names = df[pier_col].unique().tolist()
         for pier_name in pier_names:
             pier_name_str = str(pier_name)
-            self._get_or_create_element(pier_name_str, 'Wall')
+            self._get_or_create_element(pier_name_str, "Wall")
 
         # Create stories and track order per pier
         for pier_name in pier_names:
@@ -108,47 +117,42 @@ class PushoverWallImporterV2(BasePushoverImporter):
                 self.story_order[story_order_key] = idx
 
     def _ensure_quads(self, df: pd.DataFrame):
-        """Create quad elements from rotation DataFrame."""
-        name_col = df.columns[0]  # 'Name'
+        """Create quad elements and stories from rotation DataFrame."""
+        name_col = df.columns[0]  # 'Quad'
+        story_col = df.columns[1]  # 'Story'
 
-        quad_names = df[name_col].unique().tolist()
-        for quad_name_float in quad_names:
-            # Quad names come as floats in Excel
-            quad_name_str = str(int(float(quad_name_float)))
-            element = self._get_or_create_element(quad_name_str, 'Quad')
+        quad_names = df[name_col].dropna().unique().tolist()
+        for quad_name in quad_names:
+            quad_name_str = self._format_quad_name(quad_name)
+            element = self._get_or_create_element(quad_name_str, "Quad")
             self.quads_cache[quad_name_str] = element
+
+        story_names = df[story_col].unique().tolist()
+        for idx, story_name in enumerate(story_names):
+            self._get_or_create_story(str(story_name), sort_order=idx)
 
     def _import_direction(self, direction: str, selected_load_cases: Set[str]) -> Dict:
         """Import data for one direction."""
-        stats = {'v2_shears': 0, 'v3_shears': 0, 'rotations': 0, 'errors': []}
+        stats = {"v2_shears": 0, "v3_shears": 0, "rotations": 0, "errors": []}
         parser = self._get_parser()
         results = parser.parse(direction)
 
         # Import V2 shears
         if results.shears_v2 is not None:
-            stats['v2_shears'] = self._import_shears(
-                results.shears_v2, 'V2', selected_load_cases
-            )
+            stats["v2_shears"] = self._import_shears(results.shears_v2, "V2", selected_load_cases)
 
         # Import V3 shears
         if results.shears_v3 is not None:
-            stats['v3_shears'] = self._import_shears(
-                results.shears_v3, 'V3', selected_load_cases
-            )
+            stats["v3_shears"] = self._import_shears(results.shears_v3, "V3", selected_load_cases)
 
         # Import rotations
         if results.rotations is not None:
-            stats['rotations'] = self._import_rotations(
-                results.rotations, selected_load_cases
-            )
+            stats["rotations"] = self._import_rotations(results.rotations, selected_load_cases)
 
         return stats
 
     def _import_shears(
-        self,
-        df: pd.DataFrame,
-        direction: str,
-        selected_load_cases: Set[str]
+        self, df: pd.DataFrame, direction: str, selected_load_cases: Set[str]
     ) -> int:
         """Import wall shears from DataFrame.
 
@@ -163,6 +167,7 @@ class PushoverWallImporterV2(BasePushoverImporter):
         count = 0
         pier_col = df.columns[0]
         story_col = df.columns[1]
+        result_category_id = self._get_or_create_result_category_id()
 
         for _, row in df.iterrows():
             pier_name = str(row[pier_col])
@@ -192,8 +197,9 @@ class PushoverWallImporterV2(BasePushoverImporter):
                     element_id=element.id,
                     story_id=story.id,
                     load_case_id=load_case.id,
+                    result_category_id=result_category_id,
                     direction=direction,
-                    location='Bottom',  # Pushover uses bottom location
+                    location="Bottom",  # Pushover uses bottom location
                     force=float(value),
                     story_sort_order=story_sort_order,
                 )
@@ -202,11 +208,7 @@ class PushoverWallImporterV2(BasePushoverImporter):
 
         return count
 
-    def _import_rotations(
-        self,
-        df: pd.DataFrame,
-        selected_load_cases: Set[str]
-    ) -> int:
+    def _import_rotations(self, df: pd.DataFrame, selected_load_cases: Set[str]) -> int:
         """Import quad rotations from DataFrame.
 
         Args:
@@ -219,10 +221,10 @@ class PushoverWallImporterV2(BasePushoverImporter):
         count = 0
         name_col = df.columns[0]
         story_col = df.columns[1]
+        result_category_id = self._get_or_create_result_category_id()
 
         for _, row in df.iterrows():
-            # Element name comes as float
-            element_name = str(int(float(row[name_col])))
+            element_name = self._format_quad_name(row[name_col])
             story_name = str(row[story_col])
 
             element = self.quads_cache.get(element_name)
@@ -245,6 +247,9 @@ class PushoverWallImporterV2(BasePushoverImporter):
                     element_id=element.id,
                     story_id=story.id,
                     load_case_id=load_case.id,
+                    result_category_id=result_category_id,
+                    quad_name=element_name,
+                    direction="Pier",
                     rotation=float(value),
                     story_sort_order=story.sort_order,  # Global order for quads
                 )
@@ -258,14 +263,14 @@ class PushoverWallImporterV2(BasePushoverImporter):
         # Delete existing cache entries
         self.session.query(ElementResultsCache).filter(
             ElementResultsCache.result_set_id == self.result_set_id,
-            ElementResultsCache.result_type.in_([
-                'WallShears_V2', 'WallShears_V3', 'QuadRotations'
-            ])
+            ElementResultsCache.result_type.in_(
+                ["WallShears_V2", "WallShears_V3", "QuadRotations"]
+            ),
         ).delete(synchronize_session=False)
 
         # Build cache for wall shears
-        self._cache_wall_shears('V2')
-        self._cache_wall_shears('V3')
+        self._cache_wall_shears("V2")
+        self._cache_wall_shears("V3")
 
         # Build cache for quad rotations
         self._cache_quad_rotations()
@@ -278,18 +283,22 @@ class PushoverWallImporterV2(BasePushoverImporter):
         if not load_case_ids:
             return
 
-        records = self.session.query(
-            WallShear,
-            LoadCase.name,
-            WallShear.element_id,
-            WallShear.story_id,
-            WallShear.story_sort_order
-        ).join(
-            LoadCase, WallShear.load_case_id == LoadCase.id
-        ).filter(
-            WallShear.load_case_id.in_(load_case_ids),
-            WallShear.direction == direction
-        ).all()
+        records = (
+            self.session.query(
+                WallShear,
+                LoadCase.name,
+                WallShear.element_id,
+                WallShear.story_id,
+                WallShear.story_sort_order,
+            )
+            .join(LoadCase, WallShear.load_case_id == LoadCase.id)
+            .filter(
+                WallShear.load_case_id.in_(load_case_ids),
+                WallShear.direction == direction,
+                WallShear.result_category_id == self._get_or_create_result_category_id(),
+            )
+            .all()
+        )
 
         logger.info(f"Query returned {len(records)} wall shear records for {direction}")
 
@@ -301,10 +310,10 @@ class PushoverWallImporterV2(BasePushoverImporter):
             key = (element_id, story_id)
             if key not in element_story_data:
                 element_story_data[key] = {
-                    'results_matrix': {},
-                    'story_sort_order': story_sort_order
+                    "results_matrix": {},
+                    "story_sort_order": story_sort_order,
                 }
-            element_story_data[key]['results_matrix'][load_case_name] = shear.force
+            element_story_data[key]["results_matrix"][load_case_name] = shear.force
 
         result_type = f"WallShears_{direction}"
         for (element_id, story_id), data in element_story_data.items():
@@ -314,8 +323,8 @@ class PushoverWallImporterV2(BasePushoverImporter):
                 element_id=element_id,
                 story_id=story_id,
                 result_type=result_type,
-                story_sort_order=data['story_sort_order'],
-                results_matrix=data['results_matrix']
+                story_sort_order=data["story_sort_order"],
+                results_matrix=data["results_matrix"],
             )
             self.session.add(cache_entry)
 
@@ -327,17 +336,21 @@ class PushoverWallImporterV2(BasePushoverImporter):
         if not load_case_ids:
             return
 
-        records = self.session.query(
-            QuadRotation,
-            LoadCase.name,
-            QuadRotation.element_id,
-            QuadRotation.story_id,
-            QuadRotation.story_sort_order
-        ).join(
-            LoadCase, QuadRotation.load_case_id == LoadCase.id
-        ).filter(
-            QuadRotation.load_case_id.in_(load_case_ids)
-        ).all()
+        records = (
+            self.session.query(
+                QuadRotation,
+                LoadCase.name,
+                QuadRotation.element_id,
+                QuadRotation.story_id,
+                QuadRotation.story_sort_order,
+            )
+            .join(LoadCase, QuadRotation.load_case_id == LoadCase.id)
+            .filter(
+                QuadRotation.load_case_id.in_(load_case_ids),
+                QuadRotation.result_category_id == self._get_or_create_result_category_id(),
+            )
+            .all()
+        )
 
         logger.info(f"Query returned {len(records)} quad rotation records")
 
@@ -349,10 +362,10 @@ class PushoverWallImporterV2(BasePushoverImporter):
             key = (element_id, story_id)
             if key not in element_story_data:
                 element_story_data[key] = {
-                    'results_matrix': {},
-                    'story_sort_order': story_sort_order
+                    "results_matrix": {},
+                    "story_sort_order": story_sort_order,
                 }
-            element_story_data[key]['results_matrix'][load_case_name] = rotation.rotation
+            element_story_data[key]["results_matrix"][load_case_name] = rotation.rotation
 
         result_type = "QuadRotations"
         for (element_id, story_id), data in element_story_data.items():
@@ -362,12 +375,52 @@ class PushoverWallImporterV2(BasePushoverImporter):
                 element_id=element_id,
                 story_id=story_id,
                 result_type=result_type,
-                story_sort_order=data['story_sort_order'],
-                results_matrix=data['results_matrix']
+                story_sort_order=data["story_sort_order"],
+                results_matrix=data["results_matrix"],
             )
             self.session.add(cache_entry)
 
         logger.info(f"Created {len(element_story_data)} cache entries for {result_type}")
+
+    @staticmethod
+    def _format_quad_name(value) -> str:
+        """Normalize numeric ETABS ids while preserving named quad labels."""
+        if pd.isna(value):
+            return ""
+        text = str(value).strip()
+        try:
+            numeric = float(text)
+            if numeric.is_integer():
+                return str(int(numeric))
+        except (TypeError, ValueError):
+            pass
+        return text
+
+    def _get_or_create_result_category_id(self) -> int:
+        """Create a result category so raw records stay scoped to this pushover result set."""
+        if self._result_category_id is not None:
+            return self._result_category_id
+
+        category = (
+            self.session.query(ResultCategory)
+            .filter(
+                ResultCategory.result_set_id == self.result_set_id,
+                ResultCategory.category_name == "Pushover",
+                ResultCategory.category_type == "Elements",
+            )
+            .first()
+        )
+        if not category:
+            category = ResultCategory(
+                result_set_id=self.result_set_id,
+                category_name="Pushover",
+                category_type="Elements",
+            )
+            self.session.add(category)
+            self.session.flush()
+
+        self._result_category_id = category.id
+        return category.id
 
 
 # Alias for backward compatibility

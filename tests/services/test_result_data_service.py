@@ -114,6 +114,67 @@ def test_get_standard_dataset_builds_dataframe_and_caches(drifts_cache_entries):
     assert service.get_standard_dataset("Drifts", "X", 42) is not None
 
 
+def test_pushover_drifts_adds_max_drift_summary_column(drifts_cache_entries):
+    entries, stories = drifts_cache_entries
+    service = ResultDataService(
+        project_id=1,
+        cache_repo=CacheRepoStub(entries),
+        story_repo=StoryRepoStub(stories),
+        load_case_repo=LoadCaseRepoStub(),
+    )
+
+    dataset = service.get_standard_dataset("Drifts", "X", result_set_id=42, is_pushover=True)
+
+    assert dataset is not None
+    assert list(dataset.data.columns) == ["Story", "TH01", "TH02", "Max"]
+    assert dataset.load_case_columns == ["TH01", "TH02"]
+    assert dataset.summary_columns == ["Max"]
+    assert pytest.approx(dataset.data.loc[0, "Max"]) == 0.4
+    assert pytest.approx(dataset.data.loc[1, "Max"]) == 0.2
+
+
+@pytest.mark.parametrize("result_type,direction", [("Forces", "VX"), ("Displacements", "UX")])
+def test_pushover_global_results_add_max_summary_column(result_type, direction):
+    story_one = StoryStub(1, "Roof", 0)
+    story_two = StoryStub(2, "GFL", 1)
+    entries = [
+        CacheEntryStub(
+            story_id=1,
+            result_type=result_type,
+            results_matrix={
+                f"Push-1_{direction}": 10.0,
+                f"Push-2_{direction}": 20.0,
+            },
+            story_sort_order=0,
+        ),
+        CacheEntryStub(
+            story_id=2,
+            result_type=result_type,
+            results_matrix={
+                f"Push-1_{direction}": 30.0,
+                f"Push-2_{direction}": 40.0,
+            },
+            story_sort_order=1,
+        ),
+    ]
+    service = ResultDataService(
+        project_id=1,
+        cache_repo=CacheRepoStub(entries),
+        story_repo=StoryRepoStub([story_one, story_two]),
+        load_case_repo=LoadCaseRepoStub(),
+    )
+
+    dataset = service.get_standard_dataset(
+        result_type, direction.replace("V", "").replace("U", ""), result_set_id=42, is_pushover=True
+    )
+
+    assert dataset is not None
+    assert list(dataset.data.columns) == ["Story", "Push-1", "Push-2", "Max"]
+    assert dataset.summary_columns == ["Max"]
+    assert pytest.approx(dataset.data.loc[0, "Max"]) == 40.0
+    assert pytest.approx(dataset.data.loc[1, "Max"]) == 20.0
+
+
 class LoadCaseStub:
     def __init__(self, case_id, name):
         self.id = case_id
@@ -275,9 +336,7 @@ def test_element_dataset_provider_resolves_beam_rotation_cache():
     story_provider = StoryProvider(story_repo, project_id=1)
 
     entries_by_type = {
-        "BeamRotations_R3Plastic": [
-            ElementCacheEntryStub(1, {"LC1": 0.01}, story_sort_order=0)
-        ]
+        "BeamRotations_R3Plastic": [ElementCacheEntryStub(1, {"LC1": 0.01}, story_sort_order=0)]
     }
     element_cache_repo = ElementCacheRepoStub(entries_by_type)
 
@@ -294,6 +353,33 @@ def test_element_dataset_provider_resolves_beam_rotation_cache():
     assert dataset is not None
     assert dataset.meta.direction == "R3Plastic"
     assert pytest.approx(dataset.data.loc[0, "LC1"]) == 1.0  # multiplier applied
+
+
+def test_element_dataset_provider_resolves_quad_rotation_pier_cache():
+    stories = [StoryStub(1, "L1", 0)]
+    story_repo = StoryRepoStub(stories)
+    story_provider = StoryProvider(story_repo, project_id=1)
+
+    element_cache_repo = ElementCacheRepoStub(
+        {"QuadRotations_Pier": [ElementCacheEntryStub(1, {"LC1": 0.002}, story_sort_order=0)]}
+    )
+
+    provider = ElementDatasetProvider(
+        project_id=1,
+        element_cache_repo=element_cache_repo,
+        story_provider=story_provider,
+    )
+
+    dataset = provider.get(
+        element_id=99,
+        result_type="QuadRotations",
+        direction="Rotation",
+        result_set_id=7,
+    )
+
+    assert dataset is not None
+    assert dataset.meta.direction == "Rotation"
+    assert pytest.approx(dataset.data.loc[0, "LC1"]) == 0.2
 
 
 class BeamRotationStub:
@@ -313,8 +399,20 @@ def test_get_beam_rotations_table_dataset_handles_query_tuple_shape():
     lc2 = LoadCaseStub(2, "LC2")
 
     records = [
-        (BeamRotationStub(0.01, hinge="H1", generated_hinge="G1", rel_dist=0.25), lc1, story, element, object()),
-        (BeamRotationStub(0.02, hinge="H1", generated_hinge="G1", rel_dist=0.25), lc2, story, element, object()),
+        (
+            BeamRotationStub(0.01, hinge="H1", generated_hinge="G1", rel_dist=0.25),
+            lc1,
+            story,
+            element,
+            object(),
+        ),
+        (
+            BeamRotationStub(0.02, hinge="H1", generated_hinge="G1", rel_dist=0.25),
+            lc2,
+            story,
+            element,
+            object(),
+        ),
     ]
 
     service = ResultDataService(
@@ -333,3 +431,44 @@ def test_get_beam_rotations_table_dataset_handles_query_tuple_shape():
     assert pytest.approx(df.loc[0, "LC1"]) == 1.0  # stored in percent
     assert pytest.approx(df.loc[0, "LC2"]) == 2.0
     assert pytest.approx(df.loc[0, "Avg"]) == 1.5
+
+
+def test_all_quad_rotations_uses_pushover_element_cache_when_raw_records_missing(
+    db_session, sample_project, sample_result_set
+):
+    from database.models import Element, ElementResultsCache, Story
+
+    sample_result_set.analysis_type = "Pushover"
+    story = Story(project_id=sample_project.id, name="Level 1", sort_order=1)
+    quad = Element(project_id=sample_project.id, name="101", element_type="Quad")
+    db_session.add_all([story, quad])
+    db_session.flush()
+    db_session.add(
+        ElementResultsCache(
+            project_id=sample_project.id,
+            result_set_id=sample_result_set.id,
+            result_type="QuadRotations",
+            element_id=quad.id,
+            story_id=story.id,
+            results_matrix={"PUSH_X": 0.003},
+            story_sort_order=story.sort_order,
+        )
+    )
+    db_session.commit()
+
+    service = ResultDataService(
+        project_id=sample_project.id,
+        cache_repo=CacheRepoStub([]),
+        story_repo=StoryRepoStub([]),
+        load_case_repo=LoadCaseRepoStub(),
+        session=db_session,
+        element_repo=object(),
+    )
+
+    df = service.get_all_quad_rotations_dataset(sample_result_set.id)
+
+    assert df is not None
+    assert list(df["Element"]) == ["101"]
+    assert list(df["Story"]) == ["Level 1"]
+    assert list(df["LoadCase"]) == ["PUSH_X"]
+    assert pytest.approx(df.loc[0, "Rotation"]) == 0.3

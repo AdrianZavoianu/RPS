@@ -252,6 +252,7 @@ class ReportPlotRenderer:
         plot_data_max: list,
         plot_data_min: list,
         stories: list | None = None,
+        x_label: str = "Beam Rotation [%]",
     ) -> None:
         """Draw scatter plot showing all beam rotation values (both Max and Min).
 
@@ -441,7 +442,7 @@ class ReportPlotRenderer:
         # X-axis label
         painter.setFont(QFont("Segoe UI", 6, QFont.Weight.DemiBold))
         painter.drawText(
-            plot_x, plot_y + plot_h + 12, plot_w, 12, Qt.AlignmentFlag.AlignCenter, "Beam Rotation [%]"
+            plot_x, plot_y + plot_h + 12, plot_w, 12, Qt.AlignmentFlag.AlignCenter, x_label
         )
 
     def draw_column_rotations_plot(
@@ -655,6 +656,7 @@ class ReportPlotRenderer:
         height: int,
         plot_data: list,
         load_cases: list,
+        y_label: str = "Pressure (kN/m\u00b2)",
     ) -> None:
         """Draw scatter plot showing all soil pressure values by load case.
 
@@ -790,7 +792,7 @@ class ReportPlotRenderer:
         painter.setPen(QColor(PRINT_COLORS["text"]))
         painter.translate(x + 2, plot_y + plot_h // 2)
         painter.rotate(-90)
-        painter.drawText(-35, 0, 70, 10, Qt.AlignmentFlag.AlignCenter, "Pressure (kN/m\u00b2)")
+        painter.drawText(-50, 0, 100, 10, Qt.AlignmentFlag.AlignCenter, y_label)
         painter.restore()
 
         # X-axis labels (load case names)
@@ -803,3 +805,32 @@ class ReportPlotRenderer:
         # X-axis label
         painter.setFont(QFont("Segoe UI", 6, QFont.Weight.DemiBold))
         painter.drawText(plot_x, plot_y + plot_h + 12, plot_w, 12, Qt.AlignmentFlag.AlignCenter, "Load Case")
+
+    def draw_generic_element_plot(
+        self,
+        painter: QPainter,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        plot_data_max: list,
+        plot_data_min: list,
+        stories: list | None = None,
+        x_label: str = "Value"
+    ) -> None:
+        """Draw scatter plot showing all generic element values."""
+        self.draw_beam_rotations_plot(painter, x, y, width, height, plot_data_max, plot_data_min, stories, x_label)
+
+    def draw_generic_joint_plot(
+        self,
+        painter: QPainter,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        plot_data: list,
+        load_cases: list,
+        y_label: str = "Value"
+    ) -> None:
+        """Draw scatter plot showing generic joint values."""
+        self.draw_soil_pressures_plot(painter, x, y, width, height, plot_data, load_cases, y_label)

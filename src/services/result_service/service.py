@@ -9,7 +9,11 @@ from config.result_config import get_config
 from database.element_result_repository import ElementResultQueryRepository
 from utils.error_handling import timed
 
-from .comparison_builder import build_element_comparison, build_global_comparison, build_joint_comparison
+from .comparison_builder import (
+    build_element_comparison,
+    build_global_comparison,
+    build_joint_comparison,
+)
 from .maxmin_builder import build_drift_maxmin_dataset, build_generic_maxmin_dataset
 from .metadata import build_display_label
 from .models import ComparisonDataset, MaxMinDataset, ResultDataset, ResultDatasetMeta
@@ -95,10 +99,17 @@ class ResultDataService:
 
     @timed
     def get_element_dataset(
-        self, element_id: int, result_type: str, direction: str, result_set_id: int, is_pushover: bool = False
+        self,
+        element_id: int,
+        result_type: str,
+        direction: str,
+        result_set_id: int,
+        is_pushover: bool = False,
     ) -> Optional[ResultDataset]:
         provider = self._dataset_providers[ResultCategory.ELEMENT]
-        return provider.get(element_id, result_type, direction, result_set_id, is_pushover=is_pushover)
+        return provider.get(
+            element_id, result_type, direction, result_set_id, is_pushover=is_pushover
+        )
 
     def invalidate_element_dataset(
         self, element_id: int, result_type: str, direction: str, result_set_id: int
@@ -267,7 +278,14 @@ class ResultDataService:
         if not self.session or not self.element_repo:
             return None
 
-        from database.models import QuadRotation, LoadCase, Story, Element, ResultCategory
+        from database.models import (
+            Element,
+            ElementResultsCache,
+            LoadCase,
+            QuadRotation,
+            ResultCategory,
+            Story,
+        )
 
         records = (
             self.session.query(QuadRotation, LoadCase, Story, Element)
@@ -282,12 +300,11 @@ class ResultDataService:
             .all()
         )
 
-        if not records:
-            return None
-
         data_rows: List[Dict[str, object]] = []
         for rotation, load_case, story, element in records:
             value = rotation.max_rotation if max_min == "Max" else rotation.min_rotation
+            if value is None:
+                value = rotation.rotation
             if value is None:
                 continue
 
@@ -301,6 +318,41 @@ class ResultDataService:
                     "StoryIndex": story.sort_order or 0,
                 }
             )
+
+        if not data_rows:
+            cache_rows = (
+                self.session.query(ElementResultsCache, Story, Element)
+                .join(Story, ElementResultsCache.story_id == Story.id)
+                .join(Element, ElementResultsCache.element_id == Element.id)
+                .filter(
+                    ElementResultsCache.project_id == self.project_id,
+                    ElementResultsCache.result_set_id == result_set_id,
+                    ElementResultsCache.result_type.in_(["QuadRotations", "QuadRotations_Pier"]),
+                )
+                .all()
+            )
+
+            for cache_entry, story, element in cache_rows:
+                if cache_entry.result_type == "QuadRotations_Pier" and max_min != "Max":
+                    continue
+
+                for load_case_name, value in (cache_entry.results_matrix or {}).items():
+                    if value is None:
+                        continue
+                    data_rows.append(
+                        {
+                            "Element": element.name,
+                            "Story": story.name,
+                            "LoadCase": load_case_name,
+                            "Rotation": float(value) * 100.0,
+                            "StoryOrder": (
+                                cache_entry.story_sort_order
+                                if cache_entry.story_sort_order is not None
+                                else story.sort_order or 0
+                            ),
+                            "StoryIndex": story.sort_order or 0,
+                        }
+                    )
 
         if not data_rows:
             return None
@@ -411,7 +463,7 @@ class ResultDataService:
         data_rows: List[Dict[str, object]] = []
         for rotation, load_case, story, element, _ in records:
             # Check if this record has step_type set
-            step_type = getattr(rotation, 'step_type', None)
+            step_type = getattr(rotation, "step_type", None)
 
             # If step_type is set, filter by it
             if step_type is not None and step_type != "":
@@ -476,7 +528,12 @@ class ResultDataService:
         data_dict: Dict[Tuple[str, str, str, float], Dict[str, object]] = {}
 
         for rotation, load_case, story, element, *_ in records:
-            key = (story.name, element.name, rotation.generated_hinge or "", rotation.rel_dist or 0.0)
+            key = (
+                story.name,
+                element.name,
+                rotation.generated_hinge or "",
+                rotation.rel_dist or 0.0,
+            )
             entry = data_dict.setdefault(
                 key,
                 {
@@ -599,7 +656,14 @@ class ResultDataService:
 
         for axial, load_case, story, element, *_ in records:
             key = (story.name, element.name)
-            story_orders.setdefault(key, axial.story_sort_order if axial.story_sort_order is not None else story.sort_order or 0)
+            story_orders.setdefault(
+                key,
+                (
+                    axial.story_sort_order
+                    if axial.story_sort_order is not None
+                    else story.sort_order or 0
+                ),
+            )
             entry = data_dict.setdefault(
                 key,
                 {
@@ -645,9 +709,9 @@ class ResultDataService:
         result_type: str,
         direction: Optional[str],
         result_set_ids: List[int],
-        metric: str = 'Avg',
+        metric: str = "Avg",
         element_id: Optional[int] = None,
-        unique_name: Optional[str] = None
+        unique_name: Optional[str] = None,
     ) -> Optional[ComparisonDataset]:
         """
         Get comparison dataset for multiple result sets.
@@ -668,11 +732,11 @@ class ResultDataService:
 
         # Determine scope type
         if unique_name is not None:
-            scope = 'joint'
+            scope = "joint"
         elif element_id is not None:
-            scope = 'element'
+            scope = "element"
         else:
-            scope = 'global'
+            scope = "global"
 
         # Create cache key with frozenset for unordered result set IDs
         cache_key = (
@@ -682,7 +746,7 @@ class ResultDataService:
             element_id,
             unique_name,
             frozenset(result_set_ids),
-            metric
+            metric,
         )
 
         if cache_key in self._comparison_cache:
@@ -697,6 +761,7 @@ class ResultDataService:
             return None
 
         from database.repositories import ResultSetRepository
+
         result_set_repo = ResultSetRepository(self.session)
 
         # Build comparison dataset based on scope
@@ -708,7 +773,7 @@ class ResultDataService:
                 result_set_ids=result_set_ids,
                 config=config,
                 get_dataset_func=self.get_joint_dataset,
-                result_set_repo=result_set_repo
+                result_set_repo=result_set_repo,
             )
         elif element_id is not None:
             # Element comparison
@@ -720,7 +785,7 @@ class ResultDataService:
                 metric=metric,
                 config=config,
                 get_dataset_func=self.get_element_dataset,
-                result_set_repo=result_set_repo
+                result_set_repo=result_set_repo,
             )
         else:
             # Global comparison
@@ -731,7 +796,7 @@ class ResultDataService:
                 metric=metric,
                 config=config,
                 get_dataset_func=self.get_standard_dataset,
-                result_set_repo=result_set_repo
+                result_set_repo=result_set_repo,
             )
 
         self._comparison_cache[cache_key] = dataset
