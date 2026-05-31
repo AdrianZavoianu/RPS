@@ -41,6 +41,10 @@ temp/
 # IDE / Editor
 .idea/
 .vscode/
+.vescode/
+.claude/
+.codex/
+.cursor/
 *.iml
 *.swp
 *.swo

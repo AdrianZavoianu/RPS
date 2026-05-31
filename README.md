@@ -81,12 +81,19 @@ New tests cover the import task registry, folder import aggregators, project run
 - `pipenv run pytest`
 - `pipenv run python scripts/check_repo_hygiene.py`
 
+## Privacy & Local-First Philosophy
+
+RPS is designed to protect user privacy and ensure absolute data ownership, which is highly aligned with the Next Generation Internet (NGI) core principles:
+- **100% Offline & Local-First**: No data is ever transmitted to external servers. All processing and calculations run locally on your machine.
+- **Zero Telemetry**: We do not collect or track usage analytics, crash reports, or user behavior.
+- **Complete Data Ownership**: Your projects are stored entirely in open standard SQLite databases (`.sqlite` files) under your local profile. You have absolute control and can inspect, modify, or export your raw databases at any time.
+
 ## Platform Support
 
 - **Primary**: Windows 10/11
-- **Development**: Windows, WSL2, Linux
-- **Deployment**: Standalone .exe via PyInstaller
+- **Development**: Windows, WSL2, Linux (see `docs/TESTING_GUIDE.md` for Linux library dependencies)
+- **Deployment**: Standalone `.exe` via PyInstaller (AppImage / Flatpak integration planned for Linux)
 
 ## License
 
-Internal project for structural engineering team.
+This project is open-source and licensed under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for the full license terms.
