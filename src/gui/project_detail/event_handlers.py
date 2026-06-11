@@ -132,6 +132,9 @@ def on_browser_selection_changed(
         elif result_type == "VerticalDisplacementsTable":
             window.content_area.show_beam_table()
             view_loaders.load_vertical_displacements_table(window, result_set_id, window.content_area)
+        elif result_type == "CombinedResponses":
+            window.content_area.show_combined_responses()
+            view_loaders.load_combined_responses(window, result_set_id, window.content_area)
         elif result_type == "TimeSeriesGlobal":
             # Time series animated view with 4 plots
             # Direction is encoded as "direction:load_case_name"

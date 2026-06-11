@@ -82,6 +82,17 @@ def add_result_set(browser: "ResultsTreeBrowser", parent_item: QTreeWidgetItem, 
             expand_first_path=False
         )
 
+    # Combined Responses
+    combined_item = QTreeWidgetItem(global_item)
+    combined_item.setText(0, "› Combined Responses")
+    combined_item.setData(0, Qt.ItemDataRole.UserRole, {
+        "type": "result_type",
+        "result_set_id": result_set.id,
+        "category": "Envelopes",
+        "result_type": "CombinedResponses",
+        "direction": ""
+    })
+
     # Elements category
     elements_item = QTreeWidgetItem(envelopes_item)
     elements_item.setText(0, "◇ Elements")

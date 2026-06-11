@@ -17,6 +17,7 @@ from gui.result_views.time_series_animated_view import TimeSeriesAnimatedView
 from gui.maxmin_drifts_widget import MaxMinDriftsWidget
 from gui.all_rotations_widget import AllRotationsWidget
 from gui.soil_pressure_plot_widget import SoilPressurePlotWidget
+from gui.combined_responses_widget import CombinedResponsesWidget
 from gui.comparison_all_rotations_widget import ComparisonAllRotationsWidget
 from gui.comparison_joint_scatter_widget import ComparisonJointScatterWidget
 from gui.components.results_table_header import ClickableTableWidget
@@ -36,6 +37,7 @@ class ContentArea:
     beam_rotations_table: QTableWidget
     pushover_curve_view: PushoverCurveView
     time_series_view: TimeSeriesAnimatedView
+    combined_responses_widget: CombinedResponsesWidget
     # Reporting view placeholder - set by window.py after ReportView is created
     _report_view_placeholder: Optional[QWidget] = None
 
@@ -59,6 +61,7 @@ class ContentArea:
         self.soil_pressure_plot_widget.hide()
         self.pushover_curve_view.hide()
         self.time_series_view.hide()
+        self.combined_responses_widget.hide()
 
     def show_standard(self) -> None:
         self.hide_all()
@@ -99,6 +102,11 @@ class ContentArea:
     def show_time_series(self) -> None:
         self.hide_all()
         self.time_series_view.show()
+
+    def show_combined_responses(self) -> CombinedResponsesWidget:
+        self.hide_all()
+        self.combined_responses_widget.show()
+        return self.combined_responses_widget
 
 
 def build_content_area() -> ContentArea:
@@ -204,6 +212,10 @@ def build_content_area() -> ContentArea:
     time_series_view.hide()
     layout.addWidget(time_series_view)
 
+    combined_responses_widget = CombinedResponsesWidget()
+    combined_responses_widget.hide()
+    layout.addWidget(combined_responses_widget)
+
     return ContentArea(
         widget=widget,
         content_title=content_title,
@@ -217,4 +229,5 @@ def build_content_area() -> ContentArea:
         beam_rotations_table=beam_rotations_table,
         pushover_curve_view=pushover_curve_view,
         time_series_view=time_series_view,
+        combined_responses_widget=combined_responses_widget,
     )

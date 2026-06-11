@@ -32,6 +32,7 @@ from .loaders.pushover import (
     load_all_pushover_curves,
 )
 from .loaders.time_series import load_time_series_global
+from .loaders.combined import load_combined_responses
 
 __all__ = [
     "load_standard_dataset",
@@ -56,4 +57,5 @@ __all__ = [
     "load_pushover_curve",
     "load_all_pushover_curves",
     "load_time_series_global",
+    "load_combined_responses",
 ]
